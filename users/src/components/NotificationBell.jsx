@@ -11,14 +11,21 @@ const NotificationBell = () => {
     const unsubscribe = onForegroundMessage((payload) => {
       const { title, body } = payload.notification || {};
       const type = payload.data?.type || 'INFO';
-      addNotification(title, body, type);
+      addNotification(title || 'Notification', body || '', type);
     });
-    return () => { if (typeof unsubscribe === 'function') unsubscribe(); };
+    return () => { 
+      if (typeof unsubscribe === 'function') unsubscribe(); 
+    };
   }, []);
 
   const addNotification = (title, body, type) => {
     setNotifications(prev => [{
-      id: Date.now(), title, body, type, time: new Date(), read: false,
+      id: Date.now() + Math.random(), 
+      title, 
+      body, 
+      type, 
+      time: new Date(), 
+      read: false,
     }, ...prev]);
     setUnreadCount(prev => prev + 1);
   };
@@ -34,58 +41,59 @@ const NotificationBell = () => {
 
   return (
     <div className="relative">
-
-      {/* Bell button */}
+      {/* Bell button styled exactly with Design reference reference layout */}
       <button
         onClick={() => {
           setShowDropdown(!showDropdown);
           if (!showDropdown) markAllRead();
         }}
-        className="relative flex items-center justify-center w-10 h-10 rounded-lg border-2 border-[#f4c84d] text-[#f4c84d] bg-transparent hover:bg-white/10 transition-colors"
+        className="text-white/80 hover:text-white p-2 relative cursor-pointer transition-colors block border-none bg-transparent"
         aria-label="Notifications"
+        title="View Alerts"
       >
-        <FiBell className="text-base" />
+        <FiBell size={20} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1.5 -right-1 min-w-4 h-4 px-0.5 rounded-full bg-[#f4c84d] text-[#8f151d] text-[0.68rem] font-black grid place-items-center">
+          <span className="absolute top-1.5 right-1.5 min-w-4 h-4 px-1 rounded-full bg-yellow-400 text-[#7B181E] text-[9px] font-black grid place-items-center border-2 border-[#7B181E]">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
-      {/* Dropdown */}
+      {/* Dropdown with Design reference styling (rounded-2xl, crimson header, clean typography) */}
       {showDropdown && (
-        <div className="absolute top-[calc(100%+0.75rem)] right-0 w-80 bg-white rounded-xl shadow-[0_18px_42px_rgba(44,36,41,0.14)] border border-[#e6e8ee] overflow-hidden z-50">
-
+        <div className="absolute top-[calc(100%+0.5rem)] right-0 w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden z-70 animate-in fade-in duration-150">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-[#8f151d]">
-            <span className="text-white font-bold text-sm">Notifications</span>
+          <div className="flex items-center justify-between px-5 py-3 bg-[#7B181E]">
+            <span className="text-white font-black text-xs uppercase tracking-wider">System Notifications</span>
             <button
               onClick={() => setShowDropdown(false)}
-              className="grid place-items-center w-7 h-7 rounded-md bg-white/15 hover:bg-white/25 text-white transition-colors"
+              className="grid place-items-center w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer border-none"
               aria-label="Close"
             >
-              <FiX />
+              <FiX size={14} />
             </button>
           </div>
 
           {/* List */}
-          <div className="max-h-72 overflow-y-auto">
+          <div className="max-h-80 overflow-y-auto divide-y divide-slate-50 bg-slate-50/30">
             {notifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 px-4 text-[#717680] text-sm">
-                <FiBell className="text-3xl mb-2 opacity-40" />
-                <p className="font-medium">No notifications yet</p>
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-slate-400 text-xs">
+                <FiBell className="text-2xl mb-2 opacity-30 animate-pulse" />
+                <p className="font-bold">No active tap warnings or alerts</p>
               </div>
             ) : (
               notifications.map(notif => (
                 <div
                   key={notif.id}
-                  className={`flex gap-3 items-start px-4 py-3 border-b border-[#e6e8ee] hover:bg-gray-50 transition-colors ${notif.read ? 'bg-white' : 'bg-[#fef5f5]'}`}
+                  className={`flex gap-3 items-start px-4 py-3 transition-colors ${
+                    notif.read ? 'bg-white' : 'bg-yellow-50/50'
+                  }`}
                 >
-                  <span className="text-2xl shrink-0">{getIcon(notif.type)}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm text-[#392d33] truncate mb-0.5">{notif.title}</p>
-                    <p className="text-xs text-[#555] mb-1">{notif.body}</p>
-                    <p className="text-xs text-[#717680]">
+                  <span className="text-lg shrink-0 mt-0.5">{getIcon(notif.type)}</span>
+                  <div className="flex-1 min-w-0 leading-tight">
+                    <p className="font-black text-xs text-slate-900 truncate">{notif.title}</p>
+                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">{notif.body}</p>
+                    <p className="text-[9px] text-slate-400 mt-1 font-mono">
                       {new Date(notif.time).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
@@ -96,12 +104,12 @@ const NotificationBell = () => {
 
           {/* Footer */}
           {notifications.length > 0 && (
-            <div className="px-3 py-2 border-t border-[#e6e8ee]">
+            <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-center">
               <button
                 onClick={() => { setNotifications([]); setUnreadCount(0); }}
-                className="w-full py-2 rounded-lg text-sm font-bold text-[#8f151d] hover:bg-[#fae7e9] bg-transparent transition-colors"
+                className="w-full py-1.5 rounded-lg text-[10px] font-bold text-[#7B181E] hover:bg-[#7B181E]/5 transition-colors uppercase tracking-wider cursor-pointer border-none bg-transparent"
               >
-                Clear All
+                Clear All Logs
               </button>
             </div>
           )}
