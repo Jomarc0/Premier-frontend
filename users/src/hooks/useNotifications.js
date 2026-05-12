@@ -24,7 +24,6 @@ const useNotifications = () => {
                 setPermission('granted');
                 await saveFcmToken(token);
 
-                // ✅ Wire up foreground message handler
                 onForegroundMessage((payload) => {
                     handleForegroundMessage(payload);
                 });

@@ -1,28 +1,25 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
-
 const firebaseConfig = {
-    apiKey: "AIzaSyBsUaayGbxYDUm15rK34GxxOYrPjIVGHgA",
-    authDomain: "premier-b25d6.firebaseapp.com",
-    projectId: "premier-b25d6",
-    storageBucket: "premier-b25d6.firebasestorage.app",
-    messagingSenderId: "352529483146",
-    appId: "1:352529483146:web:d9659a0a73ba1c9e7ff473",
-    measurementId: "G-HH936CH0LH"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 const app = initializeApp(firebaseConfig);
+
 const messaging = getMessaging(app);
 
-// Replace with YOUR VAPID key from Step 4
-const VAPID_KEY = "BOeAzSL4NeYDipdxbll3UnrKT7UC-qJLzSr4J7hb9qZLrE5qOBS9BMkFXuslBPLdWvbkIFOOtoO7CpF8LfYkIXk";
+const VAPID_KEY = import.meta.env.VITE_VAPID_KEY;
 
-// Request permission and get FCM token
 export const requestNotificationPermission = async () => {
     try {
         const permission = await Notification.requestPermission();
-
         if (permission === 'granted') {
             const token = await getToken(messaging, {
                 vapidKey: VAPID_KEY
@@ -39,7 +36,6 @@ export const requestNotificationPermission = async () => {
     }
 };
 
-// Handle foreground notifications
 export const onForegroundMessage = (callback) => {
     return onMessage(messaging, (payload) => {
         console.log('Message received:', payload);

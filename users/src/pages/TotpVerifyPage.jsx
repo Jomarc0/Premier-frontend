@@ -44,7 +44,7 @@ const TotpVerifyPage = () => {
       login(token, passengerName);
       localStorage.removeItem('tempToken');
 
-      toast.success('Welcome back! 🎉');
+      toast.success('Welcome back!');
       navigate('/dashboard');
     } catch (err) {
       toast.error(err.message || 'Wrong code. Please try again.');
