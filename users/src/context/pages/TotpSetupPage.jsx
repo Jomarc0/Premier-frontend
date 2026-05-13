@@ -23,7 +23,7 @@ const TotpSetupPage = () => {
 
   const fetchSetup = async (tempToken) => {
     try {
-      const res = await fetch('http://localhost:8080/api/passenger/auth/totp/setup', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/totp/setup`, {
         headers: { 'Authorization': `Bearer ${tempToken}`, 'Content-Type': 'application/json' },
       });
       const text = await res.text();

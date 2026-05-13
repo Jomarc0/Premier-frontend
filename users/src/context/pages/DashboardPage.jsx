@@ -479,7 +479,7 @@ const DashboardPage = () => {
 
             {/* Chat Panel */}
             {showChat && (
-            <div className="mb-4 flex flex-col overflow-hidden w-[320px] h-[440px] bg-white rounded-2xl border border-slate-200 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div className="mb-4 flex flex-col overflow-hidden w-[320px] h-110 bg-white rounded-2xl border border-slate-200 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200">
 
                 {/* Header */}
                 <div className="flex items-center gap-2.5 px-3 py-2.5 bg-[#7B181E] border-b border-white/10 shrink-0">
@@ -518,7 +518,7 @@ const DashboardPage = () => {
                 </div>
 
                 {/* Messages area */}
-                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-slate-50 scrollbar-thin scrollbar-thumb-slate-200">
+                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-[#f6f7fb]">
                 {chatMessages.map((msg, i) => {
                     const isUser = msg.from === 'user';
                     const isLast = i === chatMessages.length - 1;
@@ -526,40 +526,40 @@ const DashboardPage = () => {
                     <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-200">
 
                         {/* Bubble row */}
-                        <div className={`flex items-end gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`flex items-end gap-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
 
-                        {/* Bot avatar bubble */}
+                        {/* Bot avatar */}
                         {!isUser && (
-                            <div className="w-5 h-5 rounded-md bg-[#7B181E] flex items-center justify-center shrink-0 mb-1 shadow-sm">
-                            <Bot size={11} className="text-yellow-400" strokeWidth={2} />
+                            <div className="w-6 h-6 rounded-lg bg-[#7B181E] flex items-center justify-center shrink-0 mb-4 shadow">
+                            <Bot size={12} className="text-yellow-400" strokeWidth={2} />
                             </div>
                         )}
 
-                        {/* Message bubble + timestamp */}
-                        <div className="max-w-[78%] flex flex-col gap-0.5">
-                            <div className={`px-3 py-2 text-[11px] leading-relaxed font-medium break-words shadow-sm ${
+                        {/* Bubble + timestamp */}
+                        <div className={`flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'} max-w-[75%]`}>
+                            <div className={`px-3 py-2 text-[11.5px] leading-relaxed font-medium wrap-break-words ${
                             isUser
-                                ? 'bg-[#7B181E] text-white rounded-2xl rounded-br-sm'
-                                : 'bg-white text-slate-800 rounded-2xl rounded-bl-sm border border-slate-100'
+                                ? 'bg-[#7B181E] text-white rounded-2xl rounded-br-sm shadow-md'
+                                : 'bg-white text-slate-700 rounded-2xl rounded-bl-sm border border-slate-200 shadow-sm'
                             }`}>
                             {msg.text}
                             </div>
                             {msg.timestamp && (
-                            <p className={`text-[9px] text-slate-400 font-mono px-1 ${isUser ? 'text-right' : 'text-left'}`}>
+                            <p className="text-[9px] text-slate-400 font-mono px-0.5">
                                 {new Date(msg.timestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
                             </p>
                             )}
                         </div>
                         </div>
 
-                        {/* Dialogflow quick replies — last bot msg only */}
+                        {/* Dialogflow quick replies */}
                         {!isUser && isLast && msg.quickReplies?.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1.5 pl-6">
+                        <div className="flex flex-wrap gap-1.5 mt-2 pl-7">
                             {msg.quickReplies.map((qr, qi) => (
                             <button
                                 key={qi}
                                 onClick={() => handleChatSend(qr)}
-                                className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-[#7B181E]/25 bg-white text-[#7B181E] hover:bg-[#7B181E] hover:text-white hover:border-[#7B181E] transition-all cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white border border-slate-200 text-[#7B181E] hover:bg-[#7B181E] hover:text-white hover:border-[#7B181E] hover:shadow-md transition-all cursor-pointer shadow-sm"
                             >
                                 {qr}
                             </button>
@@ -572,26 +572,26 @@ const DashboardPage = () => {
 
                 {/* Typing indicator */}
                 {isTyping && (
-                    <div className="flex items-end gap-2 animate-in fade-in duration-150">
-                    <div className="w-5 h-5 rounded-md bg-[#7B181E] flex items-center justify-center shrink-0 shadow-sm">
-                        <Bot size={11} className="text-yellow-400" strokeWidth={2} />
+                    <div className="flex items-end gap-1.5 animate-in fade-in duration-150">
+                    <div className="w-6 h-6 rounded-lg bg-[#7B181E] flex items-center justify-center shrink-0 shadow">
+                        <Bot size={12} className="text-yellow-400" strokeWidth={2} />
                     </div>
-                    <div className="bg-white border border-slate-100 rounded-2xl rounded-bl-sm px-3 py-2 shadow-sm flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:0ms]" />
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:150ms]" />
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:300ms]" />
+                    <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-3 py-2.5 shadow-sm flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300 animate-bounce [animation-delay:0ms]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300 animate-bounce [animation-delay:150ms]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300 animate-bounce [animation-delay:300ms]" />
                     </div>
                     </div>
                 )}
 
                 {/* Static quick replies */}
                 {!hasDialogflowReplies && !isTyping && (
-                    <div className="flex flex-wrap gap-1 pt-1">
+                    <div className="flex flex-wrap gap-1.5 pt-1">
                     {STATIC_QUICK_REPLIES.map(q => (
                         <button
                         key={q}
                         onClick={() => handleChatSend(q)}
-                        className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-[#7B181E] hover:text-white hover:border-[#7B181E] transition-all cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white border border-slate-200 text-slate-600 hover:bg-[#7B181E] hover:text-white hover:border-[#7B181E] hover:shadow-md transition-all cursor-pointer shadow-sm"
                         >
                         {q}
                         </button>
@@ -603,28 +603,28 @@ const DashboardPage = () => {
                 </div>
 
                 {/* Input bar */}
-                <div className="shrink-0 flex items-center gap-2 px-2.5 py-2 bg-white border-t border-slate-100">
+                <div className="shrink-0 flex items-center gap-2 px-3 py-2.5 bg-white border-t border-slate-100">
                 <input
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !isTyping) handleChatSend(); }}
                     placeholder="Message Premier Bot..."
                     disabled={isTyping}
-                    className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium bg-slate-100 border border-transparent text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#7B181E]/40 focus:ring-2 focus:ring-[#7B181E]/10 transition-all disabled:opacity-50"
+                    className="flex-1 px-3 py-2 rounded-xl text-[11.5px] font-medium bg-slate-100 border border-transparent text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#7B181E]/40 focus:ring-2 focus:ring-[#7B181E]/10 transition-all disabled:opacity-50"
                 />
                 <button
                     onClick={() => handleChatSend()}
                     disabled={!chatInput.trim() || isTyping}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg shrink-0 transition-all active:scale-90 cursor-pointer border-none disabled:cursor-not-allowed disabled:opacity-40 bg-[#7B181E] text-white hover:bg-[#601217] shadow-md disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                    className="w-8 h-8 flex items-center justify-center rounded-xl shrink-0 transition-all active:scale-90 cursor-pointer border-none disabled:cursor-not-allowed bg-[#7B181E] text-white hover:bg-[#601217] shadow-md disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
                 >
-                    <Send size={12} strokeWidth={2.5} />
+                    <Send size={13} strokeWidth={2.5} />
                 </button>
                 </div>
 
                 {/* Footer strip */}
-                <div className="flex items-center justify-center gap-1.5 py-1 bg-slate-50 border-t border-slate-100">
-                <Wifi size={8} className="text-slate-400" />
-                <span className="text-[8px] text-slate-400 font-semibold uppercase tracking-widest">
+                <div className="flex items-center justify-center gap-1.5 py-1.5 bg-white border-t border-slate-100">
+                <Wifi size={8} className="text-slate-300" />
+                <span className="text-[8.5px] text-slate-400 font-bold uppercase tracking-widest">
                     Secured by Premier Transit RFID Network
                 </span>
                 </div>
