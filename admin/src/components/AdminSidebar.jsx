@@ -106,7 +106,6 @@ const AdminSidebar = () => {
                                         active ? 'text-maroon' : 'text-gold',
                                     ].join(' ')}
                                 >
-                                    ★
                                 </span>
                             )}
                         </button>
@@ -127,7 +126,7 @@ const AdminSidebar = () => {
                             isSuperAdmin() ? 'text-gold' : 'text-white/85',
                         ].join(' ')}
                     >
-                        {isSuperAdmin() ? '★ Super Admin' : 'Admin'}
+                        {isSuperAdmin() ? 'Super Admin' : 'Admin'}
                     </span>
                 </div>
                 <button

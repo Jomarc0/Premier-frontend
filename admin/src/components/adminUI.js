@@ -1,6 +1,3 @@
-// Reusable Tailwind class strings for the admin UI.
-// Centralized to avoid repeating long utility chains across pages.
-
 export const layout = 'min-h-screen grid grid-cols-[15rem_minmax(0,1fr)] bg-[#eef1f4] max-[1060px]:grid-cols-1';
 export const workspace = 'min-w-0 p-6 max-[560px]:p-3';
 

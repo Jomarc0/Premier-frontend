@@ -1,18 +1,3 @@
-// AdminAuthContext.jsx
-// FIX for Vite HMR warning:
-// "useAdminAuth export is incompatible with Fast Refresh"
-//
-// Vite Fast Refresh requires that a file either:
-//   (a) exports only React components, OR
-//   (b) exports only non-component values (hooks, context, etc.)
-//
-// The old file exported both AdminAuthProvider (component) AND
-// useAdminAuth (hook) from the same file — that mix breaks Fast Refresh.
-//
-// SOLUTION: Keep everything in one file but export useAdminAuth
-// from a SEPARATE file (useAdminAuth.js) that imports from here.
-// This file only exports the Provider component + context.
-
 import { createContext, useContext, useState, useEffect } from 'react';
 import { jwtDecode } from 'jwt-decode';
 import adminAPI from '../api/adminAxios';
