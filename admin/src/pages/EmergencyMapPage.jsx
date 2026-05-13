@@ -73,7 +73,7 @@ const EmergencyMapPage = () => {
 
     const fetchBuses = async () => {
         try {
-            const res = await fetch('http://localhost:8080/api/driver/buses');
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/driver/buses`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const response = await res.json();
             setBuses(response.data || []);
@@ -88,7 +88,7 @@ const EmergencyMapPage = () => {
 
     const fetchAlerts = async () => {
         try {
-            const res = await fetch('http://localhost:8080/api/driver/bus-alerts');
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/driver/bus-alerts`);
             if (!res.ok) return;
             const response = await res.json();
             const newAlerts = response.data || [];
@@ -123,7 +123,7 @@ const EmergencyMapPage = () => {
         setResolving(alertId);
         try {
             const res = await fetch(
-                `http://localhost:8080/api/driver/emergency/${alertId}/resolve`,
+                `${import.meta.env.VITE_API_URL}/api/driver/emergency/${alertId}/resolve`,
                 { method: 'PUT' }
             );
 

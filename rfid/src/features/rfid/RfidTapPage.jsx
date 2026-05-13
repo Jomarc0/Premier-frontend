@@ -8,7 +8,7 @@ import {
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 
-const API = 'http://localhost:8080/api/driver';
+const API = `${import.meta.env.VITE_API_URL}/api/driver`;
 
 const peso = (n) =>
     `₱${parseFloat(n ?? 0).toLocaleString('en-PH', {
@@ -207,14 +207,10 @@ function VehicleSelector({ onSelect }) {
     );
 }
 
-// ─── Main RfidTapPage ─────────────────────────────────────────
+// 
 export default function RfidTapPage() {
-    // ── Vehicle assignment state ─────────────────────────────
-    // null  = not yet assigned (show VehicleSelector)
-    // obj   = { plateNumber, route, totalCapacity, status }
+    // Vehicle assignment state 
     const [vehicle,  setVehicle]  = useState(() => {
-        // Persist vehicle selection in sessionStorage
-        // so page refresh doesn't reset it mid-shift
         try {
             const raw = sessionStorage.getItem('rfidTerminalVehicle');
             return raw ? JSON.parse(raw) : null;
@@ -232,12 +228,12 @@ export default function RfidTapPage() {
         setVehicle(null);
     };
 
-    // ── Show vehicle selector if not yet assigned ────────────
+    // Show vehicle selector if not yet assigned 
     if (!vehicle) {
         return <VehicleSelector onSelect={handleVehicleSelect} />;
     }
 
-    // ── RFID tap state ───────────────────────────────────────
+    // RFID tap
     return (
         <RfidTapForm
             vehicle={vehicle}
