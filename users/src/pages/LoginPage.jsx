@@ -4,7 +4,6 @@ import { toast } from 'react-toastify';
 import { FiCreditCard, FiLogIn } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import logo from '../assets/image/premier-logo.png';
-import API_URL from '../config/api';
 
 const LoginPage = () => {
   const navigate = useNavigate();
