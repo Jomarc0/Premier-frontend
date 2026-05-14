@@ -19,28 +19,36 @@ export default function DashboardPage() {
     const navigate = useNavigate();
     const { driverInfo, logoutDriver } = useDriver();
 
-    //  Shift / passenger data 
-    const [shiftInfo,  setShiftInfo]  = useState(null);
-    const [loading,    setLoading]    = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [showEmergency, setShowEmergency] = useState(false);
-    const [showLogout,    setShowLogout]    = useState(false);
+    const [shiftInfo,        setShiftInfo]        = useState(null);
+    const [loading,          setLoading]          = useState(true);
+    const [refreshing,       setRefreshing]       = useState(false);
+    const [showEmergency,    setShowEmergency]    = useState(false);
+    const [showLogout,       setShowLogout]       = useState(false);
     const [emergencySending, setEmergencySending] = useState(false);
     const [logoutSending,    setLogoutSending]    = useState(false);
 
-    //  Derived identifiers 
     const plateNumber = driverInfo?.plateNumber;
     const shiftId     = driverInfo?.shiftId;
 
-    //  GPS 
     const { gpsStatus, coordinates, geofence, eta, deviated, stopTracking } =
         useGpsTracking(plateNumber, shiftId);
 
-    const intervalRef = useRef(null);
+    const intervalRef     = useRef(null);
+    // Ref flag — prevents fetchShiftInfo from running/erroring after logout
+    const isLoggingOutRef = useRef(false);
 
+    // ─── STOP POLLING ────────────────────────────────────────────────────────
+    const stopPolling = useCallback(() => {
+        if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+        }
+    }, []);
 
-    // FETCH SHIFT + ONBOARD PASSENGERS
+    // ─── FETCH SHIFT INFO ────────────────────────────────────────────────────
     const fetchShiftInfo = useCallback(async (opts = {}) => {
+        // Skip if logging out — prevents 400 spam after shift ends
+        if (isLoggingOutRef.current) return;
         if (!plateNumber) return;
         if (opts.manual) setRefreshing(true);
 
@@ -48,34 +56,35 @@ export default function DashboardPage() {
             const res = await driverAPI.get(`/shift/${plateNumber}`);
             setShiftInfo(res.data?.data ?? null);
         } catch (err) {
+            if (isLoggingOutRef.current) return; // swallow errors during logout
             console.error('[DashboardPage] fetchShiftInfo error:', err);
             if (err.response?.status === 401) {
                 toast.error('Session expired. Logging out…');
+                stopPolling();
                 logoutDriver();
                 navigate('/login', { replace: true });
+                return;
             }
             if (opts.manual) toast.error('Failed to refresh shift info.');
         } finally {
             setLoading(false);
             if (opts.manual) setRefreshing(false);
         }
-    }, [plateNumber, logoutDriver, navigate]);
+    }, [plateNumber, logoutDriver, navigate, stopPolling]);
 
     const startPolling = useCallback(() => {
-        if (intervalRef.current) clearInterval(intervalRef.current);
+        stopPolling();
         intervalRef.current = setInterval(() => fetchShiftInfo(), POLL_INTERVAL);
-    }, [fetchShiftInfo]);
+    }, [fetchShiftInfo, stopPolling]);
 
     useEffect(() => {
         if (!driverInfo) { navigate('/login', { replace: true }); return; }
         fetchShiftInfo();
         startPolling();
-        return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-    }, [driverInfo, fetchShiftInfo, startPolling, navigate]);
+        return () => stopPolling();
+    }, [driverInfo, fetchShiftInfo, startPolling, stopPolling, navigate]);
 
-    // HANDLERS
-
-    // Drop-off 
+    // ─── DROP-OFF ────────────────────────────────────────────────────────────
     const handleDropOff = async (onboardId, dropOff) => {
         try {
             await driverAPI.post(`/drop-off/${onboardId}`);
@@ -86,7 +95,7 @@ export default function DashboardPage() {
         }
     };
 
-    // Emergency 
+    // ─── EMERGENCY ───────────────────────────────────────────────────────────
     const handleEmergency = async () => {
         if (emergencySending) return;
         setEmergencySending(true);
@@ -115,33 +124,49 @@ export default function DashboardPage() {
         }
     };
 
-    //End shift 
+    // ─── END SHIFT ───────────────────────────────────────────────────────────
+    // Fix order:
+    // 1. Set isLoggingOutRef = true  → fetchShiftInfo ignores all 400s immediately
+    // 2. stopPolling()               → kills the setInterval so no more fetches fire
+    // 3. stopTracking()              → kills GPS so no more location pings fire
+    // 4. POST /end-shift             → tell backend
+    // 5. logoutDriver()              → clear context + localStorage
+    // 6. navigate('/login')          → redirect
     const handleEndShift = async () => {
         if (logoutSending) return;
         setLogoutSending(true);
+
+        // Steps 1 & 2: silence + stop polling immediately
+        isLoggingOutRef.current = true;
+        stopPolling();
+
+        // Step 3: stop GPS immediately
+        try { stopTracking(); } catch (_) {}
+
         try {
+            // Step 4: notify backend
             await driverAPI.post(`/end-shift/${plateNumber}`);
             toast.success('Shift ended successfully!');
-            stopTracking();
+        } catch (err) {
+            console.error('[DashboardPage] end-shift error:', err);
+            // Log out anyway even if backend call fails
+            toast.error(err.response?.data?.message || 'Could not reach server, logging out anyway.');
+        } finally {
+            // Steps 5 & 6: always clear auth and redirect
             logoutDriver();
             navigate('/login', { replace: true });
-        } catch (err) {
-            toast.error(err.response?.data?.message || 'Failed to end shift.');
-        } finally {
-            setLogoutSending(false);
-            setShowLogout(false);
         }
     };
 
-    // DERIVED DATA
-    const onboard           = shiftInfo?.onboardPassengers  ?? [];
-    const nextDropOff       = onboard[0]                    ?? null;
-    const passengersOnboard = shiftInfo?.passengersOnboard  ?? 0;
-    const availableSeats    = shiftInfo?.availableSeats     ?? 0;
-    const totalCapacity     = shiftInfo?.totalCapacity      ?? 25;
+    // ─── DERIVED DATA ─────────────────────────────────────────────────────────
+    const onboard           = shiftInfo?.onboardPassengers ?? [];
+    const nextDropOff       = onboard[0]                   ?? null;
+    const passengersOnboard = shiftInfo?.passengersOnboard ?? 0;
+    const availableSeats    = shiftInfo?.availableSeats    ?? 0;
+    const totalCapacity     = shiftInfo?.totalCapacity     ?? 25;
     const capacityPct       = fmtPct(passengersOnboard, totalCapacity);
 
-    // LOADING SCREEN
+    // ─── LOADING SCREEN ───────────────────────────────────────────────────────
     if (loading) {
         return (
             <div className="min-h-screen bg-[#F1F5F9] flex items-center justify-center font-[Poppins]">
@@ -155,7 +180,7 @@ export default function DashboardPage() {
         );
     }
 
-    // RENDER
+    // ─── RENDER ───────────────────────────────────────────────────────────────
     return (
         <div className="flex h-screen bg-[#F1F5F9] overflow-hidden p-3 gap-3 font-[Poppins]">
 
@@ -260,7 +285,7 @@ export default function DashboardPage() {
                             <div>
                                 <p className="uppercase text-[8px] text-slate-400 font-bold mb-1">Zone</p>
                                 <p className="text-sm font-black text-green-700">
-                                    {geofence === 'AT_SM_LIPA'     ? 'SM Lipa'
+                                    {geofence === 'AT_SM_LIPA'      ? 'SM Lipa'
                                     : geofence === 'AT_SM_BATANGAS' ? 'SM Batangas'
                                     : 'En Route'}
                                 </p>
@@ -283,7 +308,7 @@ export default function DashboardPage() {
 
             </div>
 
-            {/*RIGHT SIDEBAr */}
+            {/* ── RIGHT SIDEBAR ── */}
             <aside className="w-95 bg-[#F5F5F5] rounded-4xl border border-[#E5E5E5] p-5 flex flex-col shadow-xl overflow-hidden h-full shrink-0">
 
                 {/* Driver header */}
@@ -441,7 +466,7 @@ export default function DashboardPage() {
                 </div>
             </aside>
 
-            {/* Emergency sent */}
+            {/* ── MODAL: Emergency sent ── */}
             {showEmergency && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
                     <div className="bg-white rounded-4xl p-8 max-w-md w-[90%] text-center shadow-2xl border border-slate-200">
@@ -466,7 +491,7 @@ export default function DashboardPage() {
                 </div>
             )}
 
-            {/* End shift confirm */}
+            {/* ── MODAL: End shift confirm ── */}
             {showLogout && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
                     <div className="bg-white rounded-4xl p-8 max-w-md w-[90%] text-center shadow-2xl border border-slate-200">

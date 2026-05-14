@@ -201,8 +201,9 @@ const EmergencyMapPage = () => {
         </div>
     );
 
+    // ✅ Only include ACTIVE buses in the polyline trail
     const routeCoordinates = buses
-        .filter(b => b.latitude && b.longitude)
+        .filter(b => b.latitude && b.longitude && b.status === 'ACTIVE')
         .map(b => [b.latitude, b.longitude]);
 
     return (
@@ -313,7 +314,7 @@ const EmergencyMapPage = () => {
                                 loading ? 'bg-[#f59e0b] text-white' : 'bg-gold text-maroon',
                             ].join(' ')}
                         >
-                            {loading ? 'Loading...' : `${buses.length} buses online`}
+                            {loading ? 'Loading...' : `${buses.filter(b => b.status === 'ACTIVE').length} buses online`}
                         </span>
                     </div>
 
@@ -330,6 +331,7 @@ const EmergencyMapPage = () => {
 
                         <MapFlyTo target={flyTarget} />
 
+                        {/* SM Lipa landmark marker */}
                         <Marker position={[SM_LIPA.lat, SM_LIPA.lng]} icon={landmarkIcon}>
                             <Popup>
                                 <strong style={{ color: 'var(--brand-maroon)' }}>
@@ -341,6 +343,7 @@ const EmergencyMapPage = () => {
                             </Popup>
                         </Marker>
 
+                        {/* SM Batangas landmark marker */}
                         <Marker position={[SM_BATANGAS.lat, SM_BATANGAS.lng]} icon={landmarkIcon}>
                             <Popup>
                                 <strong style={{ color: 'var(--brand-maroon)' }}>
@@ -352,19 +355,9 @@ const EmergencyMapPage = () => {
                             </Popup>
                         </Marker>
 
-                        <Polyline
-                            positions={[
-                                [SM_LIPA.lat, SM_LIPA.lng],
-                                [SM_BATANGAS.lat, SM_BATANGAS.lng],
-                            ]}
-                            color="#6f2f3c"
-                            weight={3}
-                            opacity={0.5}
-                            dashArray="8, 8"
-                        />
-
+                        {/* ✅ Bus markers — only ACTIVE buses shown on map */}
                         {buses.map((bus, i) =>
-                            bus.latitude && bus.longitude
+                            bus.latitude && bus.longitude && bus.status === 'ACTIVE'
                                 ? (
                                     <Marker
                                         key={`bus-${bus.plateNumber || i}`}
@@ -376,6 +369,7 @@ const EmergencyMapPage = () => {
                                 ) : null
                         )}
 
+                        {/* Emergency alert markers */}
                         {alerts.map(alert =>
                             alert.latitude && alert.longitude ? (
                                 <Marker
@@ -388,6 +382,7 @@ const EmergencyMapPage = () => {
                             ) : null
                         )}
 
+                        {/* Live bus trail polyline — only ACTIVE buses */}
                         {routeCoordinates.length > 1 && (
                             <Polyline
                                 positions={routeCoordinates}
