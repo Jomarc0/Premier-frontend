@@ -46,8 +46,8 @@ const TotpSetupPage = () => {
     try {
       const tempToken = localStorage.getItem('tempToken');
       if (!tempToken) { toast.error('Session expired'); navigate('/login'); return; }
-
-      const res = await fetch('http://localhost:8080/api/passenger/auth/verify-totp', {
+      
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/verify-totp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tempToken, totpCode: totpCode.trim() }),
