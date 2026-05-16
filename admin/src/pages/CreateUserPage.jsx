@@ -5,7 +5,6 @@ import {
     FiCheckCircle,
     FiCreditCard,
     FiWifi,
-    FiDollarSign,
 } from 'react-icons/fi';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
@@ -117,7 +116,7 @@ const CreateUserPage = () => {
                                 Initial Balance (₱)
                             </label>
                             <div className={ui.fieldInput}>
-                                <FiDollarSign />
+                                <span className="font-bold text-sm">₱</span>
                                 <input
                                     id="initial-balance"
                                     type="number"
