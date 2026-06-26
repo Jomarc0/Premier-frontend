@@ -92,6 +92,26 @@ const ManageAdminsPage = () => {
         }
     };
 
+    const handleResetTotp = async (adminAccount) => {
+        if (adminAccount.role === 'STAFF') {
+            toast.info('Staff accounts do not use Google Authenticator');
+            return;
+        }
+
+        const confirmed = window.confirm(
+            `Reset Google Authenticator for ${adminAccount.username}? This lets the admin log in with username and password and set up a new authenticator.`
+        );
+        if (!confirmed) return;
+
+        try {
+            await adminAPI.put(`/admins/${adminAccount.id}/reset-totp`);
+            toast.success('Google Authenticator reset');
+            fetchAdmins();
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to reset Google Authenticator');
+        }
+    };
+
     return (
         <div className={ui.layout}>
             <AdminSidebar />
@@ -308,7 +328,17 @@ const ManageAdminsPage = () => {
                                                 >
                                                     {a.active ? <FiLock /> : <FiUnlock />}
                                                     {a.active ? 'Deactivate' : 'Activate'}
-                                                </button>
+                                                </button>                                                {a.role !== 'STAFF' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleResetTotp(a)}
+                                                        className="inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md bg-gold text-maroon text-[0.78rem] font-black cursor-pointer hover:bg-[#d9ad35]"
+                                                        title="Reset lost Google Authenticator"
+                                                    >
+                                                        <FiShield />
+                                                        Reset Google Auth
+                                                    </button>
+                                                )}
                                                 <button
                                                     type="button"
                                                     onClick={() => handleDelete(a.id)}

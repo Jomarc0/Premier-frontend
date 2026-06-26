@@ -181,7 +181,6 @@ const ReportsPage = () => {
     const queue = analytics?.queueTerminalAnalytics || {};
     const route = analytics?.routeAnalytics || {};
     const driver = analytics?.driverConductorAnalytics || {};
-    const emergency = analytics?.emergencyAnalytics || {};
     const operational = analytics?.operationalAnalytics || {};
     const predictive = analytics?.predictiveAnalytics || {};
 
@@ -254,7 +253,6 @@ const ReportsPage = () => {
                             ['Buses On Route', executive.busesOnRoute, 'number', FiTruck],
                             ['Buses At Terminal', executive.busesAtTerminal, 'number', FiTruck],
                             ['Total Trips Today', executive.totalTripsToday, 'number', FiActivity],
-                            ['Emergency Alerts Today', executive.emergencyAlertsToday, 'number', FiActivity],
                             ['Average Waiting Time', executive.averageWaitingTimeMinutes, 'number', FiCalendar],
                             ['Average Arrival Time', executive.averageArrivalTimeMinutes, 'number', FiCalendar],
                         ]} darkMode={darkMode} />
@@ -351,15 +349,6 @@ const ReportsPage = () => {
                                 ['Driver Performance', driver.driverPerformance, 'trips'],
                                 ['Passengers Served By Driver', driver.passengersServedByDriver, 'passengers'],
                                 ['Revenue By Driver', driver.revenueByDriver, 'revenue'],
-                            ]}
-                        />
-
-                        <AnalyticsSection title="Emergency Analytics" panelClass={panelClass}
-                            summary={emergency.summary}
-                            charts={[
-                                ['Emergency Trend', emergency.emergencyTrend, 'alerts'],
-                                ['Emergency Reports Per Bus', emergency.emergencyReportsPerBus, 'alerts'],
-                                ['Emergency Reports Per Route', emergency.emergencyReportsPerRoute, 'alerts'],
                             ]}
                         />
 

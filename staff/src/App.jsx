@@ -51,6 +51,7 @@ function routeLabel(routeDirection) {
 const SM_TERMINAL = { latitude: 13.954781, longitude: 121.163096 };
 const GRAND_TERMINAL = { latitude: 13.790391, longitude: 121.062721 };
 const DEFAULT_SPEED_KMH = 30;
+const TERMINAL_GEOFENCE_KM = 5;
 
 function distanceKm(fromLat, fromLng, toLat, toLng) {
   const earthRadiusKm = 6371;
@@ -66,13 +67,52 @@ function statusFor(destinationDistanceKm, originDistanceKm) {
   if (destinationDistanceKm <= 0.05) return "Arrived";
   if (destinationDistanceKm <= 0.3) return "Arriving";
   if (destinationDistanceKm <= 1.0) return "Near Terminal";
-  if (originDistanceKm <= 0.3) return "At Terminal";
+  if (originDistanceKm <= TERMINAL_GEOFENCE_KM) return "At Terminal";
   return "On Route";
 }
 
+function normalizeRouteText(route) {
+  return String(route || "").toLowerCase().replace(/\u2192/g, "to").replace("->", "to").replaceAll("-", " ").replace(/\s+/g, " ").trim();
+}
+
 function routeMatches(route, target) {
-  return String(route || "").toLowerCase().replace("->", "to").replaceAll("-", " ").replace(/\s+/g, " ").trim()
-    === target.toLowerCase();
+  return normalizeRouteText(route) === normalizeRouteText(target);
+}
+
+function routeFromStoredValue(route) {
+  if (routeMatches(route, "Grand Terminal to SM Terminal")) return "Grand Terminal to SM Terminal";
+  if (routeMatches(route, "SM Terminal to Grand Terminal")) return "SM Terminal to Grand Terminal";
+  return null;
+}
+
+function routeForBus(bus) {
+  const latitude = Number(bus.latitude);
+  const longitude = Number(bus.longitude);
+
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    const distanceToSm = distanceKm(latitude, longitude, SM_TERMINAL.latitude, SM_TERMINAL.longitude);
+    const distanceToGrand = distanceKm(latitude, longitude, GRAND_TERMINAL.latitude, GRAND_TERMINAL.longitude);
+
+    if (distanceToSm <= TERMINAL_GEOFENCE_KM && distanceToSm <= distanceToGrand) {
+      return "SM Terminal to Grand Terminal";
+    }
+    if (distanceToGrand <= TERMINAL_GEOFENCE_KM) {
+      return "Grand Terminal to SM Terminal";
+    }
+
+    return routeFromStoredValue(bus.route || bus.routeDirection)
+      || (distanceToSm <= distanceToGrand ? "Grand Terminal to SM Terminal" : "SM Terminal to Grand Terminal");
+  }
+
+  return routeFromStoredValue(bus.route || bus.routeDirection);
+}
+
+function terminalsForRoute(routeDirection) {
+  const incomingToSm = routeMatches(routeDirection, "Grand Terminal to SM Terminal");
+  return {
+    destination: incomingToSm ? SM_TERMINAL : GRAND_TERMINAL,
+    origin: incomingToSm ? GRAND_TERMINAL : SM_TERMINAL,
+  };
 }
 
 function toQueueItem(bus, routeDirection, destination, origin) {
@@ -86,28 +126,30 @@ function toQueueItem(bus, routeDirection, destination, origin) {
     ? distanceKm(latitude, longitude, origin.latitude, origin.longitude)
     : 999;
 
+  const apiDistance = Number(bus.distanceRemainingKm ?? bus.distanceKm);
+  const apiEta = Number(bus.estimatedArrivalMinutes ?? bus.etaMinutes);
+
   return {
     plateNumber: bus.plateNumber || "Unknown Plate",
     routeDirection,
-    distanceRemainingKm: Math.round(distance * 10) / 10,
-    estimatedArrivalMinutes: Math.max(1, Math.round((distance / speed) * 60)),
+    distanceRemainingKm: Number.isFinite(apiDistance) ? apiDistance : Math.round(distance * 10) / 10,
+    estimatedArrivalMinutes: Number.isFinite(apiEta) ? apiEta : Math.max(1, Math.round((distance / speed) * 60)),
     statusLabel: statusFor(distance, originDistance),
   };
 }
 
 function buildQueueFromDriverBuses(payload) {
   const buses = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+  const queueItems = buses.map((bus) => {
+    const routeDirection = routeForBus(bus);
+    if (!routeDirection) return null;
+    const terminals = terminalsForRoute(routeDirection);
+    return toQueueItem(bus, routeDirection, terminals.destination, terminals.origin);
+  }).filter(Boolean);
+
   return {
-    incomingToSmTerminal: normalizeBuses(
-      buses
-        .filter((bus) => routeMatches(bus.route, "Grand Terminal to SM Terminal"))
-        .map((bus) => toQueueItem(bus, "Grand Terminal to SM Terminal", SM_TERMINAL, GRAND_TERMINAL))
-    ),
-    incomingToGrandTerminal: normalizeBuses(
-      buses
-        .filter((bus) => routeMatches(bus.route, "SM Terminal to Grand Terminal"))
-        .map((bus) => toQueueItem(bus, "SM Terminal to Grand Terminal", GRAND_TERMINAL, SM_TERMINAL))
-    ),
+    incomingToSmTerminal: normalizeBuses(queueItems.filter((bus) => routeMatches(bus.routeDirection, "Grand Terminal to SM Terminal"))),
+    incomingToGrandTerminal: normalizeBuses(queueItems.filter((bus) => routeMatches(bus.routeDirection, "SM Terminal to Grand Terminal"))),
   };
 }
 

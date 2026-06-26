@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import {
     MapContainer, TileLayer,
-    Marker, Popup, Polyline, useMap
+    Marker, Popup, useMap
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -102,11 +102,6 @@ const VehicleMonitoringPage = () => {
             </span>
         </div>
     );
-
-    // Only include ACTIVE buses in the polyline trail
-    const routeCoordinates = buses
-        .filter(b => b.latitude && b.longitude && b.status === 'ACTIVE')
-        .map(b => [b.latitude, b.longitude]);
 
     return (
         <div className={ui.layout}>
@@ -232,16 +227,6 @@ const VehicleMonitoringPage = () => {
                                         <Popup>{renderBusPopup(bus)}</Popup>
                                     </Marker>
                                 ) : null
-                        )}
-
-                        {/* Live bus trail polyline - only ACTIVE buses */}
-                        {routeCoordinates.length > 1 && (
-                            <Polyline
-                                positions={routeCoordinates}
-                                color="#b24a52"
-                                weight={3}
-                                opacity={0.7}
-                            />
                         )}
                     </MapContainer>
 
