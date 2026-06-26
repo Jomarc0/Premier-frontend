@@ -1,11 +1,10 @@
-import { useNavigate, useLocation } from 'react-router-dom';
+﻿import { useNavigate, useLocation } from 'react-router-dom';
 import {
     FiFileText,
     FiUsers,
     FiUserPlus,
     FiTruck,
     FiActivity,
-    FiAlertTriangle,
     FiClock,
     FiShield,
     FiUser,
@@ -24,13 +23,14 @@ const AdminSidebar = () => {
     const isSuperAdmin = auth?.isSuperAdmin || (() => false);
 
     const menu = [
+        { label: 'Analytics',     icon: FiActivity,      path: '/admin/reports',       superOnly: false },
         { label: 'Transactions',  icon: FiFileText,      path: '/admin/transactions',  superOnly: false },
         { label: 'All Users',     icon: FiUsers,         path: '/admin/users',         superOnly: false },
         { label: 'Create User',   icon: FiUserPlus,      path: '/admin/create-user',   superOnly: false },
         { label: 'Drivers',       icon: FiUsers,         path: '/admin/drivers',       superOnly: false },
         { label: 'Vehicles',      icon: FiTruck,         path: '/admin/vehicles',      superOnly: false },
-        { label: 'Reports',       icon: FiActivity,      path: '/admin/reports',       superOnly: false },
-        { label: 'Emergency Map', icon: FiAlertTriangle, path: '/admin/emergency-map', superOnly: false },
+        { label: 'Bus Monitoring', icon: FiTruck, path: '/admin/vehicle-monitoring', superOnly: false },
+        { label: 'Security', icon: FiShield, path: '/admin/security', superOnly: false },
         { label: 'Activity Logs', icon: FiClock,         path: '/admin/logs',          superOnly: true  },
         { label: 'Manage Admins', icon: FiShield,        path: '/admin/manage-admins', superOnly: true  },
     ];
@@ -143,3 +143,4 @@ const AdminSidebar = () => {
 };
 
 export default AdminSidebar;
+

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
@@ -7,11 +7,12 @@ import TransactionsPage  from './pages/TransactionsPage';
 import ReportsPage       from './pages/ReportsPage';
 import AllUsersPage      from './pages/AllUsersPage';
 import CreateUserPage    from './pages/CreateUserPage';
-import EmergencyMapPage  from './pages/EmergencyMapPage';
+import VehicleMonitoringPage from './pages/VehicleMonitoringPage';
 import ManageAdminsPage  from './pages/ManageAdminsPage';
 import ActivityLogsPage  from './pages/ActivityLogsPage';
 import DriversPage       from './pages/DriverPage';
 import VehiclesPage      from './pages/VehiclesPage';
+import AdminSecurityPage from './pages/AdminSecurityPage';
 
 const AdminRoute = ({ children }) => {
     const { admin, loading } = useAdminAuth();
@@ -70,7 +71,7 @@ const SuperAdminRoute = ({ children }) => {
                 background: '#f0f2f5', flexDirection: 'column',
                 gap: 16, fontFamily: 'Segoe UI, sans-serif',
             }}>
-                <div style={{ fontSize: 48 }}>🚫</div>
+                <div style={{ fontSize: 48 }}>ðŸš«</div>
                 <h2 style={{ color: '#dc2626', margin: 0, fontSize: 20 }}>
                     Access Denied
                 </h2>
@@ -83,7 +84,7 @@ const SuperAdminRoute = ({ children }) => {
                         color: 'white', fontWeight: 700, cursor: 'pointer',
                     }}
                 >
-                    ← Go Back
+                    â† Go Back
                 </button>
             </div>
         );
@@ -98,12 +99,15 @@ function App() {
             <BrowserRouter>
                 <Routes>
                     <Route path="/admin/login" element={<AdminLoginPage />} />
-
-                    <Route path="/admin/transactions" element={
-                        <AdminRoute><TransactionsPage /></AdminRoute>
+                    <Route path="/admin" element={
+                        <AdminRoute><ReportsPage /></AdminRoute>
                     } />
+
                     <Route path="/admin/reports" element={
                         <AdminRoute><ReportsPage /></AdminRoute>
+                    } />
+                    <Route path="/admin/transactions" element={
+                        <AdminRoute><TransactionsPage /></AdminRoute>
                     } />
                     <Route path="/admin/users" element={
                         <AdminRoute><AllUsersPage /></AdminRoute>
@@ -111,14 +115,17 @@ function App() {
                     <Route path="/admin/create-user" element={
                         <AdminRoute><CreateUserPage /></AdminRoute>
                     } />
-                    <Route path="/admin/emergency-map" element={
-                        <AdminRoute><EmergencyMapPage /></AdminRoute>
+                    <Route path="/admin/vehicle-monitoring" element={
+                        <AdminRoute><VehicleMonitoringPage /></AdminRoute>
                     } />
                     <Route path="/admin/drivers" element={
                         <AdminRoute><DriversPage /></AdminRoute>
                     } />
                     <Route path="/admin/vehicles" element={
                         <AdminRoute><VehiclesPage /></AdminRoute>
+                    } />
+                    <Route path="/admin/security" element={
+                        <AdminRoute><AdminSecurityPage /></AdminRoute>
                     } />
 
                     <Route path="/admin/logs" element={
@@ -128,7 +135,7 @@ function App() {
                         <SuperAdminRoute><ManageAdminsPage /></SuperAdminRoute>
                     } />
 
-                    <Route path="*" element={<Navigate to="/admin/login" replace />} />
+                    <Route path="*" element={<Navigate to="/admin/reports" replace />} />
                 </Routes>
                 <ToastContainer position="top-right" autoClose={3000} />
             </BrowserRouter>
@@ -137,3 +144,4 @@ function App() {
 }
 
 export default App;
+

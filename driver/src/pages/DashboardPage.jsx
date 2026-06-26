@@ -6,7 +6,7 @@ import { toast } from 'react-toastify';
 import useGpsTracking from '../hooks/useGpsTracking';
 import GpsStatusBadge from '../components/GpsStatusBadge';
 import {
-    MapPin, LogOut, AlertTriangle,
+    MapPin, LogOut,
     Radio, User, ShieldCheck, RefreshCw,
 } from 'lucide-react';
 
@@ -22,9 +22,7 @@ export default function DashboardPage() {
     const [shiftInfo,        setShiftInfo]        = useState(null);
     const [loading,          setLoading]          = useState(true);
     const [refreshing,       setRefreshing]       = useState(false);
-    const [showEmergency,    setShowEmergency]    = useState(false);
     const [showLogout,       setShowLogout]       = useState(false);
-    const [emergencySending, setEmergencySending] = useState(false);
     const [logoutSending,    setLogoutSending]    = useState(false);
 
     const plateNumber = driverInfo?.plateNumber;
@@ -92,35 +90,6 @@ export default function DashboardPage() {
             fetchShiftInfo({ manual: true });
         } catch (err) {
             toast.error(err.response?.data?.message || 'Drop-off failed.');
-        }
-    };
-
-    // ─── EMERGENCY ───────────────────────────────────────────────────────────
-    const handleEmergency = async () => {
-        if (emergencySending) return;
-        setEmergencySending(true);
-        try {
-            const payload = {
-                plateNumber,
-                shiftId: shiftId || null,
-                message:   'Driver triggered emergency alert!',
-                timestamp: new Date().toISOString(),
-                ...(coordinates && {
-                    coordinates: {
-                        latitude:  coordinates.latitude,
-                        longitude: coordinates.longitude,
-                        speed:     coordinates.speed,
-                        accuracy:  coordinates.accuracy,
-                    },
-                }),
-            };
-            await driverAPI.post('/emergency', payload);
-            setShowEmergency(true);
-            toast.success('Emergency alert sent successfully!');
-        } catch (err) {
-            toast.error(err.response?.data?.message || 'Failed to send emergency alert.');
-        } finally {
-            setEmergencySending(false);
         }
     };
 
@@ -260,7 +229,6 @@ export default function DashboardPage() {
                 {/* Route deviation warning */}
                 {deviated && (
                     <div className="bg-[#FEF2F2] border border-[#FCA5A5] rounded-2xl px-4 py-3 text-sm font-semibold text-[#991B1B] flex items-center gap-2">
-                        <AlertTriangle size={16} />
                         Route deviation! Return to SM Lipa ↔ SM Batangas route.
                     </div>
                 )}
@@ -339,15 +307,6 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="flex gap-2">
-                            <button
-                                onClick={handleEmergency}
-                                disabled={emergencySending}
-                                className={`bg-red-600 text-white rounded-xl w-15 h-15 flex flex-col items-center justify-center font-black uppercase text-[7px] gap-1 shadow-md hover:bg-red-700 transition-all
-                                    ${emergencySending ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                            >
-                                <AlertTriangle size={20} />
-                                {emergencySending ? 'Sending…' : 'Emergency'}
-                            </button>
                             <button
                                 onClick={() => setShowLogout(true)}
                                 disabled={logoutSending}
@@ -465,31 +424,6 @@ export default function DashboardPage() {
                     </div>
                 </div>
             </aside>
-
-            {/* ── MODAL: Emergency sent ── */}
-            {showEmergency && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-4xl p-8 max-w-md w-[90%] text-center shadow-2xl border border-slate-200">
-                        <div className="text-5xl mb-4">🚨</div>
-                        <h2 className="text-xl font-black text-slate-800 mb-2 uppercase">Emergency Alert Sent!</h2>
-                        <p className="text-sm text-slate-500 mb-2">
-                            Your emergency alert has been transmitted to the dispatch center.
-                        </p>
-                        {coordinates && (
-                            <p className="text-[11px] text-slate-400 mb-4">
-                                Location: {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
-                            </p>
-                        )}
-                        <p className="text-xs text-[#991B1B] font-semibold mb-6">Stay calm. Help is on the way.</p>
-                        <button
-                            onClick={() => setShowEmergency(false)}
-                            className="py-3 px-8 bg-[#991B1B] text-white rounded-2xl text-sm font-bold cursor-pointer border-0 hover:bg-[#7F1D1D] transition-all uppercase"
-                        >
-                            Dismiss
-                        </button>
-                    </div>
-                </div>
-            )}
 
             {/* ── MODAL: End shift confirm ── */}
             {showLogout && (

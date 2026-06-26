@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-toastify';
-import { tapRfidCard } from './rfidService';
+import { processQrFare, tapRfidCard } from './rfidService';
 import {
     FiRadio, FiCheckCircle, FiXCircle,
-    FiArrowLeft, FiCreditCard, FiTruck, FiLock,
+    FiArrowLeft, FiCreditCard, FiTruck, FiLock, FiCamera,
 } from 'react-icons/fi';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
@@ -72,8 +72,14 @@ function ResultPanel({ status, result, errorMsg }) {
                 {ok && result ? (
                     <>
                         <DataRow label="Card No."         value={result.cardNumber} />
-                        <DataRow label="RFID UID"         value={result.rfidUid}
-                            valueClass="tracking-widest text-[#7B181E]" />
+                        {result.rfidUid && (
+                            <DataRow label="RFID UID" value={result.rfidUid}
+                                valueClass="tracking-widest text-[#7B181E]" />
+                        )}
+                        {result.source && (
+                            <DataRow label="Source" value={result.source}
+                                valueClass="tracking-widest text-[#7B181E]" />
+                        )}
                         <DataRow label="Fare Deducted"    value={`− ${peso(result.deductedFare)}`}
                             valueClass="text-red-600 font-black text-base" />
                         <DataRow label="Remaining Bal."   value={peso(result.remainingBalance)}
@@ -245,6 +251,7 @@ export default function RfidTapPage() {
 //RfidTapForm
 function RfidTapForm({ vehicle, onChangeVehicle }) {
     const [rfidUid,  setRfidUid]  = useState('');
+    const [qrPayload, setQrPayload] = useState('');
     const [status,   setStatus]   = useState('IDLE');
     const [result,   setResult]   = useState(null);
     const [errorMsg, setErrorMsg] = useState('');
@@ -292,6 +299,44 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
             setTimeout(() => inputRef.current?.focus(), 120);
         }
     }, [rfidUid, status, vehicle.plateNumber]);
+
+    const handleQrPayment = useCallback(async () => {
+        const payload = qrPayload.trim();
+        if (!payload) {
+            toast.warn('Paste or scan a passenger fare QR first.');
+            return;
+        }
+        if (status === 'LOADING') return;
+
+        setStatus('LOADING');
+        setResult(null);
+        setErrorMsg('');
+
+        try {
+            const { data: res } = await processQrFare(payload, vehicle.plateNumber);
+
+            if (res.success) {
+                setResult(res.data);
+                setStatus('SUCCESS');
+                toast.success('QR fare deducted successfully!');
+            } else {
+                setErrorMsg(res.message || 'QR transaction failed.');
+                setStatus('ERROR');
+                toast.error(res.message || 'QR transaction failed.');
+            }
+        } catch (err) {
+            const msg =
+                err?.response?.data?.message ||
+                err?.message ||
+                'Server error. Please try again.';
+            setErrorMsg(msg);
+            setStatus('ERROR');
+            toast.error(msg);
+        } finally {
+            setQrPayload('');
+            setTimeout(() => inputRef.current?.focus(), 120);
+        }
+    }, [qrPayload, status, vehicle.plateNumber]);
 
     const handleKeyDown  = (e) => { if (e.key === 'Enter') handleTap(); };
     const handleChange   = (e) => {
@@ -417,6 +462,44 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
                             </>
                         )}
                     </button>
+
+                    <div className="pt-4 border-t border-slate-100">
+                        <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                            Passenger QR Fare Token
+                        </label>
+                        <div className="flex items-center gap-2 px-3.5 py-3.5 rounded-xl bg-slate-50 border border-slate-300">
+                            <FiCamera className="text-slate-400 shrink-0" size={18} />
+                            <input
+                                type="text"
+                                value={qrPayload}
+                                onChange={(e) => {
+                                    setQrPayload(e.target.value);
+                                    if (status !== 'IDLE') { setStatus('IDLE'); setResult(null); setErrorMsg(''); }
+                                }}
+                                placeholder="Paste scanned Premier QR payload"
+                                disabled={isLoading}
+                                autoComplete="off"
+                                spellCheck={false}
+                                className="w-full bg-transparent border-0 outline-none text-slate-900 font-mono font-bold text-xs placeholder-slate-400 disabled:opacity-50"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleQrPayment}
+                            disabled={isLoading || !qrPayload.trim()}
+                            className={`w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 border-none mt-3 ${
+                                !isLoading && qrPayload.trim()
+                                    ? 'bg-[#234B20] hover:bg-[#1a3818] text-white cursor-pointer active:scale-95'
+                                    : 'bg-slate-100 text-slate-400 shadow-none cursor-not-allowed'
+                            }`}
+                        >
+                            <FiCamera size={16} className="text-yellow-400" />
+                            <span>Process QR Fare</span>
+                        </button>
+                        <p className="text-[10px] text-slate-400 font-medium text-center mt-2 italic">
+                            Camera scanner hardware can paste decoded QR text here.
+                        </p>
+                    </div>
 
                     {hasResult && (
                         <ResultPanel

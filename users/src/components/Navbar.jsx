@@ -48,9 +48,12 @@ const Navbar = () => {
           <button
             onClick={handleLogout}
             title="Log out of system"
-            className="inline-flex items-center justify-center h-8 w-8 md:h-10 md:w-10 rounded-xl bg-black/15 hover:bg-black/30 text-white/90 hover:text-white transition-all border border-white/10 cursor-pointer ml-1 shrink-0"
+            className="inline-flex items-center justify-center gap-2 h-8 md:h-10 px-3 rounded-xl bg-black/15 hover:bg-black/30 text-white/90 hover:text-white transition-all border border-white/10 cursor-pointer ml-1 shrink-0"
           >
             <FiLogOut className="text-sm md:text-base" />
+            <span className="hidden md:inline text-[11px] font-black uppercase tracking-wider">
+              Logout
+            </span>
           </button>
         </div>
       </div>

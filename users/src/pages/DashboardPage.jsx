@@ -23,6 +23,13 @@ const STATIC_QUICK_REPLIES = [
     'Check balance',
 ];
 
+const csvEscape = (value) => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+};
+
+const transactionId = (tx) => tx?.referenceNumber || `TX-${tx?.id}`;
+
 
 
 const DashboardPage = () => {
@@ -71,6 +78,61 @@ const DashboardPage = () => {
         setShowModal(true);
         } catch (err) {
         toast.error('Failed to load transactions');
+        }
+    };
+
+    const downloadTransactions = async () => {
+        try {
+        let rows = allTransactions;
+        if (!rows.length) {
+            const res = await API.get('/transactions?page=0&size=100');
+            rows = res.data.data?.content || [];
+            setAllTransactions(rows);
+        }
+
+        if (!rows.length) {
+            toast.info('No transactions available to download.');
+            return;
+        }
+
+        const header = [
+            'transaction_id',
+            'reference_number',
+            'type',
+            'status',
+            'amount',
+            'balance_before',
+            'balance_after',
+            'created_at',
+            'description',
+        ];
+        const csv = [
+            header.join(','),
+            ...rows.map(tx => [
+                tx.id,
+                tx.referenceNumber,
+                tx.type,
+                tx.status,
+                tx.amount,
+                tx.balanceBefore,
+                tx.balanceAfter,
+                tx.createdAt,
+                tx.description,
+            ].map(csvEscape).join(',')),
+        ].join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `premier-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast.success('Transactions downloaded.');
+        } catch (err) {
+        toast.error('Failed to download transactions.');
         }
     };
 
@@ -370,6 +432,9 @@ const DashboardPage = () => {
                                 <p className="font-black text-xs text-slate-900 leading-tight">
                                 {tx.type === 'TOPUP' ? 'Top-Up Load' : 'Fare Payment'}
                                 </p>
+                                <p className="text-[9px] text-[#7B181E] font-mono font-black mt-0.5">
+                                ID: {transactionId(tx)}
+                                </p>
                                 <p className="text-[10px] text-slate-400 font-mono mt-0.5">{formatDate(tx.createdAt)}</p>
                             </div>
                             </div>
@@ -414,6 +479,12 @@ const DashboardPage = () => {
                     <span className="font-black text-xs uppercase tracking-wider">Full Transaction Ledger History</span>
                 </div>
                 <button
+                    onClick={downloadTransactions}
+                    className="text-[10px] font-black uppercase tracking-wider bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg border-none text-white cursor-pointer"
+                >
+                    Download CSV
+                </button>
+                <button
                     onClick={() => setShowModal(false)}
                     className="grid place-items-center w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer border-none"
                 >
@@ -438,6 +509,9 @@ const DashboardPage = () => {
                             <div>
                             <p className="font-black text-xs text-slate-900">
                                 {tx.type === 'TOPUP' ? 'Top-Up Load' : 'Fare Payment'}
+                            </p>
+                            <p className="text-[9px] text-[#7B181E] font-mono font-black mt-0.5">
+                                ID: {transactionId(tx)}
                             </p>
                             <p className="text-[10px] text-slate-400 font-mono mt-0.5">{formatDate(tx.createdAt)}</p>
                             </div>

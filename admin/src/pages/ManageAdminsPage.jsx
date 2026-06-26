@@ -51,7 +51,7 @@ const ManageAdminsPage = () => {
         }
         try {
             await adminAPI.post('/admins/create', form);
-            toast.success('Admin created successfully!');
+            toast.success(form.role === 'STAFF' ? 'Staff account created successfully!' : 'Admin created successfully!');
             setShowCreate(false);
             setForm({
                 username: '', password: '',
@@ -61,7 +61,7 @@ const ManageAdminsPage = () => {
             fetchAdmins();
         } catch (err) {
             toast.error(
-                err.response?.data?.message || 'Failed to create admin');
+                err.response?.data?.message || 'Failed to create account');
         }
     };
 
@@ -109,14 +109,14 @@ const ManageAdminsPage = () => {
                         className={ui.adminActionGold}
                     >
                         <FiPlus />
-                        Create Admin
+                        Create Account
                     </button>
                 </header>
 
                 {/* Create Form */}
                 {showCreate && (
                     <section className="bg-white rounded-lg p-6 mb-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)] border-t-4 border-gold">
-                        <h2 className="m-0 mb-[1.1rem] text-maroon text-[1.05rem] font-black">Create New Admin</h2>
+                        <h2 className="m-0 mb-[1.1rem] text-maroon text-[1.05rem] font-black">Create New Admin or Staff</h2>
                         <div className="grid grid-cols-2 gap-4 max-[860px]:grid-cols-1">
                             <div>
                                 <label className={ui.fieldLabel}>Full Name *</label>
@@ -190,6 +190,7 @@ const ManageAdminsPage = () => {
                                         onChange={(e) => setForm({ ...form, role: e.target.value })}
                                         className="w-full border-0 outline-0 bg-transparent text-text-main text-[0.95rem]"
                                     >
+                                        <option value="STAFF">Staff</option>
                                         <option value="ADMIN">Admin</option>
                                         <option value="SUPER_ADMIN">Super Admin</option>
                                     </select>
@@ -203,7 +204,7 @@ const ManageAdminsPage = () => {
                                 className="inline-flex items-center justify-center gap-[0.55rem] min-h-[2.65rem] px-6 rounded-lg bg-maroon text-white font-black text-[0.95rem] cursor-pointer transition-all hover:bg-maroon-dark hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(111,47,60,0.22)]"
                             >
                                 <FiCheck />
-                                Create Admin
+                                Create Account
                             </button>
                             <button
                                 type="button"
@@ -219,9 +220,9 @@ const ManageAdminsPage = () => {
                 {/* Stats */}
                 <section className={ui.statsGrid} aria-label="Admin summary">
                     {[
-                        { label: 'Total Admins',  value: admins.length,                                          variant: 'maroon', Icon: FiUsers       },
+                        { label: 'Total Accounts',  value: admins.length,                                          variant: 'maroon', Icon: FiUsers       },
                         { label: 'Super Admins',  value: admins.filter(a => a.role === 'SUPER_ADMIN').length,    variant: 'gold',   Icon: FiStar        },
-                        { label: 'Active Admins', value: admins.filter(a => a.active).length,                    variant: 'green',  Icon: FiCheckCircle },
+                        { label: 'Staff Accounts', value: admins.filter(a => a.role === 'STAFF').length,                    variant: 'green',  Icon: FiCheckCircle },
                     ].map((c) => (
                         <article key={c.label} className={ui.statCardVariant[c.variant]}>
                             <div>
@@ -238,7 +239,7 @@ const ManageAdminsPage = () => {
                     <div className={ui.dataPanelHeader}>
                         <span className={ui.dataPanelTitle}>
                             <FiUsers />
-                            All Admins
+                            Admin and Staff Accounts
                             <span className={ui.countPill}>{admins.length} total</span>
                         </span>
                     </div>
@@ -269,17 +270,17 @@ const ManageAdminsPage = () => {
                                         <td className={ui.tableTd}><strong>{a.id}</strong></td>
                                         <td className={`${ui.tableTd} font-black`}>{a.fullName}</td>
                                         <td className={`${ui.tableTd} ${ui.mono}`}>{a.username}</td>
-                                        <td className={`${ui.tableTd} text-text-muted`}>{a.email || '—'}</td>
-                                        <td className={`${ui.tableTd} text-text-muted`}>{a.phoneNumber || '—'}</td>
+                                        <td className={`${ui.tableTd} text-text-muted`}>{a.email || 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â'}</td>
+                                        <td className={`${ui.tableTd} text-text-muted`}>{a.phoneNumber || 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â'}</td>
                                         <td className={ui.tableTd}>
                                             <span
                                                 className={[
                                                     'inline-flex items-center gap-1 px-[0.7rem] py-[0.22rem] rounded-full text-[0.7rem] font-black tracking-[0.02em]',
-                                                    a.role === 'SUPER_ADMIN' ? 'bg-gold text-maroon' : 'bg-maroon/10 text-maroon',
+                                                    a.role === 'SUPER_ADMIN' ? 'bg-gold text-maroon' : a.role === 'STAFF' ? 'bg-blue-100 text-blue-800' : 'bg-maroon/10 text-maroon',
                                                 ].join(' ')}
                                             >
                                                 {a.role === 'SUPER_ADMIN' ? <FiStar /> : <FiUser />}
-                                                {a.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
+                                                {a.role === 'SUPER_ADMIN' ? 'Super Admin' : a.role === 'STAFF' ? 'Staff' : 'Admin'}
                                             </span>
                                         </td>
                                         <td className={ui.tableTd}>

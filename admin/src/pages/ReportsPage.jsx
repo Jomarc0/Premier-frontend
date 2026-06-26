@@ -1,324 +1,565 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-    FiRefreshCw,
+    FiActivity,
     FiBarChart2,
+    FiCalendar,
+    FiCreditCard,
+    FiDollarSign,
+    FiDownload,
+    FiMoon,
+    FiRefreshCw,
+    FiSun,
     FiTruck,
     FiUsers,
-    FiTrendingUp,
-    FiDollarSign,
-    FiCheckCircle,
-    FiClock,
-    FiCreditCard,
-    FiPieChart,
-    FiList,
 } from 'react-icons/fi';
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Cell,
+    Legend,
+    Line,
+    LineChart,
+    Pie,
+    PieChart,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+} from 'recharts';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
-import {
-    LineChart, Line, BarChart, Bar,
-    XAxis, YAxis, CartesianGrid, Tooltip,
-    ResponsiveContainer, PieChart, Pie,
-    Cell, Legend
-} from 'recharts';
 import * as ui from '../components/adminUI';
 
+const COLORS = ['#6f2f3c', '#e8bd47', '#2f6b3d', '#3b6fb3', '#b24a52', '#8b5cf6'];
+
+const RANGE_OPTIONS = [
+    { label: 'Daily', value: 'daily' },
+    { label: 'Weekly', value: 'weekly' },
+    { label: 'Monthly', value: 'monthly' },
+    { label: 'Yearly', value: 'yearly' },
+    { label: 'Custom', value: 'custom' },
+];
+
+const money = (value) => `PHP ${Number(value || 0).toLocaleString('en-PH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+})}`;
+
+const number = (value) => Number(value || 0).toLocaleString('en-PH');
+const percent = (value) => `${Number(value || 0).toFixed(1)}%`;
+
+const metricValue = (value, type) => {
+    if (value === null || value === undefined) return 'Not stored';
+    if (type === 'money') return money(value);
+    if (type === 'percent') return percent(value);
+    return number(value);
+};
+
+const flattenForExport = (payload) => {
+    const rows = [];
+    const visit = (path, value) => {
+        if (Array.isArray(value)) {
+            value.forEach((item, index) => visit(`${path}[${index}]`, item));
+            return;
+        }
+        if (value && typeof value === 'object') {
+            Object.entries(value).forEach(([key, next]) => visit(path ? `${path}.${key}` : key, next));
+            return;
+        }
+        rows.push({ metric: path, value: value ?? '' });
+    };
+    visit('', payload);
+    return rows;
+};
+
 const ReportsPage = () => {
-    const [stats, setStats] = useState({});
-    const [transactions, setTransactions] = useState([]);
+    const [analytics, setAnalytics] = useState(null);
+    const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [period, setPeriod] = useState('month'); // day, month, year
+    const [darkMode, setDarkMode] = useState(false);
+    const [filters, setFilters] = useState({
+        range: 'monthly',
+        from: '',
+        to: '',
+        route: '',
+        bus: '',
+    });
 
-    useEffect(() => {
-        fetchData();
-    }, []);
+    const routes = useMemo(() => (
+        [...new Set(vehicles.map(v => v.route).filter(Boolean))]
+    ), [vehicles]);
 
-    const fetchData = async () => {
+    const fetchAnalytics = async () => {
         setLoading(true);
         try {
-            const [statsRes, txRes] = await Promise.all([
-                adminAPI.get('/dashboard/stats'),
-                adminAPI.get('/transactions?page=0&size=100'),
+            const params = {
+                range: filters.range,
+                ...(filters.from ? { from: filters.from } : {}),
+                ...(filters.to ? { to: filters.to } : {}),
+                ...(filters.route ? { route: filters.route } : {}),
+                ...(filters.bus ? { bus: filters.bus } : {}),
+            };
+            const [analyticsRes, vehiclesRes] = await Promise.all([
+                adminAPI.get('/analytics', { params }),
+                adminAPI.get('/vehicles'),
             ]);
-            setStats(statsRes.data.data || {});
-            setTransactions(
-                txRes.data.data?.content || []);
+            setAnalytics(analyticsRes.data.data);
+            setVehicles(vehiclesRes.data.data || []);
         } catch (err) {
-            console.error('Failed to load reports', err);
+            console.error('Failed to load analytics', err);
         } finally {
             setLoading(false);
         }
     };
 
-    const groupByPeriod = (txList, p) => {
-        const groups = {};
-        txList.forEach(tx => {
-            if (!tx.createdAt) return;
-            const date = new Date(tx.createdAt);
-            let key;
-            if (p === 'day') {
-                key = date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
-            } else if (p === 'month') {
-                key = date.toLocaleDateString('en-PH', { month: 'short', year: 'numeric' });
-            } else {
-                key = date.getFullYear().toString();
-            }
-            if (!groups[key]) {
-                groups[key] = { name: key, earnings: 0, count: 0 };
-            }
-            if (tx.status === 'SUCCESS' && tx.type === 'TOPUP') {
-                groups[key].earnings += parseFloat(tx.amount || 0);
-                groups[key].count += 1;
-            }
-        });
-        return Object.values(groups).slice(-12);
+    useEffect(() => {
+        fetchAnalytics();
+    }, []);
+
+    const updateFilter = (key, value) => {
+        setFilters(prev => ({ ...prev, [key]: value }));
     };
 
-    const earningsData = groupByPeriod(transactions, period);
-
-    const vehicleData = [
-        { name: 'Bus-001', passengers: 120, earnings: 2400 },
-        { name: 'Bus-002', passengers: 98,  earnings: 1960 },
-        { name: 'Bus-003', passengers: 145, earnings: 2900 },
-        { name: 'Bus-004', passengers: 76,  earnings: 1520 },
-        { name: 'Bus-005', passengers: 110, earnings: 2200 },
-    ];
-
-    const driverData = [
-        { name: 'Driver A', trips: 45, earnings: 3200 },
-        { name: 'Driver B', trips: 38, earnings: 2800 },
-        { name: 'Driver C', trips: 52, earnings: 3900 },
-        { name: 'Driver D', trips: 29, earnings: 2100 },
-        { name: 'Driver E', trips: 41, earnings: 3100 },
-    ];
-
-    const C_MAROON = '#6f2f3c';
-    const C_GOLD   = '#e8bd47';
-    const C_GREEN  = '#2f6b3d';
-    const C_BLUE   = '#3b6fb3';
-
-    const overviewCards = [
-        { label: 'Total Topup Earnings', value: `₱${parseFloat(stats.totalRevenue || 0).toFixed(2)}`, variant: 'gold',   badge: 'Topups',     Icon: FiCreditCard },
-        { label: 'Total Users',          value: stats.totalUsers || 0,                                variant: 'maroon', badge: 'Passengers', Icon: FiUsers      },
-        { label: 'Total Transactions',   value: stats.totalTransactions || 0,                         variant: 'green',  badge: 'Total',      Icon: FiTrendingUp },
-    ];
-
-    const overviewBg = {
-        maroon: 'bg-gradient-to-br from-maroon to-maroon-soft',
-        gold:   'bg-gradient-to-br from-[#d99a26] to-gold',
-        green:  'bg-gradient-to-br from-[#245a30] to-green-brand',
+    const download = (filename, content, type) => {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(url);
     };
+
+    const exportCsv = () => {
+        const rows = flattenForExport(analytics || {});
+        const body = rows.map(row => `"${row.metric.replaceAll('"', '""')}","${String(row.value).replaceAll('"', '""')}"`).join('\n');
+        download('admin-analytics.csv', `Metric,Value\n${body}`, 'text/csv');
+    };
+
+    const exportExcel = () => {
+        const rows = flattenForExport(analytics || {});
+        const body = rows.map(row => `<tr><td>${row.metric}</td><td>${row.value}</td></tr>`).join('');
+        download('admin-analytics.xls', `<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>${body}</tbody></table>`, 'application/vnd.ms-excel');
+    };
+
+    const exportPdf = () => {
+        const rows = flattenForExport(analytics || {}).slice(0, 250);
+        const popup = window.open('', '_blank');
+        if (!popup) return;
+        popup.document.write(`
+            <html>
+                <head>
+                    <title>Admin Analytics</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 24px; }
+                        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+                        th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+                        h1 { color: #6f2f3c; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Premier Transit Admin Analytics</h1>
+                    <table>
+                        <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+                        <tbody>${rows.map(row => `<tr><td>${row.metric}</td><td>${row.value}</td></tr>`).join('')}</tbody>
+                    </table>
+                </body>
+            </html>
+        `);
+        popup.document.close();
+        popup.print();
+    };
+
+    const executive = analytics?.executive || {};
+    const passenger = analytics?.passengerAnalytics || {};
+    const rfid = analytics?.rfidAnalytics || {};
+    const revenue = analytics?.revenueAnalytics || {};
+    const topUp = analytics?.topUpAnalytics || {};
+    const bus = analytics?.busAnalytics || {};
+    const gps = analytics?.gpsAnalytics || {};
+    const queue = analytics?.queueTerminalAnalytics || {};
+    const route = analytics?.routeAnalytics || {};
+    const driver = analytics?.driverConductorAnalytics || {};
+    const emergency = analytics?.emergencyAnalytics || {};
+    const operational = analytics?.operationalAnalytics || {};
+    const predictive = analytics?.predictiveAnalytics || {};
+
+    const shellClass = darkMode
+        ? 'bg-[#111827] text-slate-100'
+        : '';
+    const panelClass = darkMode
+        ? 'bg-[#1f2937] text-slate-100 border border-slate-700'
+        : 'bg-white text-text-main';
 
     return (
         <div className={ui.layout}>
             <AdminSidebar />
-            <main className={ui.workspace}>
-
-                {/* Header */}
+            <main className={`${ui.workspace} ${shellClass}`}>
                 <header className={ui.headerBar}>
                     <div>
                         <span className={ui.eyebrow}>Analytics</span>
-                        <h1 className={ui.headerTitle}>Reports & Analytics</h1>
+                        <h1 className={ui.headerTitle}>Admin Analytics Dashboard</h1>
+                        <p className="mt-1 mb-0 text-[0.8rem] text-text-muted">
+                            RFID fare, passenger, bus, GPS, route, revenue, queue, and operational analytics from live system tables.
+                        </p>
                     </div>
-                    <button type="button" onClick={fetchData} className={ui.adminActionRefresh}>
-                        <FiRefreshCw />
-                        Refresh
-                    </button>
+                    <div className="flex gap-2 flex-wrap">
+                        <button type="button" onClick={() => setDarkMode(v => !v)} className={ui.adminAction}>
+                            {darkMode ? <FiSun /> : <FiMoon />}
+                            {darkMode ? 'Light' : 'Dark'}
+                        </button>
+                        <button type="button" onClick={exportCsv} className={ui.adminAction}>
+                            <FiDownload /> CSV
+                        </button>
+                        <button type="button" onClick={exportExcel} className={ui.adminAction}>
+                            <FiDownload /> Excel
+                        </button>
+                        <button type="button" onClick={exportPdf} className={ui.adminAction}>
+                            <FiDownload /> PDF
+                        </button>
+                        <button type="button" onClick={fetchAnalytics} className={ui.adminActionRefresh}>
+                            <FiRefreshCw />
+                            Refresh
+                        </button>
+                    </div>
                 </header>
 
-                {/* Overview Cards */}
-                <section className="grid grid-cols-3 gap-4 mb-5 max-[860px]:grid-cols-1" aria-label="Reports overview">
-                    {overviewCards.map((c, i) => (
-                        <article
-                            key={i}
-                            className={`relative overflow-hidden rounded-lg p-[1.4rem] text-white shadow-[0_10px_26px_rgba(44,36,41,0.12)] ${overviewBg[c.variant]}`}
-                        >
-                            <span className="absolute top-3 right-[0.85rem] px-[0.6rem] py-[0.2rem] rounded-full bg-white/20 text-[0.7rem] font-black tracking-[0.04em]">
-                                {c.badge}
-                            </span>
-                            <div className="w-[2.4rem] h-[2.4rem] rounded-lg bg-white/20 grid place-items-center text-[1.2rem] mb-[0.6rem]">
-                                <c.Icon />
+                <section className={`${panelClass} rounded-lg p-4 shadow-[0_10px_26px_rgba(44,36,41,0.08)] mb-5`}>
+                    <div className="grid grid-cols-6 gap-3 max-[1100px]:grid-cols-3 max-[700px]:grid-cols-1">
+                        <FilterSelect label="Range" value={filters.range} onChange={v => updateFilter('range', v)} options={RANGE_OPTIONS} />
+                        <FilterInput label="From" type="date" value={filters.from} onChange={v => updateFilter('from', v)} />
+                        <FilterInput label="To" type="date" value={filters.to} onChange={v => updateFilter('to', v)} />
+                        <FilterSelect label="Route" value={filters.route} onChange={v => updateFilter('route', v)}
+                            options={[{ label: 'All Routes', value: '' }, ...routes.map(r => ({ label: r, value: r }))]} />
+                        <FilterSelect label="Bus" value={filters.bus} onChange={v => updateFilter('bus', v)}
+                            options={[{ label: 'All Buses', value: '' }, ...vehicles.map(v => ({ label: v.plateNumber, value: v.plateNumber }))]} />
+                        <button type="button" onClick={fetchAnalytics} className="rounded-md bg-maroon text-white font-black text-sm min-h-[2.65rem] self-end">
+                            Apply Filters
+                        </button>
+                    </div>
+                </section>
+
+                {loading ? (
+                    <div className={`${panelClass} rounded-lg p-8 text-center font-bold`}>Loading analytics...</div>
+                ) : (
+                    <>
+                        <MetricGrid title="Executive Dashboard" metrics={[
+                            ['Total Registered Passengers', executive.totalRegisteredPassengers, 'number', FiUsers],
+                            ['Active Passengers Today', executive.activePassengersToday, 'number', FiUsers],
+                            ['Total Revenue Today', executive.totalRevenueToday, 'money', FiDollarSign],
+                            ['Revenue This Week', executive.revenueThisWeek, 'money', FiDollarSign],
+                            ['Revenue This Month', executive.revenueThisMonth, 'money', FiDollarSign],
+                            ['Active Buses', executive.activeBuses, 'number', FiTruck],
+                            ['Buses On Route', executive.busesOnRoute, 'number', FiTruck],
+                            ['Buses At Terminal', executive.busesAtTerminal, 'number', FiTruck],
+                            ['Total Trips Today', executive.totalTripsToday, 'number', FiActivity],
+                            ['Emergency Alerts Today', executive.emergencyAlertsToday, 'number', FiActivity],
+                            ['Average Waiting Time', executive.averageWaitingTimeMinutes, 'number', FiCalendar],
+                            ['Average Arrival Time', executive.averageArrivalTimeMinutes, 'number', FiCalendar],
+                        ]} darkMode={darkMode} />
+
+                        <section className="grid grid-cols-2 gap-5 mb-5 max-[1100px]:grid-cols-1">
+                            <ChartPanel title="Passenger Growth Trend" panelClass={panelClass}>
+                                <LineGraph data={passenger.passengerGrowthTrend || []} lines={[['count', '#6f2f3c', 'Passengers']]} />
+                            </ChartPanel>
+                            <ChartPanel title="Revenue Trend" panelClass={panelClass}>
+                                <LineGraph data={revenue.revenueTrend || []} lines={[['revenue', '#2f6b3d', 'Revenue']]} moneyAxis />
+                            </ChartPanel>
+                            <ChartPanel title="Peak Travel Hours" panelClass={panelClass}>
+                                <BarGraph data={passenger.peakTravelHours || []} bars={[['count', '#e8bd47', 'Trips']]} />
+                            </ChartPanel>
+                            <ChartPanel title="Route Usage Distribution" panelClass={panelClass}>
+                                <PieGraph data={passenger.routeUsageDistribution || []} dataKey="passengers" />
+                            </ChartPanel>
+                        </section>
+
+                        <AnalyticsSection title="Passenger Analytics" panelClass={panelClass}
+                            summary={passenger.summary}
+                            charts={[
+                                ['Passenger Activity Trend', passenger.passengerActivityTrend, 'count'],
+                                ['Route Usage Distribution', passenger.routeUsageDistribution, 'passengers'],
+                            ]}
+                            tableTitle="Most Active Passengers"
+                            tableRows={passenger.mostActivePassengers}
+                        />
+
+                        <AnalyticsSection title="RFID Analytics" panelClass={panelClass}
+                            summary={rfid.summary}
+                            charts={[
+                                ['RFID Usage Trend', rfid.rfidUsageTrend, 'count'],
+                                ['RFID Activity Distribution', rfid.rfidActivityDistribution, 'count'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="Revenue Analytics" panelClass={panelClass}
+                            summary={revenue.summary}
+                            charts={[
+                                ['Revenue Per Route', revenue.revenuePerRoute, 'revenue'],
+                                ['Revenue Per Bus', revenue.revenuePerBus, 'revenue'],
+                                ['Monthly Revenue Comparison', revenue.monthlyRevenueComparison, 'revenue'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="Top-Up Analytics" panelClass={panelClass}
+                            summary={topUp.summary}
+                            charts={[
+                                ['Top-Up Trend', topUp.topUpTrend, 'revenue'],
+                                ['Monthly Top-Up Volume', topUp.monthlyTopUpVolume, 'count'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="Bus Analytics" panelClass={panelClass}
+                            summary={bus.summary}
+                            charts={[
+                                ['Bus Utilization', bus.tripsPerBus, 'trips'],
+                                ['Passenger Distribution Per Bus', bus.passengerDistributionPerBus, 'passengers'],
+                                ['Revenue Per Bus', bus.revenuePerBus, 'revenue'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="GPS Analytics" panelClass={panelClass}
+                            summary={gps.summary}
+                            charts={[
+                                ['Distance Traveled Trend', gps.distanceTraveledTrend, 'distanceKm'],
+                                ['Distance Per Route', gps.distancePerRoute, 'distanceKm'],
+                                ['Distance Per Bus', gps.distancePerBus, 'distanceKm'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="Queue and Terminal Analytics" panelClass={panelClass}
+                            summary={queue.summary}
+                            charts={[
+                                ['Queue Trend', queue.queueTrend, 'count'],
+                                ['Waiting Time Trend', queue.waitingTimeTrend, 'minutes'],
+                                ['Arrival Performance Trend', queue.arrivalPerformanceTrend, 'count'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="Route Analytics" panelClass={panelClass}
+                            summary={route.summary}
+                            charts={[
+                                ['Route Popularity', route.routePopularity, 'passengers'],
+                                ['Passenger Distribution By Route', route.passengerDistributionByRoute, 'passengers'],
+                                ['Revenue By Route', route.revenueByRoute, 'revenue'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="Driver and Conductor Analytics" panelClass={panelClass}
+                            summary={driver.summary}
+                            charts={[
+                                ['Driver Performance', driver.driverPerformance, 'trips'],
+                                ['Passengers Served By Driver', driver.passengersServedByDriver, 'passengers'],
+                                ['Revenue By Driver', driver.revenueByDriver, 'revenue'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="Emergency Analytics" panelClass={panelClass}
+                            summary={emergency.summary}
+                            charts={[
+                                ['Emergency Trend', emergency.emergencyTrend, 'alerts'],
+                                ['Emergency Reports Per Bus', emergency.emergencyReportsPerBus, 'alerts'],
+                                ['Emergency Reports Per Route', emergency.emergencyReportsPerRoute, 'alerts'],
+                            ]}
+                        />
+
+                        <AnalyticsSection title="Operational Analytics" panelClass={panelClass}
+                            summary={operational.summary}
+                            charts={[
+                                ['Occupancy Per Bus', operational.occupancyPerBus, 'occupancyRate'],
+                                ['Occupancy Per Route', operational.occupancyPerRoute, 'occupancyRate'],
+                                ['Fleet Utilization Trend', operational.fleetUtilizationTrend, 'occupancyRate'],
+                            ]}
+                        />
+
+                        <section className={`${panelClass} rounded-lg p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)] mb-5`}>
+                            <h2 className="m-0 mb-4 text-maroon text-lg font-black flex items-center gap-2">
+                                <FiBarChart2 /> Predictive Analytics
+                            </h2>
+                            <div className="grid grid-cols-4 gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1 mb-4">
+                                <SmallMetric label="Expected Passengers Tomorrow" value={predictive.expectedPassengersTomorrow} />
+                                <SmallMetric label="Expected Revenue Tomorrow" value={money(predictive.expectedRevenueTomorrow)} />
+                                <SmallMetric label="Expected Peak Travel Hours" value={(predictive.expectedPeakTravelHours || []).map(h => h.name).join(', ') || 'Not enough data'} />
+                                <SmallMetric label="Routes Requiring Additional Buses" value={(predictive.routesRequiringAdditionalBuses || []).join(', ') || 'None'} />
                             </div>
-                            <div className="text-[1.6rem] font-black leading-tight">{c.value}</div>
-                            <div className="text-[0.82rem] opacity-90 mt-[0.2rem]">{c.label}</div>
-                        </article>
-                    ))}
-                </section>
-
-                {/* Company Earnings Line Chart */}
-                <section className="bg-white rounded-lg p-[1.4rem] shadow-[0_10px_26px_rgba(44,36,41,0.08)] mb-[1.1rem]">
-                    <div className="flex justify-between items-center mb-[1.1rem] gap-4 flex-wrap">
-                        <h3 className="m-0 text-maroon text-base font-black inline-flex items-center gap-[0.45rem]">
-                            <FiTrendingUp />
-                            Company Earnings Over Time
-                        </h3>
-                        <div className="inline-flex gap-[0.35rem]">
-                            {['day', 'month', 'year'].map(p => (
-                                <button
-                                    key={p}
-                                    type="button"
-                                    onClick={() => setPeriod(p)}
-                                    className={[
-                                        'px-[0.9rem] py-[0.4rem] rounded-md border-[1.5px] text-[0.78rem] font-extrabold cursor-pointer capitalize transition-all',
-                                        period === p
-                                            ? 'bg-maroon text-white border-maroon'
-                                            : 'bg-white text-text-muted border-border-soft',
-                                    ].join(' ')}
-                                >
-                                    {p === 'day' ? 'Daily' : p === 'month' ? 'Monthly' : 'Yearly'}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    {loading ? (
-                        <div className="h-64 grid place-items-center text-text-muted italic">Loading chart...</div>
-                    ) : earningsData.length === 0 ? (
-                        <div className="h-64 grid place-items-center text-text-muted italic">No earnings data yet</div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height={260}>
-                            <LineChart data={earningsData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `₱${v}`} />
-                                <Tooltip formatter={(v) => [`₱${parseFloat(v).toFixed(2)}`, 'Earnings']} />
-                                <Legend />
-                                <Line type="monotone" dataKey="earnings" stroke={C_MAROON} strokeWidth={2.5} dot={{ fill: C_MAROON, r: 4 }} activeDot={{ r: 6 }} name="Earnings (₱)" />
-                                <Line type="monotone" dataKey="count" stroke={C_GOLD} strokeWidth={2} dot={{ fill: C_GOLD, r: 3 }} name="Transactions" />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    )}
-                </section>
-
-                {/* Per Vehicle & Per Driver Charts */}
-                <section className="grid grid-cols-2 gap-[1.1rem] mb-[1.1rem] max-[860px]:grid-cols-1">
-                    {/* Per Vehicle */}
-                    <div className="bg-white rounded-lg p-[1.4rem] shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
-                        <div className="flex justify-between items-center mb-[1.1rem] gap-4 flex-wrap">
-                            <h3 className="m-0 text-maroon text-base font-black inline-flex items-center gap-[0.45rem]">
-                                <FiTruck /> Earnings Per Vehicle
-                            </h3>
-                        </div>
-                        <ResponsiveContainer width="100%" height={220}>
-                            <BarChart data={vehicleData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `₱${v}`} />
-                                <Tooltip formatter={(v, n) => [n === 'earnings' ? `₱${v}` : v, n === 'earnings' ? 'Earnings' : 'Passengers']} />
-                                <Legend />
-                                <Bar dataKey="earnings" fill={C_MAROON} name="Earnings (₱)" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="passengers" fill={C_GOLD} name="Passengers" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-
-                    {/* Per Driver */}
-                    <div className="bg-white rounded-lg p-[1.4rem] shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
-                        <div className="flex justify-between items-center mb-[1.1rem] gap-4 flex-wrap">
-                            <h3 className="m-0 text-maroon text-base font-black inline-flex items-center gap-[0.45rem]">
-                                <FiUsers /> Earnings Per Driver
-                            </h3>
-                        </div>
-                        <ResponsiveContainer width="100%" height={220}>
-                            <BarChart data={driverData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `₱${v}`} />
-                                <Tooltip formatter={(v, n) => [n === 'earnings' ? `₱${v}` : v, n === 'earnings' ? 'Earnings' : 'Trips']} />
-                                <Legend />
-                                <Bar dataKey="earnings" fill={C_GREEN} name="Earnings (₱)" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="trips" fill={C_BLUE} name="Trips" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </section>
-
-                {/* Passengers Per Vehicle Per Period */}
-                <section className="bg-white rounded-lg p-[1.4rem] shadow-[0_10px_26px_rgba(44,36,41,0.08)] mb-[1.1rem]">
-                    <div className="flex justify-between items-center mb-[1.1rem] gap-4 flex-wrap">
-                        <h3 className="m-0 text-maroon text-base font-black inline-flex items-center gap-[0.45rem]">
-                            <FiUsers /> Passengers Per Vehicle Per Period
-                        </h3>
-                    </div>
-                    <ResponsiveContainer width="100%" height={240}>
-                        <LineChart data={[
-                            { name: 'Jan', 'Bus-001': 120, 'Bus-002': 98,  'Bus-003': 145 },
-                            { name: 'Feb', 'Bus-001': 132, 'Bus-002': 105, 'Bus-003': 138 },
-                            { name: 'Mar', 'Bus-001': 118, 'Bus-002': 112, 'Bus-003': 160 },
-                            { name: 'Apr', 'Bus-001': 145, 'Bus-002': 89,  'Bus-003': 142 },
-                            { name: 'May', 'Bus-001': 130, 'Bus-002': 120, 'Bus-003': 155 },
-                        ]}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                            <YAxis tick={{ fontSize: 11 }} />
-                            <Tooltip />
-                            <Legend />
-                            <Line type="monotone" dataKey="Bus-001" stroke={C_MAROON} strokeWidth={2} dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="Bus-002" stroke={C_GOLD}   strokeWidth={2} dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="Bus-003" stroke={C_GREEN}  strokeWidth={2} dot={{ r: 3 }} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </section>
-
-                {/* Revenue Breakdown Pie + Summary */}
-                <section className="grid grid-cols-2 gap-[1.1rem] mb-[1.1rem] max-[860px]:grid-cols-1">
-                    <div className="bg-white rounded-lg p-[1.4rem] shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
-                        <div className="flex justify-between items-center mb-[1.1rem] gap-4 flex-wrap">
-                            <h3 className="m-0 text-maroon text-base font-black inline-flex items-center gap-[0.45rem]">
-                                <FiPieChart /> Revenue Breakdown
-                            </h3>
-                        </div>
-                        <ResponsiveContainer width="100%" height={220}>
-                            <PieChart>
-                                <Pie
-                                    data={[
-                                        { name: 'Topup Revenue', value: parseFloat(stats.totalRevenue || 0) },
-                                        { name: 'Completed',     value: stats.completedTransactions || 0 },
-                                        { name: 'Pending',       value: stats.pendingTransactions || 0 },
-                                    ]}
-                                    cx="50%"
-                                    cy="50%"
-                                    outerRadius={80}
-                                    dataKey="value"
-                                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                                >
-                                    <Cell fill={C_MAROON} />
-                                    <Cell fill={C_GREEN} />
-                                    <Cell fill={C_GOLD} />
-                                </Pie>
-                                <Tooltip formatter={(v) => `₱${parseFloat(v).toFixed(2)}`} />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
-
-                    {/* Summary Stats */}
-                    <div className="bg-white rounded-lg p-[1.4rem] shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
-                        <div className="flex justify-between items-center mb-[1.1rem] gap-4 flex-wrap">
-                            <h3 className="m-0 text-maroon text-base font-black inline-flex items-center gap-[0.45rem]">
-                                <FiList /> Summary Statistics
-                            </h3>
-                        </div>
-                        <ul className="p-0 m-0 list-none">
-                            {[
-                                { label: 'Total Revenue',            value: `₱${parseFloat(stats.totalRevenue || 0).toFixed(2)}`, cls: 'text-green-brand', Icon: FiDollarSign  },
-                                { label: 'Total Users',              value: stats.totalUsers || 0,                                cls: 'text-maroon',      Icon: FiUsers       },
-                                { label: 'Total Transactions',       value: stats.totalTransactions || 0,                         cls: 'text-[#b78a0e]',   Icon: FiBarChart2   },
-                                { label: 'Completed Transactions',   value: stats.completedTransactions || 0,                     cls: 'text-green-brand', Icon: FiCheckCircle },
-                                { label: 'Pending Transactions',     value: stats.pendingTransactions || 0,                       cls: 'text-[#d97706]',   Icon: FiClock       },
-                                { label: 'Total Balance (All Users)',value: `₱${parseFloat(stats.totalBalance || 0).toFixed(2)}`, cls: 'text-maroon',      Icon: FiCreditCard  },
-                            ].map((s, i) => (
-                                <li key={i} className="flex justify-between items-center py-[0.65rem] border-b border-border-soft last:border-b-0 text-[0.86rem]">
-                                    <span className="inline-flex items-center gap-2 text-text-main">
-                                        <s.Icon />
-                                        {s.label}
-                                    </span>
-                                    <span className={`font-black ${s.cls}`}>{s.value}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                </section>
+                            <p className="text-xs text-text-muted mb-4">
+                                Method: {predictive.method || 'Moving average from historical fare activity'}
+                            </p>
+                            <LineGraph data={predictive.revenueForecast || []} lines={[['revenue', '#6f2f3c', 'Forecast Revenue']]} moneyAxis />
+                        </section>
+                    </>
+                )}
             </main>
         </div>
     );
 };
+
+const FilterInput = ({ label, type, value, onChange }) => (
+    <label className="grid gap-1 text-xs font-black text-text-muted uppercase">
+        {label}
+        <input
+            type={type}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="rounded-md border border-border-soft px-3 py-2 text-sm normal-case font-semibold text-text-main"
+        />
+    </label>
+);
+
+const FilterSelect = ({ label, value, onChange, options }) => (
+    <label className="grid gap-1 text-xs font-black text-text-muted uppercase">
+        {label}
+        <select
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="rounded-md border border-border-soft px-3 py-2 text-sm normal-case font-semibold text-text-main"
+        >
+            {options.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+        </select>
+    </label>
+);
+
+const MetricGrid = ({ title, metrics, darkMode }) => (
+    <section className="mb-5">
+        <h2 className="m-0 mb-3 text-maroon text-lg font-black">{title}</h2>
+        <div className="grid grid-cols-4 gap-3 max-[1200px]:grid-cols-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1">
+            {metrics.map(([label, value, type, Icon]) => (
+                <article
+                    key={label}
+                    className={`rounded-lg p-4 shadow-[0_10px_26px_rgba(44,36,41,0.08)] ${darkMode ? 'bg-[#1f2937] border border-slate-700' : 'bg-white'}`}
+                >
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs text-text-muted font-black uppercase">{label}</div>
+                        <Icon className="text-maroon" />
+                    </div>
+                    <div className="text-xl font-black text-maroon mt-2">{metricValue(value, type)}</div>
+                </article>
+            ))}
+        </div>
+    </section>
+);
+
+const SmallMetric = ({ label, value }) => (
+    <div className="rounded-md bg-page-bg p-3 border border-border-soft">
+        <div className="text-xs text-text-muted font-black uppercase">{label}</div>
+        <div className="text-base font-black text-maroon mt-1">{value ?? 'Not stored'}</div>
+    </div>
+);
+
+const ChartPanel = ({ title, children, panelClass }) => (
+    <section className={`${panelClass} rounded-lg p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]`}>
+        <h3 className="m-0 mb-4 text-maroon text-base font-black">{title}</h3>
+        {children}
+    </section>
+);
+
+const AnalyticsSection = ({ title, summary = {}, charts = [], tableTitle, tableRows, panelClass }) => (
+    <section className={`${panelClass} rounded-lg p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)] mb-5`}>
+        <h2 className="m-0 mb-4 text-maroon text-lg font-black">{title}</h2>
+        <div className="grid grid-cols-4 gap-3 max-[1100px]:grid-cols-2 max-[560px]:grid-cols-1 mb-5">
+            {Object.entries(summary || {}).map(([key, value]) => (
+                <SmallMetric key={key} label={key.replace(/([A-Z])/g, ' $1')} value={typeof value === 'object' && value !== null ? value.name || value.value : metricValue(value)} />
+            ))}
+        </div>
+        <div className="grid grid-cols-3 gap-4 max-[1200px]:grid-cols-1">
+            {charts.map(([chartTitle, data, dataKey]) => (
+                <ChartPanel key={chartTitle} title={chartTitle} panelClass="bg-page-bg">
+                    <BarGraph data={data || []} bars={[[dataKey, '#6f2f3c', chartTitle]]} />
+                </ChartPanel>
+            ))}
+        </div>
+        {tableRows?.length > 0 && (
+            <div className="mt-5">
+                <h3 className="m-0 mb-2 text-maroon text-base font-black">{tableTitle}</h3>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <tbody>
+                            {tableRows.map((row, index) => (
+                                <tr key={index} className="border-b border-border-soft">
+                                    {Object.entries(row).map(([key, value]) => (
+                                        <td key={key} className="py-2 pr-4">
+                                            <span className="font-black text-text-muted uppercase text-[0.68rem]">{key}: </span>
+                                            {String(value)}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+    </section>
+);
+
+const LineGraph = ({ data, lines, moneyAxis }) => (
+    <div className="h-72">
+        {data?.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={moneyAxis ? v => `PHP ${v}` : undefined} />
+                    <Tooltip formatter={(value) => moneyAxis ? money(value) : number(value)} />
+                    <Legend />
+                    {lines.map(([key, color, name]) => (
+                        <Line key={key} type="monotone" dataKey={key} stroke={color} strokeWidth={2.5} dot={{ r: 3 }} name={name} />
+                    ))}
+                </LineChart>
+            </ResponsiveContainer>
+        ) : (
+            <EmptyChart />
+        )}
+    </div>
+);
+
+const BarGraph = ({ data, bars }) => (
+    <div className="h-64">
+        {data?.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Legend />
+                    {bars.map(([key, color, name]) => (
+                        <Bar key={key} dataKey={key} fill={color} name={name} radius={[4, 4, 0, 0]} />
+                    ))}
+                </BarChart>
+            </ResponsiveContainer>
+        ) : (
+            <EmptyChart />
+        )}
+    </div>
+);
+
+const PieGraph = ({ data, dataKey }) => (
+    <div className="h-72">
+        {data?.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                    <Pie data={data} dataKey={dataKey} nameKey="name" outerRadius={90} label>
+                        {data.map((_, index) => (
+                            <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                </PieChart>
+            </ResponsiveContainer>
+        ) : (
+            <EmptyChart />
+        )}
+    </div>
+);
+
+const EmptyChart = () => (
+    <div className="h-full grid place-items-center rounded-md border border-dashed border-border-soft text-text-muted text-sm font-bold">
+        No stored data for this chart yet
+    </div>
+);
 
 export default ReportsPage;
