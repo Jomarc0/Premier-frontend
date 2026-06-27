@@ -6,9 +6,7 @@ import {
     FiArrowLeft, FiCreditCard, FiTruck, FiLock, FiCamera,
 } from 'react-icons/fi';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
-
-const API = `${import.meta.env.VITE_API_URL}/api/driver`;
+import api from '../../api/axios';
 
 const peso = (n) =>
     `₱${parseFloat(n ?? 0).toLocaleString('en-PH', {
@@ -106,7 +104,7 @@ function VehicleSelector({ onSelect }) {
     const [selected,  setSelected]  = useState('');
 
     useEffect(() => {
-        axios.get(`${API}/vehicles`)
+        api.get('/rfid/vehicles')
             .then(res => setVehicles(res.data?.data || []))
             .catch(() => toast.error('Failed to load vehicles'))
             .finally(() => setLoading(false));

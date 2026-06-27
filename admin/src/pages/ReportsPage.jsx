@@ -484,9 +484,9 @@ const AnalyticsSection = ({ title, summary = {}, charts = [], tableTitle, tableR
 );
 
 const LineGraph = ({ data, lines, moneyAxis }) => (
-    <div className="h-72">
+    <div className="h-72 w-full min-w-0">
         {data?.length ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={288} minWidth={0}>
                 <LineChart data={data}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -505,9 +505,9 @@ const LineGraph = ({ data, lines, moneyAxis }) => (
 );
 
 const BarGraph = ({ data, bars }) => (
-    <div className="h-64">
+    <div className="h-64 w-full min-w-0">
         {data?.length ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256} minWidth={0}>
                 <BarChart data={data}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
@@ -526,9 +526,9 @@ const BarGraph = ({ data, bars }) => (
 );
 
 const PieGraph = ({ data, dataKey }) => (
-    <div className="h-72">
+    <div className="h-72 w-full min-w-0">
         {data?.length ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={288} minWidth={0}>
                 <PieChart>
                     <Pie data={data} dataKey={dataKey} nameKey="name" outerRadius={90} label>
                         {data.map((_, index) => (

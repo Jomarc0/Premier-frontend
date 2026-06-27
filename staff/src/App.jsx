@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import logo from "./assets/image/premier-logo.png";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8080").replace(/\/$/, "");
-const STAFF_USERNAME = import.meta.env.VITE_STAFF_USERNAME || "staff";
-const STAFF_PASSWORD = import.meta.env.VITE_STAFF_PASSWORD || "staff123";
 const SESSION_KEY = "premier_staff_session";
 
 const emptyQueue = {
@@ -42,6 +40,25 @@ function normalizeBuses(items = []) {
       return a.estimatedArrivalMinutes - b.estimatedArrivalMinutes;
     })
     .map((bus, index) => ({ ...bus, queuePosition: index + 1 }));
+}
+
+function normalizeQueuePayload(payload) {
+  const data = payload?.data ?? payload ?? emptyQueue;
+
+  return {
+    incomingToSmTerminal: normalizeBuses(data.incomingToSmTerminal || data.sm || []),
+    incomingToGrandTerminal: normalizeBuses(data.incomingToGrandTerminal || data.grand || []),
+  };
+}
+
+function formatDistance(value) {
+  const distance = Number(value);
+  return Number.isFinite(distance) ? `${distance.toFixed(1)} km` : "Unknown";
+}
+
+function formatEta(value) {
+  const minutes = Number(value);
+  return Number.isFinite(minutes) && minutes > 0 ? `${Math.round(minutes)} min` : "Unknown";
 }
 
 function routeLabel(routeDirection) {
@@ -94,10 +111,10 @@ function routeForBus(bus) {
     const distanceToGrand = distanceKm(latitude, longitude, GRAND_TERMINAL.latitude, GRAND_TERMINAL.longitude);
 
     if (distanceToSm <= TERMINAL_GEOFENCE_KM && distanceToSm <= distanceToGrand) {
-      return "SM Terminal to Grand Terminal";
+      return "Grand Terminal to SM Terminal";
     }
     if (distanceToGrand <= TERMINAL_GEOFENCE_KM) {
-      return "Grand Terminal to SM Terminal";
+      return "SM Terminal to Grand Terminal";
     }
 
     return routeFromStoredValue(bus.route || bus.routeDirection)
@@ -126,14 +143,11 @@ function toQueueItem(bus, routeDirection, destination, origin) {
     ? distanceKm(latitude, longitude, origin.latitude, origin.longitude)
     : 999;
 
-  const apiDistance = Number(bus.distanceRemainingKm ?? bus.distanceKm);
-  const apiEta = Number(bus.estimatedArrivalMinutes ?? bus.etaMinutes);
-
   return {
     plateNumber: bus.plateNumber || "Unknown Plate",
     routeDirection,
-    distanceRemainingKm: Number.isFinite(apiDistance) ? apiDistance : Math.round(distance * 10) / 10,
-    estimatedArrivalMinutes: Number.isFinite(apiEta) ? apiEta : Math.max(1, Math.round((distance / speed) * 60)),
+    distanceRemainingKm: Math.round(distance * 10) / 10,
+    estimatedArrivalMinutes: Math.max(1, Math.round((distance / speed) * 60)),
     statusLabel: statusFor(distance, originDistance),
   };
 }
@@ -157,17 +171,46 @@ function LoginPage({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
+    setError("");
+    setSubmitting(true);
 
-    if (username.trim() === STAFF_USERNAME && password === STAFF_PASSWORD) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ username: username.trim(), loggedInAt: Date.now() }));
-      onLogin(username.trim());
-      return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/auth/login`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username: username.trim(), password }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.message || `Login failed (${response.status})`);
+      }
+
+      const account = payload?.data || payload;
+      if (account?.role !== "STAFF") {
+        throw new Error("Only staff accounts can open the staff dashboard.");
+      }
+
+      const session = {
+        token: account.token,
+        username: account.username || username.trim(),
+        fullName: account.fullName || account.username || username.trim(),
+        role: account.role,
+        loggedInAt: Date.now(),
+      };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      onLogin(session);
+    } catch (loginError) {
+      setError(loginError.message || "Invalid staff username or password.");
+    } finally {
+      setSubmitting(false);
     }
-
-    setError("Invalid staff username or password.");
   }
 
   return (
@@ -185,7 +228,7 @@ function LoginPage({ onLogin }) {
 
         <div className="grid content-center p-[clamp(2rem,5vw,3.5rem)] bg-white">
           <h2 className="m-0 text-[#6f2f3c] text-3xl font-black">Staff Login</h2>
-          <p className="mt-1 mb-7 text-[#717680] text-sm">Sign in to monitor buses near SM Terminal and Grand Terminal.</p>
+          <p className="mt-1 mb-7 text-[#717680] text-sm">Sign in using the staff account created by the admin.</p>
 
           <form onSubmit={handleSubmit}>
             <label htmlFor="staff-username" className="block mb-2 text-[#343946] font-extrabold text-sm">Username</label>
@@ -214,12 +257,10 @@ function LoginPage({ onLogin }) {
 
             {error ? <p className="mb-5 rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-red-700 border border-red-100">{error}</p> : null}
 
-            <button type="submit" className="w-full min-h-12 rounded-lg bg-[#6f2f3c] text-white font-black transition hover:bg-[#572631] hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(111,47,60,0.22)]">
-              Login
+            <button type="submit" disabled={submitting} className="w-full min-h-12 rounded-lg bg-[#6f2f3c] text-white font-black transition hover:bg-[#572631] hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(111,47,60,0.22)] disabled:opacity-60 disabled:cursor-not-allowed">
+              {submitting ? "Signing in..." : "Login"}
             </button>
           </form>
-
-          <p className="mt-6 text-xs text-[#717680]">Default login: staff / staff123</p>
         </div>
       </section>
     </main>
@@ -253,8 +294,8 @@ function QueueCard({ bus }) {
           <dt className="text-[10px] font-black uppercase tracking-wide text-[#717680]">Route</dt>
           <dd className="mt-1 font-bold text-[#352f33]">{routeLabel(bus.routeDirection)}</dd>
         </div>
-        <StatTile label="Distance" value={`${bus.distanceRemainingKm.toFixed(1)} km`} />
-        <StatTile label="ETA" value={`${bus.estimatedArrivalMinutes} min`} />
+        <StatTile label="Distance" value={formatDistance(bus.distanceRemainingKm)} />
+        <StatTile label="ETA" value={formatEta(bus.estimatedArrivalMinutes)} />
       </dl>
     </article>
   );
@@ -292,10 +333,16 @@ function Dashboard({ username, onLogout }) {
     if (!silent) setLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/driver/buses`, { headers: { Accept: "application/json" } });
+      const savedSession = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      const response = await fetch(`${API_BASE_URL}/api/staff/bus-queue`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${savedSession?.token || ""}`,
+        },
+      });
       if (!response.ok) throw new Error(`API returned ${response.status}`);
       const payload = await response.json();
-      setQueue(buildQueueFromDriverBuses(payload));
+      setQueue(normalizeQueuePayload(payload));
       setError("");
       setLastUpdated(new Date());
     } catch (requestError) {
@@ -438,21 +485,20 @@ function Dashboard({ username, onLogout }) {
   );
 }
 export default function App() {
-  const [username, setUsername] = useState(() => {
+  const [session, setSession] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
-      return saved?.username || "";
+      return saved?.role === "STAFF" ? saved : null;
     } catch {
-      return "";
+      return null;
     }
   });
 
   function handleLogout() {
     localStorage.removeItem(SESSION_KEY);
-    setUsername("");
+    setSession(null);
   }
 
-  if (!username) return <LoginPage onLogin={setUsername} />;
-  return <Dashboard username={username} onLogout={handleLogout} />;
+  if (!session) return <LoginPage onLogin={setSession} />;
+  return <Dashboard username={session.fullName || session.username} onLogout={handleLogout} />;
 }
-

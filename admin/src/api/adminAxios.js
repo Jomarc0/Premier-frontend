@@ -19,6 +19,13 @@ adminAPI.interceptors.request.use(
 adminAPI.interceptors.response.use(
     (response) => response,
     (error) => {
+        if (error.response?.status === 401) {
+            localStorage.removeItem('adminToken');
+            localStorage.removeItem('adminName');
+            localStorage.removeItem('adminUsername');
+            localStorage.removeItem('adminRole');
+            window.location.href = '/admin/login';
+        }
         return Promise.reject(error);
     }
 );

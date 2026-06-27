@@ -13,6 +13,7 @@ import {
 } from 'react-icons/fi';
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
+import adminAPI from '../api/adminAxios';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -38,6 +39,17 @@ const MAP_ZOOM    = 12;
 const SM_LIPA     = { name: 'SM Lipa',     lat: 13.954781, lng: 121.163096 };
 const GRAND_TERMINAL = { name: 'Grand Terminal', lat: 13.790391, lng: 121.062721 };
 
+const getBusList = (payload) => {
+    const data = payload?.data ?? payload;
+
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.content)) return data.content;
+    if (Array.isArray(data?.buses)) return data.buses;
+    if (Array.isArray(data?.vehicles)) return data.vehicles;
+
+    return [];
+};
+
 const MapFlyTo = ({ target }) => {
     const map = useMap();
     useEffect(() => {
@@ -58,10 +70,10 @@ const VehicleMonitoringPage = () => {
 
     const fetchBuses = async () => {
         try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/driver/buses`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const response = await res.json();
-            setBuses(response.data || []);
+            const response = await adminAPI.get(
+                `${import.meta.env.VITE_API_URL}/api/driver/buses`
+            );
+            setBuses(getBusList(response.data));
             setLastUpdated(new Date().toLocaleTimeString());
             setError(null);
         } catch (err) {
