@@ -19,7 +19,11 @@ adminAPI.interceptors.request.use(
 adminAPI.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
+        const requestUrl = error.config?.url || '';
+        const isLoginRequest = requestUrl.includes('/auth/login');
+        const isTotpVerifyRequest = requestUrl.includes('/auth/totp/verify');
+
+        if (error.response?.status === 401 && !isLoginRequest && !isTotpVerifyRequest) {
             localStorage.removeItem('adminToken');
             localStorage.removeItem('adminName');
             localStorage.removeItem('adminUsername');

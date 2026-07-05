@@ -1,13 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { FiArrowLeft, FiClock } from 'react-icons/fi';
 import { toast } from 'react-toastify';
-import { FiLock, FiCheck, FiArrowLeft } from 'react-icons/fi';
+import TotpInput from '@/components/auth/TotpInput';
+import PrimaryButton from '@/components/auth/PrimaryButton';
+import BrandLogo from '@/components/auth/BrandLogo';
+import { BRAND_NAME, FOOTER_TEXT } from '@/constants/brand';
+import { useAuth } from '../context/AuthContext';
+
+const CountdownBadge = ({ timerLabel }) => (
+  <div className="inline-flex items-center gap-2 rounded-full bg-brand-primary/5 px-4 py-2 text-sm text-text-body shadow-[0_8px_18px_rgba(31,36,48,0.08)]">
+    <FiClock className="text-brand-primary" />
+    Expires in <span className="font-black text-brand-primary">{timerLabel}</span>
+  </div>
+);
 
 const TotpVerifyPage = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [totpCode, setTotpCode] = useState('');
+  const [secondsLeft, setSecondsLeft] = useState(30);
+  const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
@@ -18,9 +30,24 @@ const TotpVerifyPage = () => {
     }
   }, [navigate]);
 
-  const handleVerify = async (e) => {
-    e.preventDefault();
-    if (totpCode.length !== 6) { toast.warning('Enter your 6-digit code'); return; }
+  useEffect(() => {
+    const updateTimer = () => {
+      const currentSecond = Math.floor(Date.now() / 1000);
+      setSecondsLeft(30 - (currentSecond % 30));
+    };
+
+    updateTimer();
+    const timer = window.setInterval(updateTimer, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const handleVerify = async (nextCode = code) => {
+    const cleanCode = String(nextCode).replace(/\D/g, '').slice(0, 6);
+    if (verifying) return;
+    if (cleanCode.length !== 6) {
+      toast.warning('Enter your 6-digit code');
+      return;
+    }
 
     setVerifying(true);
     try {
@@ -34,11 +61,16 @@ const TotpVerifyPage = () => {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/verify-totp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tempToken, totpCode }),
+        body: JSON.stringify({ tempToken, totpCode: cleanCode }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Invalid code');
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error(data.message || 'Code rejected. Please login again and enter the current authenticator code.');
+        }
+        throw new Error(data.message || 'Invalid code');
+      }
 
       const { token, passengerName } = data.data;
       login(token, passengerName);
@@ -48,75 +80,78 @@ const TotpVerifyPage = () => {
       navigate('/dashboard');
     } catch (err) {
       toast.error(err.message || 'Wrong code. Please try again.');
-      setTotpCode('');
+      setCode('');
     } finally {
       setVerifying(false);
     }
   };
 
-  return (
-    <main className="min-h-screen grid place-items-center px-4 py-8 bg-linear-to-br from-[#edf1f6] to-[#f8fafc]">
-      <section className="w-full max-w-105 px-10 py-10 rounded-lg bg-white shadow-[0_18px_42px_rgba(44,36,41,0.14)] text-center">
+  const handleResend = () => {
+    toast.info('Use the current code from your authenticator app.');
+  };
 
-        {/* Icon */}
-        <div className="w-20 h-20 rounded-full bg-[#8f151d] flex items-center justify-center mx-auto mb-5 shadow-[0_10px_25px_rgba(143,21,29,0.3)]">
-          <FiLock className="text-white text-[1.9rem]" />
+  const timerLabel = `00:${String(secondsLeft).padStart(2, '0')}`;
+
+  return (
+    <main className="grid min-h-screen place-items-center bg-page px-4 py-12 font-sans text-text-heading selection:bg-brand-primary selection:text-white">
+      <section className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl md:p-8">
+        <div className="mb-5 text-left">
+          <button
+            type="button"
+            onClick={() => navigate('/login')}
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-primary/10 px-3 py-2 text-sm font-semibold text-brand-primary transition hover:bg-brand-primary/15"
+          >
+            <FiArrowLeft />
+            Back
+          </button>
         </div>
 
-        <h2 className="text-[1.5rem] font-black mb-2 text-[#8f151d]">
-          Two-Factor Authentication
-        </h2>
-        <p className="text-[#717680] text-sm mb-8">
-          Enter the code from your authenticator app
+        <BrandLogo className="h-20 w-20" />
+
+        <h1 className="mt-5 text-2xl font-black uppercase leading-tight text-brand-primary">
+          {BRAND_NAME}
+        </h1>
+        <p className="mt-0.5 mb-5 text-xs font-bold uppercase tracking-widest text-brand-accent">
+          Secure Login
         </p>
 
-        <form onSubmit={handleVerify}>
-          <label className="block text-left text-sm font-semibold text-[#434854] mb-2">
-            Authentication Code
-          </label>
-
-          <input
-            type="text"
-            inputMode="numeric"
-            placeholder="000 000"
-            maxLength={6}
-            value={totpCode}
-            onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
-            required
-            autoFocus
-            className="w-full text-center text-[2.5rem] font-black tracking-[0.5rem] py-5 border-2 border-[#8f151d] rounded-lg outline-none text-[#8f151d] mb-2 focus:border-[#761016] transition-colors"
-          />
-
-          <p className="text-xs text-left text-[#717680] mb-6">
-            Enter the 6-digit code from Google Authenticator
+        <div className="mb-5 rounded-xl border border-slate-100 bg-slate-50 p-3 text-left">
+          <h2 className="mb-1 text-xs font-black uppercase tracking-wider text-brand-primary">
+            Verify Your Identity
+          </h2>
+          <p className="text-[11px] leading-relaxed text-text-body">
+            Enter the 6-digit code from your authenticator app to continue.
           </p>
-
-          <button
-            type="submit"
-            disabled={verifying || totpCode.length !== 6}
-            className="w-full py-4 rounded-lg text-white font-bold text-base flex items-center justify-center gap-2 mb-5 bg-[#8f151d] hover:bg-[#761016] disabled:bg-[#a5212a] disabled:opacity-65 disabled:cursor-not-allowed transition-colors"
-          >
-            <FiCheck className="text-lg" />
-            {verifying ? 'Verifying...' : 'Verify & Login'}
-          </button>
-        </form>
-
-        <button
-          onClick={() => navigate('/login')}
-          className="flex items-center justify-center gap-1 mx-auto mb-6 text-sm font-medium text-[#8f151d] bg-transparent cursor-pointer hover:text-[#761016] transition-colors"
-        >
-          <FiArrowLeft className="text-base" /> Back to Login
-        </button>
-
-        <div className="border-t border-[#e6e8ee] pt-4">
-          <p className="text-xs text-[#717680] mb-1">Lost access to your authenticator?</p>
-          <a
-            href="tel:+1234567890"
-            className="font-bold text-sm underline text-[#8f151d]"
-          >
-            Contact Support: (123) 456-7890
-          </a>
         </div>
+
+        <div className="rounded-xl border border-border-input bg-white p-4">
+          <p className="mb-3 text-left text-sm font-black text-text-heading">Authentication code</p>
+          <TotpInput value={code} onChange={setCode} onComplete={handleVerify} />
+
+          <div className="mt-5 grid">
+            <PrimaryButton disabled={verifying || code.length < 6} onClick={() => handleVerify()}>
+              {verifying ? 'Verifying...' : 'Verify & Login'}
+            </PrimaryButton>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <CountdownBadge timerLabel={timerLabel} />
+          <p className="mt-4 text-center text-sm text-text-body">
+            Didn't receive the code?{' '}
+            <button
+              type="button"
+              onClick={handleResend}
+              className="font-semibold text-brand-primary hover:underline"
+            >
+              Resend
+            </button>
+          </p>
+        </div>
+
+        <footer className="mt-6 text-[10px] font-bold uppercase tracking-tight text-text-body">
+          {FOOTER_TEXT}
+        </footer>
       </section>
     </main>
   );

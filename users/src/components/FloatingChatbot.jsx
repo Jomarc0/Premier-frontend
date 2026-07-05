@@ -1,0 +1,295 @@
+import { useEffect, useRef, useState } from 'react';
+import { Bot, CheckCircle2, RotateCcw, Send, Wifi, X } from 'lucide-react';
+import { useChatbot } from '../hooks/useChatbot';
+import { useAuth } from '../context/AuthContext';
+import { submitCardRequest } from '../api/chatbotApi';
+
+const STATIC_QUICK_REPLIES = [
+  'Top-up issue',
+  'Fare deduction',
+  'Payment failed',
+  'Lost RFID card',
+  'Check balance',
+];
+
+const CARD_REQUEST_TYPES = [
+  { value: 'LOST', label: 'Lost card' },
+  { value: 'STOLEN', label: 'Stolen card' },
+  { value: 'FREEZE_REQUEST', label: 'Freeze card' },
+  { value: 'CARD_UPDATE', label: 'Card information / change concern' },
+];
+
+const shouldOpenCardForm = (text) => {
+  const value = (text || '').toLowerCase();
+  return value.includes('lost') ||
+    value.includes('stolen') ||
+    value.includes('freeze') ||
+    value.includes('block my card') ||
+    value.includes('deactivate my card') ||
+    value.includes('change card') ||
+    value.includes('card change') ||
+    value.includes('update card');
+};
+
+const resolveRequestType = (text) => {
+  const value = (text || '').toLowerCase();
+  if (value.includes('stolen')) return 'STOLEN';
+  if (value.includes('lost')) return 'LOST';
+  if (value.includes('change') || value.includes('update')) return 'CARD_UPDATE';
+  return 'FREEZE_REQUEST';
+};
+
+const FloatingChatbot = () => {
+  const { passenger } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [cardFormOpen, setCardFormOpen] = useState(false);
+  const [cardForm, setCardForm] = useState({ requestType: 'LOST', details: '', confirmed: false });
+  const [submittingCardRequest, setSubmittingCardRequest] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [formSuccess, setFormSuccess] = useState('');
+  const { messages, isTyping, sendMessage, resetChat } = useChatbot({
+    isAuthenticated: Boolean(passenger),
+    storageScope: passenger?.id ? 'passenger-' + passenger.id : 'guest',
+  });
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping, open, cardFormOpen, formSuccess]);
+
+  const openCardRequestForm = (text = 'Lost RFID card') => {
+    setFormError('');
+    setFormSuccess('');
+    setCardForm({ requestType: resolveRequestType(text), details: text, confirmed: false });
+    setCardFormOpen(true);
+    setOpen(true);
+  };
+
+  const handleSend = (value) => {
+    const text = value || input;
+    if (!text.trim()) return;
+    setInput('');
+
+    if (shouldOpenCardForm(text)) {
+      if (!passenger) {
+        sendMessage(text);
+        return;
+      }
+      openCardRequestForm(text);
+      return;
+    }
+
+    sendMessage(text);
+  };
+
+  const handleSubmitCardRequest = async () => {
+    if (!cardForm.details.trim()) {
+      setFormError('Please describe what happened or what card change you need.');
+      return;
+    }
+    if (!cardForm.confirmed) {
+      setFormError('Please confirm that this request is for your own linked card.');
+      return;
+    }
+
+    setSubmittingCardRequest(true);
+    setFormError('');
+    setFormSuccess('');
+    try {
+      const typeLabel = CARD_REQUEST_TYPES.find((item) => item.value === cardForm.requestType)?.label || cardForm.requestType;
+      const reason = `${typeLabel}: ${cardForm.details.trim()}`;
+      const result = await submitCardRequest({ requestType: cardForm.requestType, reason });
+      setFormSuccess(result.message || 'Your card request was submitted for admin review.');
+      setCardFormOpen(false);
+    } catch (error) {
+      setFormError(error.response?.data?.message || 'Failed to submit card request. Please try again.');
+    } finally {
+      setSubmittingCardRequest(false);
+    }
+  };
+
+  const handleReset = () => {
+    resetChat();
+    setCardFormOpen(false);
+    setFormError('');
+    setFormSuccess('');
+  };
+
+  const lastMessage = messages[messages.length - 1];
+  const hasBotQuickReplies = lastMessage?.from === 'bot' && lastMessage?.quickReplies?.length > 0;
+
+  return (
+    <div className="fixed bottom-5 right-5 z-[60] flex flex-col items-end max-[520px]:bottom-4 max-[520px]:right-4">
+      {open && (
+        <div className="mb-4 flex h-[30rem] w-[22rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+          <div className="flex shrink-0 items-center gap-3 border-b border-white/10 bg-brand-primary px-3 py-3">
+            <div className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-accent shadow-md">
+              <Bot size={17} className="text-brand-primary" strokeWidth={2.3} />
+              <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-brand-primary ${isTyping ? 'bg-amber-300' : 'bg-emerald-400'}`} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-sm font-bold leading-tight text-white">Premier Bot</p>
+              <p className={`m-0 text-[10px] font-semibold ${isTyping ? 'text-brand-accent' : 'text-emerald-200'}`}>
+                {isTyping ? 'Typing...' : 'Online - here to help'}
+              </p>
+            </div>
+            <button type="button" onClick={handleReset} title="Reset conversation" className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-white/65 transition hover:bg-white/15 hover:text-white">
+              <RotateCcw size={14} strokeWidth={2.5} />
+            </button>
+            <button type="button" onClick={() => setOpen(false)} title="Close chat" className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-white/65 transition hover:bg-white/15 hover:text-white">
+              <X size={15} strokeWidth={2.5} />
+            </button>
+          </div>
+
+          <div className="flex-1 space-y-3 overflow-y-auto bg-[#f6f7fb] px-3 py-3">
+            {messages.map((msg, index) => {
+              const isUser = msg.from === 'user';
+              const isLast = index === messages.length - 1;
+              return (
+                <div key={`${msg.timestamp || index}-${index}`} className="animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <div className={`flex items-end gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                    {!isUser && (
+                      <div className="mb-4 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-primary shadow">
+                        <Bot size={13} className="text-brand-accent" strokeWidth={2} />
+                      </div>
+                    )}
+                    <div className={`flex max-w-[78%] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
+                      <div className={`rounded-2xl px-3 py-2 text-[12px] font-medium leading-relaxed break-words whitespace-pre-line ${isUser ? 'rounded-br-sm bg-brand-primary text-white shadow-md' : 'rounded-bl-sm border border-slate-200 bg-white text-slate-700 shadow-sm'}`}>
+                        {msg.text}
+                      </div>
+                      {msg.timestamp && (
+                        <p className="m-0 px-0.5 font-mono text-[9px] text-slate-400">
+                          {new Date(msg.timestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {!isUser && isLast && msg.quickReplies?.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 pl-9">
+                      {msg.quickReplies.map((reply) => (
+                        <button key={reply} type="button" onClick={() => handleSend(reply)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10.5px] font-semibold text-brand-primary shadow-sm transition hover:border-brand-primary hover:bg-brand-primary hover:text-white">
+                          {reply}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {formSuccess && (
+              <div className="ml-9 rounded-2xl rounded-bl-sm border border-emerald-100 bg-emerald-50 px-3 py-2 text-[12px] font-semibold text-emerald-800 shadow-sm">
+                <CheckCircle2 size={14} className="mr-1 inline" /> {formSuccess}
+              </div>
+            )}
+
+            {cardFormOpen && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div>
+                    <p className="m-0 text-[12px] font-black text-brand-primary">Card request form</p>
+                    <p className="m-0 mt-0.5 text-[10.5px] font-medium text-slate-500">Complete this before admin can freeze or change card details.</p>
+                  </div>
+                  <button type="button" onClick={() => setCardFormOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <X size={14} />
+                  </button>
+                </div>
+
+                <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-600">Request type</label>
+                <select
+                  value={cardForm.requestType}
+                  onChange={(event) => setCardForm((current) => ({ ...current, requestType: event.target.value }))}
+                  className="mb-2 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-semibold text-slate-800 outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10"
+                >
+                  {CARD_REQUEST_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+                </select>
+
+                <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-600">Details</label>
+                <textarea
+                  value={cardForm.details}
+                  onChange={(event) => setCardForm((current) => ({ ...current, details: event.target.value }))}
+                  placeholder="Example: I lost my card today near SM Lipa. Please freeze it."
+                  className="min-h-[5.5rem] w-full resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-medium text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10"
+                />
+
+                <label className="mt-2 flex items-start gap-2 text-[10.5px] font-semibold leading-relaxed text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={cardForm.confirmed}
+                    onChange={(event) => setCardForm((current) => ({ ...current, confirmed: event.target.checked }))}
+                    className="mt-0.5 h-4 w-4 accent-brand-primary"
+                  />
+                  I confirm this request is for the card linked to my own passenger account.
+                </label>
+
+                {formError && <p className="mt-2 text-[10.5px] font-semibold text-red-600">{formError}</p>}
+
+                <button
+                  type="button"
+                  onClick={handleSubmitCardRequest}
+                  disabled={submittingCardRequest}
+                  className="mt-3 w-full rounded-xl bg-brand-primary px-3 py-2.5 text-[12px] font-black text-white shadow-md transition hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:bg-brand-primary/40"
+                >
+                  {submittingCardRequest ? 'Submitting...' : 'Submit for admin review'}
+                </button>
+              </div>
+            )}
+
+            {isTyping && (
+              <div className="flex items-end gap-2 animate-in fade-in duration-150">
+                <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-primary shadow">
+                  <Bot size={13} className="text-brand-accent" strokeWidth={2} />
+                </div>
+                <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:0ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:150ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:300ms]" />
+                </div>
+              </div>
+            )}
+
+            {!hasBotQuickReplies && !isTyping && !cardFormOpen && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {STATIC_QUICK_REPLIES.map((reply) => (
+                  <button key={reply} type="button" onClick={() => handleSend(reply)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10.5px] font-semibold text-slate-600 shadow-sm transition hover:border-brand-primary hover:bg-brand-primary hover:text-white">
+                    {reply}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div ref={chatEndRef} />
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 border-t border-slate-100 bg-white px-3 py-2.5">
+            <input
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter' && !isTyping) handleSend(); }}
+              placeholder="Message Premier Bot..."
+              disabled={isTyping || cardFormOpen}
+              className="min-w-0 flex-1 rounded-xl border border-transparent bg-slate-100 px-3 py-2 text-[12px] font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand-primary/40 focus:bg-white focus:ring-2 focus:ring-brand-primary/10 disabled:opacity-50"
+            />
+            <button type="button" onClick={() => handleSend()} disabled={!input.trim() || isTyping || cardFormOpen} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-0 bg-brand-primary text-white shadow-md transition hover:bg-brand-primary-dark active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">
+              <Send size={14} strokeWidth={2.5} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-center gap-1.5 border-t border-slate-100 bg-white py-1.5">
+            <Wifi size={9} className="text-slate-300" />
+            <span className="text-[8.5px] font-bold uppercase tracking-widest text-slate-400">Secured by Premier Transit RFID Network</span>
+          </div>
+        </div>
+      )}
+
+      <button type="button" onClick={() => setOpen((current) => !current)} title="Chat with Premier Bot" className="relative grid h-14 w-14 place-items-center rounded-2xl border-0 bg-brand-primary text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-brand-primary-dark hover:shadow-2xl active:scale-95">
+        {open ? <X size={21} strokeWidth={2.5} /> : <Bot size={23} strokeWidth={2} />}
+        {!open && <span className="absolute -right-1 -top-1 h-4 w-4 animate-pulse rounded-full border-2 border-white bg-brand-accent" />}
+      </button>
+    </div>
+  );
+};
+
+export default FloatingChatbot;

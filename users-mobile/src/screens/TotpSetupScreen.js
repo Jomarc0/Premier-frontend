@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import * as SecureStore from 'expo-secure-store';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Button from '../components/Button';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +16,7 @@ export default function TotpSetupScreen({ navigation }) {
   const [totpCode, setTotpCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     const fetchSetup = async () => {
@@ -108,54 +110,79 @@ export default function TotpSetupScreen({ navigation }) {
     );
   }
 
+  const codeDigits = Array.from({ length: 6 }, (_, index) => totpCode[index] || '');
+
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <View style={styles.card}>
-        <View style={styles.icon}>
-          <Feather name="lock" size={30} color="#fff" />
-        </View>
-        <Text style={styles.title}>Set up Two-Factor Authentication</Text>
-        <Text style={styles.subtitle}>Secure your account with Google Authenticator or Authy.</Text>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.screen}>
+      <SafeAreaView style={styles.safeArea}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+          <Pressable style={styles.back} onPress={() => navigation.replace('Login')}>
+            <Feather name="arrow-left" size={20} color={colors.maroon} />
+            <Text style={styles.backText}>Back to login</Text>
+          </Pressable>
 
-        <View style={styles.step}>
-          <Text style={styles.stepText}><Text style={styles.stepStrong}>Step 1:</Text> Download Google Authenticator or Authy on your phone.</Text>
-        </View>
-
-        <View style={styles.step}>
-          <Text style={styles.stepText}><Text style={styles.stepStrong}>Step 2:</Text> Scan this QR code with the app.</Text>
-          <View style={styles.qrBox}>
-            {setup?.qrCodeUrl ? (
-              <QRCode value={setup.qrCodeUrl} size={205} />
-            ) : (
-              <Text style={styles.errorText}>QR code unavailable</Text>
-            )}
+          <View style={styles.header}>
+            <View style={styles.icon}>
+              <Feather name="shield" size={25} color="#fff" />
+            </View>
+            <Text style={styles.title}>Set up 2FA</Text>
+            <Text style={styles.subtitle}>Scan the QR code with Google Authenticator or Authy, then enter the current 6-digit code.</Text>
           </View>
-        </View>
 
-        <View style={styles.manual}>
-          <Text style={styles.manualLabel}>Can't scan? Enter this code manually:</Text>
-          <Text selectable style={styles.manualCode}>{setup?.manualEntryKey || '-'}</Text>
-        </View>
+          <View style={styles.setupCard}>
+            <View style={styles.stepLine}>
+              <View style={styles.stepNumber}><Text style={styles.stepNumberText}>1</Text></View>
+              <Text style={styles.stepText}>Open your authenticator app.</Text>
+            </View>
+            <View style={styles.stepLine}>
+              <View style={styles.stepNumber}><Text style={styles.stepNumberText}>2</Text></View>
+              <Text style={styles.stepText}>Scan this QR code.</Text>
+            </View>
 
-        <Text style={styles.stepText}><Text style={styles.stepStrong}>Step 3:</Text> Enter the 6-digit code from the app.</Text>
-        <TextInput
-          value={totpCode}
-          onChangeText={(value) => setTotpCode(value.replace(/\D/g, ''))}
-          maxLength={6}
-          keyboardType="number-pad"
-          placeholder="000000"
-          placeholderTextColor="#E2A8AD"
-          style={styles.codeInput}
-        />
+            <View style={styles.qrBox}>
+              {setup?.qrCodeUrl ? (
+                <QRCode value={setup.qrCodeUrl} size={206} />
+              ) : (
+                <Text style={styles.errorText}>QR code unavailable</Text>
+              )}
+            </View>
+          </View>
 
-        <Button loading={verifying} disabled={totpCode.length !== 6} onPress={handleVerify}>
-          Verify & Enable 2FA
-        </Button>
-        <Button variant="ghost" onPress={() => navigation.replace('Login')} icon={<Feather name="arrow-left" size={16} color={colors.maroon} />}>
-          Back to Login
-        </Button>
-      </View>
-    </ScrollView>
+          <View style={styles.manual}>
+            <Text style={styles.manualLabel}>Can't scan? Use this setup key</Text>
+            <Text selectable style={styles.manualCode}>{setup?.manualEntryKey || '-'}</Text>
+          </View>
+
+          <View style={styles.verifyPanel}>
+            <Text style={styles.verifyTitle}>Enter 6-digit code</Text>
+            <Pressable style={styles.codeRow} onPress={() => inputRef.current?.focus()}>
+              {codeDigits.map((digit, index) => {
+                const active = index === totpCode.length && totpCode.length < 6;
+                return (
+                  <View key={index} style={[styles.codeBox, active && styles.codeBoxActive, digit && styles.codeBoxFilled]}>
+                    <Text style={styles.codeText}>{digit}</Text>
+                  </View>
+                );
+              })}
+              <TextInput
+                ref={inputRef}
+                value={totpCode}
+                onChangeText={(value) => setTotpCode(value.replace(/\D/g, '').slice(0, 6))}
+                maxLength={6}
+                keyboardType="number-pad"
+                textContentType="oneTimeCode"
+                style={styles.hiddenInput}
+                autoFocus
+              />
+            </Pressable>
+            <Text style={styles.timerHint}>Code changes every 30 seconds.</Text>
+            <Button loading={verifying} disabled={totpCode.length !== 6} onPress={handleVerify} style={styles.verifyButton}>
+              Verify & Enable 2FA
+            </Button>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -164,11 +191,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  safeArea: {
+    flex: 1,
+  },
   content: {
-    padding: 18,
-    paddingTop: 48,
-    paddingBottom: 36,
-    alignItems: 'center',
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 28,
   },
   loading: {
     flex: 1,
@@ -180,96 +209,170 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: 14,
   },
-  card: {
-    width: '100%',
-    maxWidth: 440,
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    padding: 24,
-    ...shadow,
+  back: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  backText: {
+    color: colors.maroon,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 16,
   },
   icon: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: colors.maroon,
-    alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
+    ...shadow,
+    shadowColor: colors.maroon,
+    shadowOpacity: 0.18,
   },
   title: {
     color: colors.maroon,
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '900',
     textAlign: 'center',
   },
   subtitle: {
     color: colors.muted,
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: 'center',
     marginTop: 8,
-    marginBottom: 20,
+    paddingHorizontal: 4,
   },
-  step: {
-    borderLeftWidth: 4,
-    borderLeftColor: colors.maroon,
-    backgroundColor: '#FAE7E9',
-    borderTopRightRadius: 10,
-    borderBottomRightRadius: 10,
-    padding: 14,
-    marginBottom: 14,
+  setupCard: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 16,
+    marginBottom: 12,
+    ...shadow,
+    shadowOpacity: 0.07,
   },
-  stepText: {
-    color: '#392D33',
-    fontSize: 13,
-    lineHeight: 19,
+  stepLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
   },
-  stepStrong: {
-    color: colors.maroon,
+  stepNumber: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.maroon,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberText: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: '900',
   },
+  stepText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
   qrBox: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
+    alignSelf: 'center',
+    backgroundColor: colors.soft,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 18,
-    alignSelf: 'center',
-    marginTop: 14,
+    padding: 14,
+    marginTop: 4,
   },
   manual: {
+    backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12,
+    borderRadius: 18,
     padding: 14,
-    marginBottom: 18,
+    marginBottom: 12,
   },
   manualLabel: {
-    color: '#392D33',
+    color: colors.text,
     fontSize: 13,
+    fontWeight: '900',
     marginBottom: 8,
   },
   manualCode: {
-    color: colors.text,
-    backgroundColor: colors.soft,
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  codeInput: {
-    borderWidth: 2,
-    borderColor: colors.border,
-    borderRadius: 12,
     color: colors.maroon,
-    fontSize: 30,
+    backgroundColor: colors.soft,
+    borderRadius: 10,
+    padding: 11,
+    fontSize: 13,
     fontWeight: '900',
-    textAlign: 'center',
-    letterSpacing: 9,
-    paddingVertical: 12,
+    lineHeight: 18,
+  },
+  verifyPanel: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 16,
+  },
+  verifyTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 12,
+  },
+  codeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  codeBox: {
+    flex: 1,
+    height: 54,
+    borderRadius: 13,
+    borderWidth: 1.4,
+    borderColor: colors.border,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  codeBoxActive: {
+    borderColor: colors.maroon,
+    borderWidth: 2,
+  },
+  codeBoxFilled: {
+    backgroundColor: '#FFF8F8',
+  },
+  codeText: {
+    color: colors.maroon,
+    fontWeight: '900',
+    fontSize: 21,
+  },
+  hiddenInput: {
+    position: 'absolute',
+    opacity: 0,
+    width: 1,
+    height: 1,
+  },
+  timerHint: {
+    color: colors.muted,
+    fontSize: 12,
     marginTop: 10,
-    marginBottom: 18,
+    marginBottom: 14,
+  },
+  verifyButton: {
+    minHeight: 54,
+    borderRadius: 16,
   },
   errorText: {
     color: colors.maroon,

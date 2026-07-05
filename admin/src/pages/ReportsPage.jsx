@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     FiActivity,
     FiBarChart2,
@@ -6,9 +6,7 @@ import {
     FiCreditCard,
     FiDollarSign,
     FiDownload,
-    FiMoon,
     FiRefreshCw,
-    FiSun,
     FiTruck,
     FiUsers,
 } from 'react-icons/fi';
@@ -77,18 +75,12 @@ const ReportsPage = () => {
     const [analytics, setAnalytics] = useState(null);
     const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [darkMode, setDarkMode] = useState(false);
     const [filters, setFilters] = useState({
         range: 'monthly',
         from: '',
         to: '',
-        route: '',
         bus: '',
     });
-
-    const routes = useMemo(() => (
-        [...new Set(vehicles.map(v => v.route).filter(Boolean))]
-    ), [vehicles]);
 
     const fetchAnalytics = async () => {
         setLoading(true);
@@ -97,7 +89,6 @@ const ReportsPage = () => {
                 range: filters.range,
                 ...(filters.from ? { from: filters.from } : {}),
                 ...(filters.to ? { to: filters.to } : {}),
-                ...(filters.route ? { route: filters.route } : {}),
                 ...(filters.bus ? { bus: filters.bus } : {}),
             };
             const [analyticsRes, vehiclesRes] = await Promise.all([
@@ -184,17 +175,12 @@ const ReportsPage = () => {
     const operational = analytics?.operationalAnalytics || {};
     const predictive = analytics?.predictiveAnalytics || {};
 
-    const shellClass = darkMode
-        ? 'bg-[#111827] text-slate-100'
-        : '';
-    const panelClass = darkMode
-        ? 'bg-[#1f2937] text-slate-100 border border-slate-700'
-        : 'bg-white text-text-main';
+    const panelClass = 'bg-white text-text-main';
 
     return (
         <div className={ui.layout}>
             <AdminSidebar />
-            <main className={`${ui.workspace} ${shellClass}`}>
+            <main className={ui.workspace}>
                 <header className={ui.headerBar}>
                     <div>
                         <span className={ui.eyebrow}>Analytics</span>
@@ -204,10 +190,6 @@ const ReportsPage = () => {
                         </p>
                     </div>
                     <div className="flex gap-2 flex-wrap">
-                        <button type="button" onClick={() => setDarkMode(v => !v)} className={ui.adminAction}>
-                            {darkMode ? <FiSun /> : <FiMoon />}
-                            {darkMode ? 'Light' : 'Dark'}
-                        </button>
                         <button type="button" onClick={exportCsv} className={ui.adminAction}>
                             <FiDownload /> CSV
                         </button>
@@ -225,12 +207,10 @@ const ReportsPage = () => {
                 </header>
 
                 <section className={`${panelClass} rounded-lg p-4 shadow-[0_10px_26px_rgba(44,36,41,0.08)] mb-5`}>
-                    <div className="grid grid-cols-6 gap-3 max-[1100px]:grid-cols-3 max-[700px]:grid-cols-1">
+                    <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr] gap-3 max-[1100px]:grid-cols-3 max-[700px]:grid-cols-1">
                         <FilterSelect label="Range" value={filters.range} onChange={v => updateFilter('range', v)} options={RANGE_OPTIONS} />
                         <FilterInput label="From" type="date" value={filters.from} onChange={v => updateFilter('from', v)} />
                         <FilterInput label="To" type="date" value={filters.to} onChange={v => updateFilter('to', v)} />
-                        <FilterSelect label="Route" value={filters.route} onChange={v => updateFilter('route', v)}
-                            options={[{ label: 'All Routes', value: '' }, ...routes.map(r => ({ label: r, value: r }))]} />
                         <FilterSelect label="Bus" value={filters.bus} onChange={v => updateFilter('bus', v)}
                             options={[{ label: 'All Buses', value: '' }, ...vehicles.map(v => ({ label: v.plateNumber, value: v.plateNumber }))]} />
                         <button type="button" onClick={fetchAnalytics} className="rounded-md bg-maroon text-white font-black text-sm min-h-[2.65rem] self-end">
@@ -255,7 +235,7 @@ const ReportsPage = () => {
                             ['Total Trips Today', executive.totalTripsToday, 'number', FiActivity],
                             ['Average Waiting Time', executive.averageWaitingTimeMinutes, 'number', FiCalendar],
                             ['Average Arrival Time', executive.averageArrivalTimeMinutes, 'number', FiCalendar],
-                        ]} darkMode={darkMode} />
+                        ]} />
 
                         <section className="grid grid-cols-2 gap-5 mb-5 max-[1100px]:grid-cols-1">
                             <ChartPanel title="Passenger Growth Trend" panelClass={panelClass}>
@@ -410,14 +390,14 @@ const FilterSelect = ({ label, value, onChange, options }) => (
     </label>
 );
 
-const MetricGrid = ({ title, metrics, darkMode }) => (
+const MetricGrid = ({ title, metrics }) => (
     <section className="mb-5">
         <h2 className="m-0 mb-3 text-maroon text-lg font-black">{title}</h2>
         <div className="grid grid-cols-4 gap-3 max-[1200px]:grid-cols-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1">
             {metrics.map(([label, value, type, Icon]) => (
                 <article
                     key={label}
-                    className={`rounded-lg p-4 shadow-[0_10px_26px_rgba(44,36,41,0.08)] ${darkMode ? 'bg-[#1f2937] border border-slate-700' : 'bg-white'}`}
+                    className="rounded-lg bg-white p-4 shadow-[0_10px_26px_rgba(44,36,41,0.08)]"
                 >
                     <div className="flex items-center justify-between gap-3">
                         <div className="text-xs text-text-muted font-black uppercase">{label}</div>

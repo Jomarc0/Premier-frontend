@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { FiLock, FiArrowLeft, FiCopy, FiCheck } from 'react-icons/fi';
+import { FiArrowLeft } from 'react-icons/fi';
+import { Copy } from 'lucide-react';
+import TotpInput from '@/components/auth/TotpInput';
+import PrimaryButton from '@/components/auth/PrimaryButton';
+import BrandLogo from '@/components/auth/BrandLogo';
+import { BRAND_NAME, FOOTER_TEXT } from '@/constants/brand';
 
-const TotpSetupPage = () => {
+const TotpSetupPage = ({ accountType = 'passenger' }) => {
   const navigate = useNavigate();
   const [setup, setSetup] = useState(null);
-  const [totpCode, setTotpCode] = useState('');
+  const [code, setCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -19,38 +24,50 @@ const TotpSetupPage = () => {
       return;
     }
     fetchSetup(tempToken);
-  }, []);
+  }, [navigate]);
 
   const fetchSetup = async (tempToken) => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/totp/setup`, {
-        headers: { 'Authorization': `Bearer ${tempToken}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${tempToken}`, 'Content-Type': 'application/json' },
       });
       const text = await res.text();
       let data;
-      try { data = JSON.parse(text); }
-      catch (e) { throw new Error(`Invalid JSON: ${text.substring(0, 100)}`); }
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Invalid JSON: ${text.substring(0, 100)}`);
+      }
       if (!res.ok) throw new Error(data.message || `HTTP ${res.status}: ${text}`);
       setSetup(data.data);
     } catch (err) {
-      toast.error('Failed to load QR code: ' + err.message);
+      toast.error(`Failed to load QR code: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVerify = async (e) => {
-    e.preventDefault();
-    if (totpCode.length !== 6) { toast.warning('Please enter 6-digit code'); return; }
+  const handleVerify = async (nextCode = code) => {
+    const cleanCode = String(nextCode).replace(/\D/g, '').slice(0, 6);
+    if (verifying) return;
+    if (cleanCode.length !== 6) {
+      toast.warning('Please enter 6-digit code');
+      return;
+    }
+
     setVerifying(true);
     try {
       const tempToken = localStorage.getItem('tempToken');
-      if (!tempToken) { toast.error('Session expired'); navigate('/login'); return; }
-      
+      if (!tempToken) {
+        toast.error('Session expired');
+        navigate('/login');
+        return;
+      }
+
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/verify-totp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tempToken, totpCode: totpCode.trim() }),
+        body: JSON.stringify({ tempToken, totpCode: cleanCode }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || 'Verification failed');
@@ -66,18 +83,21 @@ const TotpSetupPage = () => {
       navigate('/dashboard');
     } catch (error) {
       toast.error(error.message || 'Setup failed');
-      setTotpCode('');
+      setCode('');
     } finally {
       setVerifying(false);
     }
   };
 
-  const copyCode = () => {
+  const handleAutoVerify = (completedCode) => {
+    handleVerify(completedCode);
+  };
+
+  const handleCopy = () => {
     if (setup?.manualEntryKey) {
       navigator.clipboard.writeText(setup.manualEntryKey);
       setCopied(true);
-      toast.success('Code copied!');
-      setTimeout(() => setCopied(false), 2000);
+      window.setTimeout(() => setCopied(false), 1500);
     }
   };
 
@@ -93,121 +113,113 @@ const TotpSetupPage = () => {
   }
 
   return (
-    <main className="min-h-screen flex justify-center items-start px-4 pt-10 pb-10 bg-[#f3f4f7]">
-      <div className="bg-white rounded-2xl p-9 w-full max-w-110 shadow-[0_18px_42px_rgba(44,36,41,0.14)]">
+    <main className="grid min-h-screen place-items-center bg-page px-4 py-10 font-sans text-text-heading selection:bg-brand-primary selection:text-white">
+      <section className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl md:p-7">
+        <div className="mb-4 text-left">
+          <button
+            type="button"
+            onClick={() => navigate('/login')}
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-primary/10 px-3 py-2 text-sm font-semibold text-brand-primary transition hover:bg-brand-primary/15"
+          >
+            <FiArrowLeft /> Back
+          </button>
+        </div>
 
-        {/* Header */}
-        <div className="text-center mb-7">
-          <div className="w-16 h-16 rounded-full bg-[#8f151d] inline-flex items-center justify-center text-[1.75rem] mb-3.5 shadow-[0_4px_16px_rgba(143,21,29,0.35)]">
-            <FiLock className="text-white" />
-          </div>
-          <h1 className="font-black text-[1.375rem] text-[#8f151d] leading-snug m-0">
-            Set up Two-Factor<br />Authentication
+        <div className="text-center">
+          <BrandLogo className="h-20 w-20" />
+          <h1 className="mt-4 text-2xl font-black uppercase leading-tight text-brand-primary">
+            {BRAND_NAME}
           </h1>
-          <p className="text-[#717680] text-xs mt-2">
-            Secure your account with Google Authenticator
+          <p className="mt-0.5 mb-4 text-xs font-bold uppercase tracking-widest text-brand-accent">
+            Secure Setup
           </p>
         </div>
 
-        {/* Step 1 */}
-        <div className="border-l-4 border-[#8f151d] bg-[#fae7e9] rounded-r-lg px-4 py-3 mb-3.5 text-sm text-[#392d33]">
-          <strong className="text-[#8f151d]">Step 1:</strong>{' '}
-          Download Google Authenticator or Authy on your phone
+        <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50 p-3 text-left">
+          <h2 className="mb-1 text-xs font-black uppercase tracking-wider text-brand-primary">
+            Set up two-factor authentication
+          </h2>
+          <p className="text-[11px] leading-relaxed text-text-body">
+            Scan the QR code, then enter the 6-digit code from your authenticator app.
+          </p>
         </div>
 
-        {/* Step 2 — QR */}
-        <div className="border-l-4 border-[#8f151d] bg-[#fae7e9] rounded-r-lg px-4 py-3.5 mb-3.5">
-          <p className="text-sm text-[#392d33] mb-3.5">
-            <strong className="text-[#8f151d]">Step 2:</strong>{' '}
-            Scan this QR code with the app
-          </p>
-          <div className="text-center bg-white p-5 rounded-[10px] border border-[#e6e8ee] min-h-60 flex items-center justify-center">
-            {setup?.qrCodeUrl ? (
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(setup.qrCodeUrl)}`}
-                alt="Scan this QR code"
-                width={200}
-                height={200}
-                className="block mx-auto rounded-lg"
-              />
-            ) : (
-              <div className="text-center">
-                <p className="text-[#8f151d] text-sm mb-2">Failed to load QR code</p>
-                <button
-                  onClick={() => { setLoading(true); fetchSetup(localStorage.getItem('tempToken')); }}
-                  className="text-[#8f151d] underline bg-transparent text-[0.8125rem] cursor-pointer"
-                >
-                  Try again
-                </button>
+        <div className="grid gap-4 text-left md:grid-cols-[230px_minmax(0,1fr)]">
+          <div className="rounded-xl border border-border-input bg-white p-4">
+            <p className="mb-3 text-sm font-black text-text-heading">Scan QR code</p>
+            <div className="grid place-items-center rounded-lg border border-slate-100 bg-slate-50 p-3">
+              {setup?.qrCodeUrl ? (
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(setup.qrCodeUrl)}`}
+                  alt="Scan this QR code"
+                  width={160}
+                  height={160}
+                  className="block rounded-md"
+                />
+              ) : (
+                <div className="text-center">
+                  <p className="mb-2 text-sm text-brand-primary">Failed to load QR code</p>
+                  <button
+                    onClick={() => {
+                      setLoading(true);
+                      fetchSetup(localStorage.getItem('tempToken'));
+                    }}
+                    className="bg-transparent text-sm text-brand-primary underline"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            <div className="rounded-xl border border-border-input bg-white p-4">
+              <p className="mb-2 text-sm text-text-heading">
+                <strong>Can't scan?</strong> Copy this setup key.
+              </p>
+              <div className="relative">
+                <div className="flex min-w-0 items-center justify-between gap-3 rounded-lg bg-page p-3 font-mono text-xs tracking-wider">
+                  <span className="min-w-0 flex-1 break-all">{setup?.manualEntryKey || '-'}</span>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="shrink-0 text-brand-primary hover:text-brand-primary-dark"
+                    aria-label="Copy setup key"
+                  >
+                    <Copy size={16} />
+                  </button>
+                </div>
+                {copied && (
+                  <div className="absolute right-2 top-[-2.2rem] rounded-md bg-brand-primary px-2.5 py-1 text-xs font-semibold text-white shadow-lg">
+                    Copied!
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+
+            <div className="rounded-xl border border-border-input bg-white p-4">
+              <p className="mb-3 text-sm font-black text-text-heading">Enter 6-digit code</p>
+              <TotpInput value={code} onChange={setCode} onComplete={handleAutoVerify} />
+              <p className="mt-3 mb-4 text-xs text-text-body">Code changes every 30 seconds.</p>
+
+              <div className="grid">
+                <PrimaryButton disabled={verifying || code.length < 6} onClick={() => handleVerify()}>
+                  {verifying ? 'Verifying...' : 'Verify & Enable 2FA'}
+                </PrimaryButton>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Manual Entry Key */}
-        <div className="border-[1.5px] border-[#e6e8ee] rounded-[10px] px-4 py-3.5 mb-3.5">
-          <p className="text-[0.8125rem] text-[#392d33] mb-2.5">
-            <strong>Can't scan?</strong> Enter this code manually:
-          </p>
-          <button
-            onClick={copyCode}
-            className="w-full flex items-center gap-2 bg-[#f8f8f8] border border-[#e6e8ee] rounded-md px-3 py-2.5 cursor-pointer hover:bg-[#f0f0f0] transition-colors text-left"
-          >
-            <code className="flex-1 text-[0.6875rem] font-mono break-all text-[#392d33] tracking-wide leading-relaxed">
-              {setup?.manualEntryKey || '—'}
-            </code>
-            <span className="text-[#8f151d] text-base shrink-0">
-              {copied ? <FiCheck /> : <FiCopy />}
-            </span>
-          </button>
-          <p className={`text-[0.6875rem] text-center mt-1.5 ${copied ? 'text-[#236531] font-semibold' : 'text-[#aaa]'}`}>
-            {copied ? 'Copied to clipboard!' : 'Click the code above to copy'}
-          </p>
-        </div>
+        <p className="mt-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 px-4 py-3 text-left text-xs text-text-body">
+          <strong className="text-brand-primary">Important:</strong> Keep your authenticator app available for future logins.
+        </p>
 
-        {/* Step 3 — Verify */}
-        <form onSubmit={handleVerify}>
-          <p className="text-sm text-[#392d33] mb-2.5">
-            <strong className="text-[#8f151d]">Step 3:</strong>{' '}
-            Enter the 6-digit code from the app
-          </p>
-
-          <input
-            type="text"
-            inputMode="numeric"
-            placeholder="000000"
-            maxLength={6}
-            value={totpCode}
-            onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
-            required
-            onFocus={(e) => e.target.style.borderColor = '#8f151d'}
-            onBlur={(e) => e.target.style.borderColor = '#e6e8ee'}
-            className="w-full py-3.5 border-2 border-[#e6e8ee] rounded-lg text-[1.75rem] text-center tracking-[0.85rem] font-black outline-none text-[#8f151d] mb-1.5 transition-colors box-border"
-          />
-          <p className="text-[0.6875rem] text-[#aaa] mb-4">Code changes every 30 seconds</p>
-
-          <button
-            type="submit"
-            disabled={verifying || totpCode.length !== 6}
-            className="w-full py-3.5 rounded-lg bg-[#8f151d] text-white font-bold text-[0.9375rem] hover:bg-[#761016] disabled:opacity-65 disabled:cursor-not-allowed transition-colors mb-3"
-          >
-            {verifying ? 'Verifying...' : 'Verify & Enable 2FA'}
-          </button>
-        </form>
-
-        {/* Warning */}
-        <div className="bg-[#fffbea] border-[1.5px] border-[#f0d060] rounded-lg px-4 py-3 mt-2 text-[0.8125rem] text-[#392d33] leading-relaxed">
-          <strong>Important:</strong> You will need this app every time you log in. Keep it safe!
-        </div>
-
-        {/* Back */}
-        <button
-          onClick={() => navigate('/login')}
-          className="w-full mt-3.5 flex items-center justify-center gap-1 bg-transparent text-[#aaa] text-[0.8125rem] cursor-pointer hover:text-[#8f151d] transition-colors py-2"
-        >
-          <FiArrowLeft /> Back to Login
-        </button>
-      </div>
+        <footer className="mt-5 text-center text-[10px] font-bold uppercase tracking-tight text-text-body">
+          {FOOTER_TEXT}
+        </footer>
+      </section>
     </main>
   );
 };

@@ -3,9 +3,9 @@
 @import "leaflet/dist/leaflet.css";
 
 :root {
-    --brand-maroon:      #6f2f3c;
-    --brand-maroon-dark: #572631;
-    --brand-maroon-soft: #8a4652;
+    --brand-maroon:      #5c2028;
+    --brand-maroon-dark: #42171d;
+    --brand-maroon-soft: #7f4750;
     --brand-gold:        #e8bd47;
     --brand-green:       #2f6b3d;
     --danger-muted:      #b24a52;
@@ -25,10 +25,23 @@ body {
     background: var(--page-bg);
 }
 
+input:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px white inset;
+    -webkit-text-fill-color: #1e2537;
+}
+
 /* Tailwind v4 theme extension for brand colors */
 @theme {
-    --color-maroon: #6f2f3c;
-    --color-maroon-dark: #572631;
+    --color-brand-primary: #5c2028;
+    --color-brand-primary-dark: #42171d;
+    --color-brand-accent: #f2b134;
+    --color-text-heading: #1e2537;
+    --color-text-body: #5b6478;
+    --color-text-placeholder: #9ca3af;
+    --color-border-input: #d8dce3;
+    --color-page: #f3f4f7;
+    --color-maroon: #5c2028;
+    --color-maroon-dark: #42171d;
     --color-maroon-soft: #8a4652;
     --color-gold: #e8bd47;
     --color-green-brand: #2f6b3d;

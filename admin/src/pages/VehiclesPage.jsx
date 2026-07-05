@@ -10,6 +10,9 @@ import {
     FiX,
     FiEdit2,
     FiTrash2,
+    FiCpu,
+    FiCopy,
+    FiKey,
 } from 'react-icons/fi';
 import AdminSidebar from '../components/AdminSidebar';
 import adminAPI from '../api/adminAxios';
@@ -25,6 +28,11 @@ const EMPTY_FORM = {
     status: 'INACTIVE',
 };
 
+const EMPTY_DEVICE_FORM = {
+    deviceId: '',
+    deviceName: '',
+    deviceType: 'VEHICLE_TERMINAL',
+};
 
 const VehicleStatVariants = {
     '': { card: 'border-l-maroon', icon: 'bg-maroon/10 text-maroon', num: 'text-maroon' },
@@ -37,6 +45,7 @@ const VehicleStatVariants = {
 const VehiclesPage = () => {
     const auth = useAdminAuth();
     const [vehicles, setVehicles] = useState([]);
+    const [devices, setDevices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [showModal, setShowModal] = useState(false);
@@ -45,6 +54,12 @@ const VehiclesPage = () => {
     const [saving, setSaving] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
     const [formErrors, setFormErrors] = useState({});
+    const [deviceVehicle, setDeviceVehicle] = useState(null);
+    const [deviceForm, setDeviceForm] = useState(EMPTY_DEVICE_FORM);
+    const [deviceErrors, setDeviceErrors] = useState({});
+    const [deviceSaving, setDeviceSaving] = useState(false);
+    const [deviceToken, setDeviceToken] = useState('');
+    const [copiedToken, setCopiedToken] = useState(false);
 
     useEffect(() => {
         if (auth.loading) return;
@@ -54,8 +69,12 @@ const VehiclesPage = () => {
     const fetchVehicles = async () => {
         setLoading(true);
         try {
-            const res = await adminAPI.get('/vehicles');
-            setVehicles(res.data.data || []);
+            const [vehiclesRes, devicesRes] = await Promise.all([
+                adminAPI.get('/vehicles'),
+                adminAPI.get('/devices'),
+            ]);
+            setVehicles(vehiclesRes.data.data || []);
+            setDevices(devicesRes.data.data || []);
         } catch (err) {
             console.error('Vehicles fetch error:', err);
             if (err.response?.status === 401) {
@@ -71,6 +90,11 @@ const VehiclesPage = () => {
 
     const openAddModal = () => {
         setEditingVehicle(null);
+        setDeviceVehicle(null);
+        setDeviceForm(EMPTY_DEVICE_FORM);
+        setDeviceErrors({});
+        setDeviceToken('');
+        setCopiedToken(false);
         setForm(EMPTY_FORM);
         setFormErrors({});
         setShowModal(true);
@@ -83,6 +107,16 @@ const VehiclesPage = () => {
             totalCapacity: String(vehicle.totalCapacity || ''),
             status: vehicle.status || 'INACTIVE',
         });
+        const normalizedPlate = String(vehicle.plateNumber || '').trim().toUpperCase();
+        setDeviceVehicle(vehicle);
+        setDeviceForm({
+            deviceId: `bus-${vehicle.id}`,
+            deviceName: `${normalizedPlate} ESP32 Terminal`,
+            deviceType: 'VEHICLE_TERMINAL',
+        });
+        setDeviceErrors({});
+        setDeviceToken('');
+        setCopiedToken(false);
         setFormErrors({});
         setShowModal(true);
     };
@@ -141,11 +175,79 @@ const VehiclesPage = () => {
         }
     };
 
+    const validateDeviceForm = () => {
+        const errors = {};
+        if (!deviceForm.deviceId.trim()) errors.deviceId = 'Device ID is required';
+        if (!deviceForm.deviceName.trim()) errors.deviceName = 'Device name is required';
+        setDeviceErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    const handleRegisterDevice = async () => {
+        if (!deviceVehicle || !validateDeviceForm()) return;
+
+        setDeviceSaving(true);
+        try {
+            const payload = {
+                deviceId: deviceForm.deviceId.trim(),
+                deviceName: deviceForm.deviceName.trim(),
+                deviceType: deviceForm.deviceType,
+                vehicleId: deviceVehicle.id,
+                status: 'ACTIVE',
+            };
+            const res = await adminAPI.post('/devices', payload);
+            const token = res.data?.data?.oneTimeDeviceToken || '';
+            setDeviceToken(token);
+            toast.success('ESP32 device registered. Copy the token now.');
+            fetchVehicles();
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to register ESP32 device');
+        } finally {
+            setDeviceSaving(false);
+        }
+    };
+
+    const handleRotateDeviceToken = async (device) => {
+        if (!device?.id) return;
+        const confirmed = window.confirm(`Rotate token for ${device.deviceId}? The old ESP32 token will stop working.`);
+        if (!confirmed) return;
+
+        setDeviceSaving(true);
+        try {
+            const res = await adminAPI.post(`/devices/${device.id}/rotate-token`);
+            const token = res.data?.data?.oneTimeDeviceToken || '';
+            setDeviceToken(token);
+            setCopiedToken(false);
+            toast.success('Device token rotated. Copy the new token now.');
+            fetchVehicles();
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to rotate device token');
+        } finally {
+            setDeviceSaving(false);
+        }
+    };
+
+    const handleCopyToken = async () => {
+        if (!deviceToken) return;
+        try {
+            await navigator.clipboard.writeText(deviceToken);
+            setCopiedToken(true);
+            window.setTimeout(() => setCopiedToken(false), 1500);
+        } catch {
+            toast.info('Select and copy the token manually.');
+        }
+    };
+
     const handleClose = () => {
         setShowModal(false);
         setEditingVehicle(null);
         setForm(EMPTY_FORM);
         setFormErrors({});
+        setDeviceVehicle(null);
+        setDeviceForm(EMPTY_DEVICE_FORM);
+        setDeviceErrors({});
+        setDeviceToken('');
+        setCopiedToken(false);
     };
 
     if (auth.loading) return <div className={ui.fullLoading}>Loading...</div>;
@@ -154,6 +256,15 @@ const VehiclesPage = () => {
         v.plateNumber?.toLowerCase().includes(search.toLowerCase()) ||
         v.status?.toLowerCase().includes(search.toLowerCase())
     );
+
+    const normalizePlate = (value) => String(value || '').trim().toUpperCase();
+
+    const getLinkedDevice = (vehicle) => devices.find(device =>
+        Number(device.vehicleId) === Number(vehicle.id) ||
+        normalizePlate(device.plateNumber) === normalizePlate(vehicle.plateNumber)
+    );
+
+    const editingLinkedDevice = editingVehicle ? getLinkedDevice(editingVehicle) : null;
 
     const statusColor = (status) => ({
         ACTIVE: '#2f6b3d',
@@ -223,29 +334,35 @@ const VehiclesPage = () => {
                         <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4 p-5">
                             {filtered.length === 0 ? (
                                 <div className="col-span-full text-center p-10 text-text-muted italic">No vehicles found</div>
-                            ) : filtered.map(v => (
-                                <div key={v.id} className="border-[1.5px] border-border-soft rounded-[10px] p-4 bg-white transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(44,36,41,0.10)] hover:border-gold">
-                                    <div className="flex justify-between items-start mb-[0.85rem]">
-                                        <div>
-                                            <div className="text-[1.05rem] font-black text-maroon tracking-[0.04em] inline-flex items-center gap-[0.35rem]"><FiTruck />{v.plateNumber}</div>
-                                            <div className="text-[0.7rem] text-text-muted mt-[0.15rem]">ID: {v.id}</div>
+                            ) : filtered.map(v => {
+                                const linkedDevice = getLinkedDevice(v);
+                                return (
+                                    <div key={v.id} className="border-[1.5px] border-border-soft rounded-[10px] p-4 bg-white transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(44,36,41,0.10)] hover:border-gold">
+                                        <div className="flex justify-between items-start mb-[0.85rem]">
+                                            <div>
+                                                <div className="text-[1.05rem] font-black text-maroon tracking-[0.04em] inline-flex items-center gap-[0.35rem]"><FiTruck />{v.plateNumber}</div>
+                                                <div className="text-[0.7rem] text-text-muted mt-[0.15rem]">ID: {v.id}</div>
+                                            </div>
+                                            <span className={ui.statusPillColor} style={{ background: statusColor(v.status) }}>{v.status}</span>
                                         </div>
-                                        <span className={ui.statusPillColor} style={{ background: statusColor(v.status) }}>{v.status}</span>
-                                    </div>
-                                    <div className="mb-[0.7rem]">
-                                        <div className="flex justify-between text-[0.72rem] text-text-muted mb-[0.3rem]">
-                                            <span>Capacity</span><strong className="text-text-main font-black">{v.totalCapacity} pax</strong>
+                                        <div className="mb-[0.7rem]">
+                                            <div className="flex justify-between text-[0.72rem] text-text-muted mb-[0.3rem]">
+                                                <span>Capacity</span><strong className="text-text-main font-black">{v.totalCapacity} pax</strong>
+                                            </div>
+                                            <div className="h-[0.4rem] bg-page-bg rounded-full overflow-hidden">
+                                                <span className="block h-full bg-green-brand rounded-full transition-[width] duration-300" style={{ width: v.status === 'ACTIVE' ? '60%' : '0%' }} />
+                                            </div>
                                         </div>
-                                        <div className="h-[0.4rem] bg-page-bg rounded-full overflow-hidden">
-                                            <span className="block h-full bg-green-brand rounded-full transition-[width] duration-300" style={{ width: v.status === 'ACTIVE' ? '60%' : '0%' }} />
+                                        <div className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.68rem] font-black ${linkedDevice ? 'bg-green-brand/10 text-green-brand' : 'bg-text-muted/10 text-text-muted'}`}>
+                                            <FiCpu /> {linkedDevice ? `Device Activated: ${linkedDevice.deviceId}` : 'No device registered'}
+                                        </div>
+                                        <div className="mt-4 pt-3 border-t border-border-soft flex flex-wrap gap-2">
+                                            <button type="button" onClick={() => openEditModal(v)} className="inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md bg-gold text-maroon text-[0.78rem] font-black cursor-pointer hover:bg-[#d9ad35]"><FiEdit2 /> Edit</button>
+                                            <button type="button" disabled={deletingId === v.id} onClick={() => handleDelete(v)} className="inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md bg-danger-muted text-white text-[0.78rem] font-black cursor-pointer hover:bg-[#9f283f] disabled:opacity-60 disabled:cursor-not-allowed"><FiTrash2 /> {deletingId === v.id ? 'Deleting...' : 'Delete'}</button>
                                         </div>
                                     </div>
-                                    <div className="mt-4 pt-3 border-t border-border-soft flex flex-wrap gap-2">
-                                        <button type="button" onClick={() => openEditModal(v)} className="inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md bg-gold text-maroon text-[0.78rem] font-black cursor-pointer hover:bg-[#d9ad35]"><FiEdit2 /> Edit</button>
-                                        <button type="button" disabled={deletingId === v.id} onClick={() => handleDelete(v)} className="inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md bg-danger-muted text-white text-[0.78rem] font-black cursor-pointer hover:bg-[#9f283f] disabled:opacity-60 disabled:cursor-not-allowed"><FiTrash2 /> {deletingId === v.id ? 'Deleting...' : 'Delete'}</button>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </section>
@@ -283,6 +400,108 @@ const VehiclesPage = () => {
                                 </select>
                             </div>
 
+                            {editingVehicle && (
+                                <section className="rounded-xl border border-border-soft bg-page-bg p-4">
+                                    <div className="flex items-start justify-between gap-3 mb-3">
+                                        <div>
+                                            <h3 className="m-0 text-[0.92rem] font-black text-maroon inline-flex items-center gap-2"><FiCpu /> ESP32 Device</h3>
+                                            <p className="m-0 mt-1 text-xs font-semibold text-text-muted">
+                                                This links the physical ESP32 terminal to this vehicle.
+                                            </p>
+                                        </div>
+                                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[0.68rem] font-black ${editingLinkedDevice ? 'bg-green-brand/10 text-green-brand' : 'bg-text-muted/10 text-text-muted'}`}>
+                                            {editingLinkedDevice ? 'Registered' : 'Not registered'}
+                                        </span>
+                                    </div>
+
+                                    {editingLinkedDevice ? (
+                                        <div className="flex flex-col gap-3">
+                                            <div className="grid grid-cols-2 gap-[0.85rem] max-[860px]:grid-cols-1">
+                                                <div className="flex flex-col gap-[0.32rem]">
+                                                    <label className="text-[0.78rem] font-extrabold text-[#343946]">Device ID</label>
+                                                    <input type="text" className={formInputCls(false)} value={editingLinkedDevice.deviceId || ''} disabled />
+                                                </div>
+                                                <div className="flex flex-col gap-[0.32rem]">
+                                                    <label className="text-[0.78rem] font-extrabold text-[#343946]">Device Status</label>
+                                                    <input type="text" className={formInputCls(false)} value={editingLinkedDevice.status || 'ACTIVE'} disabled />
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col gap-[0.32rem]">
+                                                <label className="text-[0.78rem] font-extrabold text-[#343946]">Device Name</label>
+                                                <input type="text" className={formInputCls(false)} value={editingLinkedDevice.deviceName || ''} disabled />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRotateDeviceToken(editingLinkedDevice)}
+                                                disabled={deviceSaving}
+                                                className="self-start inline-flex items-center justify-center gap-[0.4rem] min-h-[2.3rem] px-4 rounded-lg bg-maroon text-white text-[0.82rem] font-black cursor-pointer transition-colors hover:bg-maroon-dark disabled:opacity-60 disabled:cursor-not-allowed"
+                                            >
+                                                <FiKey /> {deviceSaving ? 'Rotating...' : 'Rotate Device Token'}
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col gap-3">
+                                            <div className="rounded-lg border border-border-soft bg-white p-3 text-sm text-text-muted">
+                                                Register this bus terminal here. The token will be shown once, then copied into the ESP32 <strong>secrets.h</strong>.
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-[0.85rem] max-[860px]:grid-cols-1">
+                                                <div className="flex flex-col gap-[0.32rem]">
+                                                    <label className="text-[0.78rem] font-extrabold text-[#343946]">Device ID <span className="text-danger-muted">*</span></label>
+                                                    <input
+                                                        type="text"
+                                                        className={formInputCls(deviceErrors.deviceId)}
+                                                        value={deviceForm.deviceId}
+                                                        disabled={Boolean(deviceToken)}
+                                                        onChange={e => setDeviceForm(f => ({ ...f, deviceId: e.target.value }))}
+                                                    />
+                                                    {deviceErrors.deviceId && <span className="text-[0.76rem] text-danger-muted font-bold">{deviceErrors.deviceId}</span>}
+                                                </div>
+                                                <div className="flex flex-col gap-[0.32rem]">
+                                                    <label className="text-[0.78rem] font-extrabold text-[#343946]">Device Type</label>
+                                                    <input type="text" className={formInputCls(false)} value={deviceForm.deviceType} disabled />
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col gap-[0.32rem]">
+                                                <label className="text-[0.78rem] font-extrabold text-[#343946]">Device Name <span className="text-danger-muted">*</span></label>
+                                                <input
+                                                    type="text"
+                                                    className={formInputCls(deviceErrors.deviceName)}
+                                                    value={deviceForm.deviceName}
+                                                    disabled={Boolean(deviceToken)}
+                                                    onChange={e => setDeviceForm(f => ({ ...f, deviceName: e.target.value }))}
+                                                />
+                                                {deviceErrors.deviceName && <span className="text-[0.76rem] text-danger-muted font-bold">{deviceErrors.deviceName}</span>}
+                                            </div>
+                                            {!deviceToken && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleRegisterDevice}
+                                                    disabled={deviceSaving}
+                                                    className="self-start inline-flex items-center justify-center gap-[0.4rem] min-h-[2.3rem] px-4 rounded-lg bg-maroon text-white text-[0.82rem] font-black cursor-pointer transition-colors hover:bg-maroon-dark disabled:opacity-60 disabled:cursor-not-allowed"
+                                                >
+                                                    <FiCpu /> {deviceSaving ? 'Registering...' : 'Register ESP32 Device'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {deviceToken && (
+                                        <div className="mt-4 rounded-lg border-2 border-gold bg-[#fffbea] p-4">
+                                            <p className="m-0 mb-2 text-[0.82rem] font-black uppercase tracking-[0.08em] text-maroon">One-time device token</p>
+                                            <div className="flex items-center gap-2 rounded-lg bg-white p-3 border border-border-soft">
+                                                <code className="min-w-0 flex-1 break-all text-[0.82rem] font-black text-text-main">{deviceToken}</code>
+                                                <button type="button" onClick={handleCopyToken} className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-md bg-maroon text-white hover:bg-maroon-dark" aria-label="Copy token">
+                                                    <FiCopy />
+                                                </button>
+                                            </div>
+                                            <p className="m-0 mt-2 text-xs font-semibold text-text-muted">
+                                                {copiedToken ? 'Copied.' : 'Copy this now. It will not be shown again after you close this modal.'}
+                                            </p>
+                                        </div>
+                                    )}
+                                </section>
+                            )}
+
                             <div className="flex justify-end gap-[0.6rem] pt-2 border-t border-border-soft mt-[0.15rem] max-[560px]:flex-col-reverse">
                                 <button type="button" onClick={handleClose} className="inline-flex items-center justify-center gap-[0.4rem] min-h-[2.55rem] px-5 rounded-lg bg-white border-[1.5px] border-border-soft text-text-muted text-[0.88rem] font-extrabold cursor-pointer transition-colors hover:border-maroon-soft hover:text-maroon max-[560px]:w-full">Cancel</button>
                                 <button type="submit" disabled={saving} className="inline-flex items-center justify-center gap-[0.45rem] min-h-[2.55rem] px-[1.4rem] rounded-lg bg-maroon text-white text-[0.88rem] font-black cursor-pointer transition-all hover:bg-maroon-dark hover:-translate-y-px hover:shadow-[0_6px_18px_rgba(111,47,60,0.28)] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:transform-none max-[560px]:w-full">
@@ -293,6 +512,7 @@ const VehiclesPage = () => {
                     </div>
                 </div>
             )}
+
         </div>
     );
 };

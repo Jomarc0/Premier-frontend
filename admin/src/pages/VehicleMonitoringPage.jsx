@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import {
     MapContainer, TileLayer,
-    Marker, Popup, useMap
+    Marker, Popup, Polyline, useMap
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -50,6 +50,37 @@ const getBusList = (payload) => {
     return [];
 };
 
+const getHistoryList = (payload) => {
+    const data = payload?.data ?? payload;
+
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.content)) return data.content;
+    if (Array.isArray(data?.history)) return data.history;
+
+    return [];
+};
+
+const HISTORY_RANGES = [
+    { value: 'hour', label: 'Last hour' },
+    { value: 'day', label: 'Today' },
+    { value: 'week', label: 'This week' },
+];
+
+const hasCoordinates = (item) => item?.latitude != null && item?.longitude != null;
+
+const formatCoordinate = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toFixed(5) : 'N/A';
+};
+
+const formatDateTime = (value) => {
+    if (!value) return 'No GPS record yet';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+        ? String(value)
+        : date.toLocaleString();
+};
+
 const MapFlyTo = ({ target }) => {
     const map = useMap();
     useEffect(() => {
@@ -66,6 +97,11 @@ const VehicleMonitoringPage = () => {
     const [lastUpdated, setLastUpdated]   = useState(null);
     const [error, setError]               = useState(null);
     const [flyTarget, setFlyTarget]       = useState(null);
+    const [selectedHistoryBus, setSelectedHistoryBus] = useState(null);
+    const [historyRange, setHistoryRange] = useState('day');
+    const [historyPoints, setHistoryPoints] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState(null);
     const intervalRef                     = useRef(null);
 
     const fetchBuses = async () => {
@@ -91,6 +127,39 @@ const VehicleMonitoringPage = () => {
         return () => clearInterval(intervalRef.current);
     }, []);
 
+    const fetchHistory = async (bus = selectedHistoryBus, range = historyRange) => {
+        if (!bus?.plateNumber) return;
+
+        try {
+            setHistoryLoading(true);
+            setHistoryError(null);
+            const response = await adminAPI.get(
+                `${import.meta.env.VITE_API_URL}/api/driver/location-history/${encodeURIComponent(bus.plateNumber)}?range=${range}`
+            );
+            setHistoryPoints(getHistoryList(response.data).filter(hasCoordinates));
+        } catch (err) {
+            setHistoryPoints([]);
+            setHistoryError('Cannot load location history for this bus.');
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (selectedHistoryBus?.plateNumber) {
+            fetchHistory(selectedHistoryBus, historyRange);
+        }
+    }, [selectedHistoryBus?.plateNumber, historyRange]);
+
+    const showHistory = (bus) => {
+        setSelectedHistoryBus(bus);
+        if (hasCoordinates(bus)) {
+            setFlyTarget(bus);
+        }
+    };
+
+    const historyPath = historyPoints.map(point => [point.latitude, point.longitude]);
+
     const renderBusPopup = (bus) => (
         <div style={{ minWidth: 180 }}>
             <strong style={{ color: 'var(--brand-maroon)' }}>
@@ -110,7 +179,10 @@ const VehicleMonitoringPage = () => {
                 Capacity: {bus.totalCapacity}
             </span><br />
             <span style={{ fontSize: 11, color: '#888' }}>
-                Location: {bus.latitude?.toFixed(4)}, {bus.longitude?.toFixed(4)}
+                Location: {formatCoordinate(bus.latitude)}, {formatCoordinate(bus.longitude)}
+            </span><br />
+            <span style={{ fontSize: 11, color: '#888' }}>
+                Last seen: {formatDateTime(bus.lastUpdated)}
             </span>
         </div>
     );
@@ -186,7 +258,7 @@ const VehicleMonitoringPage = () => {
                                 loading ? 'bg-[#f59e0b] text-white' : 'bg-gold text-maroon',
                             ].join(' ')}
                         >
-                            {loading ? 'Loading...' : `${buses.filter(b => b.status === 'ACTIVE').length} buses online`}
+                            {loading ? 'Loading...' : `${buses.filter(b => b.online || b.locationFresh).length} buses online`}
                         </span>
                     </div>
 
@@ -227,9 +299,9 @@ const VehicleMonitoringPage = () => {
                             </Popup>
                         </Marker>
 
-                        {/* Bus markers - only ACTIVE buses shown on map */}
+                        {/* Bus markers - shows latest saved GPS point even if bus is offline */}
                         {buses.map((bus, i) =>
-                            bus.latitude && bus.longitude && bus.status === 'ACTIVE'
+                            hasCoordinates(bus)
                                 ? (
                                     <Marker
                                         key={`bus-${bus.plateNumber || i}`}
@@ -240,7 +312,77 @@ const VehicleMonitoringPage = () => {
                                     </Marker>
                                 ) : null
                         )}
+
+                        {historyPath.length > 1 && (
+                            <Polyline
+                                positions={historyPath}
+                                pathOptions={{
+                                    color: '#6b1f2a',
+                                    weight: 5,
+                                    opacity: 0.8,
+                                }}
+                            />
+                        )}
                     </MapContainer>
+
+                    {selectedHistoryBus && (
+                        <div className="mt-4 rounded-lg border border-slate-200 bg-page-bg px-4 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-[0.92rem] font-black text-maroon">
+                                        Route History - Bus {selectedHistoryBus.plateNumber}
+                                    </div>
+                                    <div className="text-[0.78rem] text-text-muted">
+                                        {historyLoading
+                                            ? 'Loading saved GPS points...'
+                                            : `${historyPoints.length} saved GPS point${historyPoints.length === 1 ? '' : 's'} shown`}
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <select
+                                        value={historyRange}
+                                        onChange={(event) => setHistoryRange(event.target.value)}
+                                        className="min-h-[2.35rem] rounded-md border border-slate-300 bg-white px-3 text-[0.8rem] font-bold text-text-main"
+                                    >
+                                        {HISTORY_RANGES.map(range => (
+                                            <option key={range.value} value={range.value}>
+                                                {range.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => fetchHistory()}
+                                        className={ui.adminActionRefresh}
+                                    >
+                                        <FiRefreshCw />
+                                        History
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedHistoryBus(null);
+                                            setHistoryPoints([]);
+                                            setHistoryError(null);
+                                        }}
+                                        className={ui.adminAction}
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                            </div>
+                            {historyError && (
+                                <div className="mt-3 rounded-md border border-[#fca5a5] bg-[#fef2f2] px-3 py-2 text-[0.78rem] font-bold text-danger-muted-dark">
+                                    {historyError}
+                                </div>
+                            )}
+                            {!historyLoading && !historyError && historyPoints.length === 0 && (
+                                <div className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-[0.78rem] text-text-muted">
+                                    No saved GPS history for this bus in the selected range.
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Vehicle list */}
                     {buses.length > 0 && (
@@ -262,16 +404,31 @@ const VehicleMonitoringPage = () => {
                                             <div className="text-[0.78rem] text-text-main mt-[0.15rem]">
                                                 {bus.route || 'No route set'} - {bus.status || 'UNKNOWN'}
                                             </div>
+                                            <div className="text-[0.72rem] text-text-muted mt-1">
+                                                Last position: {formatCoordinate(bus.latitude)}, {formatCoordinate(bus.longitude)}
+                                            </div>
+                                            <div className="text-[0.72rem] text-text-muted">
+                                                Last seen: {formatDateTime(bus.lastUpdated)}
+                                            </div>
                                         </div>
-                                        <div className="flex gap-[0.4rem]">
+                                        <div className="flex flex-wrap gap-[0.4rem]">
                                             <button
                                                 type="button"
                                                 onClick={() => setFlyTarget(bus)}
-                                                disabled={!bus.latitude || !bus.longitude}
+                                                disabled={!hasCoordinates(bus)}
                                                 className="inline-flex items-center gap-[0.35rem] px-[0.85rem] min-h-[2.2rem] rounded-md bg-maroon text-white font-black text-[0.78rem] cursor-pointer hover:bg-maroon-dark"
                                             >
                                                 <FiNavigation />
                                                 Locate
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => showHistory(bus)}
+                                                disabled={!hasCoordinates(bus)}
+                                                className="inline-flex items-center gap-[0.35rem] px-[0.85rem] min-h-[2.2rem] rounded-md bg-white border border-maroon text-maroon font-black text-[0.78rem] cursor-pointer hover:bg-[#f8eef0] disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <FiMapPin />
+                                                Show History
                                             </button>
                                         </div>
                                     </div>

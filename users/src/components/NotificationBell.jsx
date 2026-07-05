@@ -53,7 +53,7 @@ const NotificationBell = () => {
       >
         <FiBell size={20} />
         {unreadCount > 0 && (
-          <span className="absolute top-1.5 right-1.5 min-w-4 h-4 px-1 rounded-full bg-yellow-400 text-[#7B181E] text-[9px] font-black grid place-items-center border-2 border-[#7B181E]">
+          <span className="absolute top-1.5 right-1.5 min-w-4 h-4 px-1 rounded-full bg-yellow-400 text-[#7A2F3D] text-[9px] font-black grid place-items-center border-2 border-[#7A2F3D]">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
@@ -63,7 +63,7 @@ const NotificationBell = () => {
       {showDropdown && (
         <div className="absolute top-[calc(100%+0.5rem)] right-0 w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden z-70 animate-in fade-in duration-150">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3 bg-[#7B181E]">
+          <div className="flex items-center justify-between px-5 py-3 bg-[#7A2F3D]">
             <span className="text-white font-black text-xs uppercase tracking-wider">System Notifications</span>
             <button
               onClick={() => setShowDropdown(false)}
@@ -107,7 +107,7 @@ const NotificationBell = () => {
             <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-center">
               <button
                 onClick={() => { setNotifications([]); setUnreadCount(0); }}
-                className="w-full py-1.5 rounded-lg text-[10px] font-bold text-[#7B181E] hover:bg-[#7B181E]/5 transition-colors uppercase tracking-wider cursor-pointer border-none bg-transparent"
+                className="w-full py-1.5 rounded-lg text-[10px] font-bold text-[#7A2F3D] hover:bg-[#7A2F3D]/5 transition-colors uppercase tracking-wider cursor-pointer border-none bg-transparent"
               >
                 Clear All Logs
               </button>

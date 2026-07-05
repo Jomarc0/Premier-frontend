@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage';
 import TotpSetupPage from './pages/TotpSetupPage';
 import TotpVerifyPage from './pages/TotpVerifyPage';
 import DashboardPage from './pages/DashboardPage';
+import FloatingChatbot from './components/FloatingChatbot';
 
 const PrivateRoute = ({ children }) => {
     const { passenger, loading } = useAuth();
@@ -52,6 +53,7 @@ function App() {
                     position="top-right"
                     autoClose={3000}
                 />
+                <FloatingChatbot />
             </BrowserRouter>
         </AuthProvider>
     );

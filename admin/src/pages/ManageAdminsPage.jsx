@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
     FiUsers,
     FiPlus,
@@ -290,8 +290,8 @@ const ManageAdminsPage = () => {
                                         <td className={ui.tableTd}><strong>{a.id}</strong></td>
                                         <td className={`${ui.tableTd} font-black`}>{a.fullName}</td>
                                         <td className={`${ui.tableTd} ${ui.mono}`}>{a.username}</td>
-                                        <td className={`${ui.tableTd} text-text-muted`}>{a.email || 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â'}</td>
-                                        <td className={`${ui.tableTd} text-text-muted`}>{a.phoneNumber || 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â'}</td>
+                                        <td className={`${ui.tableTd} text-text-muted`}>{a.email || 'N/A'}</td>
+                                        <td className={`${ui.tableTd} text-text-muted`}>{a.phoneNumber || 'N/A'}</td>
                                         <td className={ui.tableTd}>
                                             <span
                                                 className={[
@@ -361,3 +361,4 @@ const ManageAdminsPage = () => {
 };
 
 export default ManageAdminsPage;
+

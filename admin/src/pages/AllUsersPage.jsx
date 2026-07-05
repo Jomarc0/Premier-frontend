@@ -8,15 +8,12 @@ import {
     FiCreditCard,
     FiDollarSign,
     FiActivity,
-    FiLock,
-    FiUnlock,
 } from 'react-icons/fi';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
 
-const isCardFrozen = (user) => (user.status || 'ACTIVE') !== 'ACTIVE';
 
 const AllUsersPage = () => {
     const [users, setUsers] = useState([]);
@@ -27,7 +24,6 @@ const AllUsersPage = () => {
     const [addAmount, setAddAmount] = useState('');
     const [page, setPage] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
-    const [updatingCardId, setUpdatingCardId] = useState(null);
 
     useEffect(() => { fetchData(); }, [page]);
 
@@ -68,28 +64,6 @@ const AllUsersPage = () => {
         }
     };
 
-    const handleToggleCardStatus = async (user) => {
-        const frozen = isCardFrozen(user);
-        const action = frozen ? 'unfreeze' : 'freeze';
-        const confirmed = window.confirm(
-            frozen
-                ? `Unfreeze card ${user.cardNumber || user.id}? This user can log in and pay fare again.`
-                : `Freeze card ${user.cardNumber || user.id}? This user cannot log in or pay fare until unfrozen.`
-        );
-
-        if (!confirmed) return;
-
-        setUpdatingCardId(user.id);
-        try {
-            await adminAPI.post(`/users/${user.id}/${action}-card`);
-            toast.success(frozen ? 'Card unfrozen' : 'Card frozen');
-            fetchData();
-        } catch (err) {
-            toast.error(err.response?.data?.message || 'Failed to update card status');
-        } finally {
-            setUpdatingCardId(null);
-        }
-    };
 
     const filtered = users.filter(u =>
         search === '' ||
@@ -166,8 +140,6 @@ const AllUsersPage = () => {
                                         <td colSpan={6} className={ui.emptyRow}>No users found.</td>
                                     </tr>
                                 ) : filtered.map((u) => {
-                                    const frozen = isCardFrozen(u);
-                                    const updating = updatingCardId === u.id;
 
                                     return (
                                         <tr key={u.id} className={ui.tableRow}>
@@ -230,15 +202,6 @@ const AllUsersPage = () => {
                                                         >
                                                             <FiPlus />
                                                             Add Balance
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            disabled={updating}
-                                                            className={`inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md text-white text-[0.78rem] font-black cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${frozen ? 'bg-green-brand hover:bg-[#245a30]' : 'bg-danger-muted hover:bg-[#9f283f]'}`}
-                                                            onClick={() => handleToggleCardStatus(u)}
-                                                        >
-                                                            {frozen ? <FiUnlock /> : <FiLock />}
-                                                            {updating ? 'Updating...' : frozen ? 'Unfreeze Card' : 'Freeze Card'}
                                                         </button>
                                                     </div>
                                                 )}

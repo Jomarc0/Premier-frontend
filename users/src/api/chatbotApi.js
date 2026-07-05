@@ -8,3 +8,11 @@ export const sendChatMessage = async (message, sessionId) => {
 
     return response.data?.data || response.data;
 };
+export const submitCardRequest = async ({ requestType, reason }) => {
+    const response = await API.post('/card-freeze-requests', {
+        requestType,
+        reason,
+    });
+
+    return response.data?.data || response.data;
+};

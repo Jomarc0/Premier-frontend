@@ -12,10 +12,6 @@ driverAPI.interceptors.request.use(
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
-        const deviceToken = import.meta.env.VITE_DRIVER_DEVICE_TOKEN;
-        if (deviceToken) {
-            config.headers['X-Driver-Device-Token'] = deviceToken;
-        }
         return config;
     },
     (error) => Promise.reject(error),

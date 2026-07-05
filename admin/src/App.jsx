@@ -1,4 +1,4 @@
-﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
@@ -13,6 +13,7 @@ import ActivityLogsPage  from './pages/ActivityLogsPage';
 import DriversPage       from './pages/DriverPage';
 import VehiclesPage      from './pages/VehiclesPage';
 import AdminSecurityPage from './pages/AdminSecurityPage';
+import CardFreezeRequestsPage from './pages/CardFreezeRequestsPage';
 
 const AdminRoute = ({ children }) => {
     const { admin, loading } = useAdminAuth();
@@ -71,7 +72,7 @@ const SuperAdminRoute = ({ children }) => {
                 background: '#f0f2f5', flexDirection: 'column',
                 gap: 16, fontFamily: 'Segoe UI, sans-serif',
             }}>
-                <div style={{ fontSize: 48 }}>ðŸš«</div>
+                <div style={{ fontSize: 48 }}>!</div>
                 <h2 style={{ color: '#dc2626', margin: 0, fontSize: 20 }}>
                     Access Denied
                 </h2>
@@ -84,7 +85,7 @@ const SuperAdminRoute = ({ children }) => {
                         color: 'white', fontWeight: 700, cursor: 'pointer',
                     }}
                 >
-                    â† Go Back
+                    &larr; Go Back
                 </button>
             </div>
         );
@@ -126,6 +127,9 @@ function App() {
                     } />
                     <Route path="/admin/security" element={
                         <AdminRoute><AdminSecurityPage /></AdminRoute>
+                    } />
+                    <Route path="/admin/card-freeze-requests" element={
+                        <AdminRoute><CardFreezeRequestsPage /></AdminRoute>
                     } />
 
                     <Route path="/admin/logs" element={

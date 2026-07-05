@@ -15,7 +15,7 @@ const Navbar = () => {
   const passengerName = passenger?.name || 'Maria';
 
   return (
-    <nav className="fixed top-0 inset-x-0 bg-[#7B181E] h-16 flex items-center justify-between px-4 md:px-8 z-50 shadow-lg">
+    <nav className="fixed top-0 inset-x-0 bg-[#7A2F3D] h-16 flex items-center justify-between px-4 md:px-8 z-50 shadow-lg">
       <Link 
         to="/dashboard" 
         className="flex items-center gap-2 md:gap-3 no-underline text-white group"
@@ -41,7 +41,7 @@ const Navbar = () => {
             <p className="text-[9px] text-white/60 font-bold uppercase tracking-widest leading-none">Passenger</p>
           </div>
           
-          <div className="h-8 w-8 md:h-10 md:w-10 rounded-xl bg-yellow-400 text-[#7B181E] flex items-center justify-center border-2 border-white/20 shrink-0 shadow-sm" title="Passenger Profile">
+          <div className="h-8 w-8 md:h-10 md:w-10 rounded-xl bg-yellow-400 text-[#7A2F3D] flex items-center justify-center border-2 border-white/20 shrink-0 shadow-sm" title="Passenger Profile">
             <FiUser className="text-sm md:text-base font-bold" />
           </div>
 

@@ -1,8 +1,17 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+﻿import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 
+import { setUnauthorizedHandler } from '../api/api';
+import { registerPushNotifications } from '../notifications/pushNotifications';
+
 const AuthContext = createContext(null);
+
+function syncPushNotificationToken() {
+  registerPushNotifications().catch((error) => {
+    console.warn('Push notification registration failed:', error?.message || error);
+  });
+}
 
 function decodeJwt(token) {
   try {
@@ -21,6 +30,18 @@ export function AuthProvider({ children }) {
   const [needsBiometricUnlock, setNeedsBiometricUnlock] = useState(false);
   const [lockedPassenger, setLockedPassenger] = useState(null);
 
+  const clearSessionState = useCallback(() => {
+    setPassenger(null);
+    setLockedPassenger(null);
+    setNeedsBiometricUnlock(false);
+    setBiometricEnabled(false);
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(clearSessionState);
+    return () => setUnauthorizedHandler(null);
+  }, [clearSessionState]);
+
   useEffect(() => {
     const init = async () => {
       const token = await SecureStore.getItemAsync('token');
@@ -38,10 +59,12 @@ export function AuthProvider({ children }) {
             setNeedsBiometricUnlock(true);
           } else {
             setPassenger({ id: decoded?.sub, name, token });
+            syncPushNotificationToken();
           }
         } else {
           await SecureStore.deleteItemAsync('token');
           await SecureStore.deleteItemAsync('passengerName');
+          await SecureStore.deleteItemAsync('tempToken');
           await SecureStore.deleteItemAsync('biometricEnabled');
         }
       }
@@ -62,6 +85,7 @@ export function AuthProvider({ children }) {
       await SecureStore.setItemAsync('passengerName', name || '');
       const decoded = decodeJwt(token);
       setPassenger({ id: decoded?.sub, name, token });
+      syncPushNotificationToken();
       setLockedPassenger(null);
       setNeedsBiometricUnlock(false);
     },
@@ -104,6 +128,7 @@ export function AuthProvider({ children }) {
       }
 
       setPassenger(lockedPassenger);
+      syncPushNotificationToken();
       setLockedPassenger(null);
       setNeedsBiometricUnlock(false);
     },
@@ -112,14 +137,14 @@ export function AuthProvider({ children }) {
       await SecureStore.deleteItemAsync('passengerName');
       await SecureStore.deleteItemAsync('tempToken');
       await SecureStore.deleteItemAsync('biometricEnabled');
-      setPassenger(null);
-      setLockedPassenger(null);
-      setNeedsBiometricUnlock(false);
-      setBiometricEnabled(false);
+      clearSessionState();
     },
-  }), [biometricEnabled, loading, lockedPassenger, needsBiometricUnlock, passenger]);
+  }), [biometricEnabled, clearSessionState, loading, lockedPassenger, needsBiometricUnlock, passenger]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);
+
+
+

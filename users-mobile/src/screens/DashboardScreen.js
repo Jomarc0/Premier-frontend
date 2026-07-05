@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Alert,
   Modal,
   Pressable,
@@ -23,6 +24,22 @@ import api from '../api/api';
 import Button from '../components/Button';
 import { useAuth } from '../context/AuthContext';
 import { colors, shadow } from '../theme';
+
+const loadNfcManager = () => {
+  try {
+    return require('react-native-nfc-manager').default;
+  } catch {
+    return null;
+  }
+};
+
+const loadHce = () => {
+  try {
+    return require('react-native-hce');
+  } catch {
+    return null;
+  }
+};
 
 const QUICK_AMOUNTS = [20, 40, 50, 100, 200, 500];
 const QUICK_REPLIES = ['Top-up issue', 'Fare deduction', 'Payment failed', 'Lost RFID card', 'Check balance'];
@@ -104,6 +121,8 @@ export default function DashboardScreen() {
   const [balance, setBalance] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [allTransactions, setAllTransactions] = useState([]);
+  const [transactionLoading, setTransactionLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState(null);
   const [selectedAmount, setSelectedAmount] = useState(100);
   const [customAmount, setCustomAmount] = useState('');
   const [pendingPayment, setPendingPayment] = useState(null);
@@ -111,6 +130,9 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [topupLoading, setTopupLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [nfcSupported, setNfcSupported] = useState(null);
+  const [nfcScanning, setNfcScanning] = useState(false);
+  const [nfcCardActive, setNfcCardActive] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [qrLoading, setQrLoading] = useState(false);
   const [qrData, setQrData] = useState(null);
@@ -125,6 +147,9 @@ export default function DashboardScreen() {
   ]);
 
   const chatSessionId = useRef(`mobile-${Date.now()}`);
+  const hceSessionRef = useRef(null);
+  const hceReadListenerRef = useRef(null);
+  const hceExpiryTimerRef = useRef(null);
   const currentBalance = useMemo(() => Number(balance?.balance || 0), [balance]);
   const rawPassengerName = passenger?.name || balance?.fullName || balance?.name || 'Passenger';
   const passengerName = String(rawPassengerName).replace(/\s*#\d+$/, '').trim() || 'Passenger';
@@ -132,7 +157,27 @@ export default function DashboardScreen() {
   const loaded = transactions.filter((tx) => tx.type === 'TOPUP').reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
   const notificationCount = transactions.length + (currentBalance > 0 && currentBalance < 100 ? 1 : 0);
 
-  const fetchData = async () => {
+  const stopMobileNfcCard = async () => {
+    if (hceExpiryTimerRef.current) {
+      clearTimeout(hceExpiryTimerRef.current);
+      hceExpiryTimerRef.current = null;
+    }
+
+    hceReadListenerRef.current?.();
+    hceReadListenerRef.current = null;
+
+    try {
+      await hceSessionRef.current?.setEnabled(false);
+    } catch {
+      // Native HCE service may already be stopped.
+    }
+
+    setNfcCardActive(false);
+  };
+
+  const fetchData = useCallback(async ({ silent = false } = {}) => {
+    setDashboardError(null);
+
     try {
       const [balRes, txRes] = await Promise.all([
         api.get('/balance'),
@@ -142,23 +187,87 @@ export default function DashboardScreen() {
       setBalance(balRes.data.data);
       setTransactions(txRes.data.data?.content || []);
     } catch (error) {
-      Alert.alert('Unable to load dashboard', error.response?.data?.message || 'Check if the backend is running.');
+      const message = error.response?.data?.message || 'Check if the backend is running.';
+      setDashboardError(message);
+      if (!silent) {
+        Alert.alert('Unable to load dashboard', message);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (AppState.currentState === 'active') {
+        fetchData({ silent: true });
+      }
+    }, 10000);
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        fetchData({ silent: true });
+      }
+    });
+
+    return () => {
+      clearInterval(intervalId);
+      subscription.remove();
+    };
+  }, [fetchData]);
+
+  useEffect(() => {
+    let active = true;
+
+    const prepareNfc = async () => {
+      try {
+        const NfcManager = loadNfcManager();
+        if (!NfcManager) {
+          if (active) setNfcSupported(false);
+          return;
+        }
+
+        const supported = await NfcManager.isSupported();
+        if (!active) return;
+
+        setNfcSupported(supported);
+
+        if (supported) {
+          await NfcManager.start();
+        }
+      } catch {
+        if (active) {
+          setNfcSupported(false);
+        }
+      }
+    };
+
+    prepareNfc();
+
+    return () => {
+      active = false;
+      stopMobileNfcCard();
+      loadNfcManager()?.cancelTechnologyRequest().catch(() => {});
+    };
   }, []);
 
   const fetchAllTransactions = async () => {
+    if (transactionLoading) return;
+
+    setTransactionLoading(true);
+
     try {
       const response = await api.get('/transactions?page=0&size=50');
       setAllTransactions(response.data.data?.content || []);
       setActiveTab('Transactions');
     } catch (error) {
       Alert.alert('Failed to load transactions', error.response?.data?.message || 'Please try again.');
+    } finally {
+      setTransactionLoading(false);
     }
   };
 
@@ -312,26 +421,72 @@ export default function DashboardScreen() {
   };
 
   const handleNfcPayment = async () => {
-    Alert.alert(
-      'Confirm NFC fare payment',
-      'This will deduct the fixed fare from your passenger wallet.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Pay Fare',
-          onPress: async () => {
-            try {
-              const response = await api.post('/fare/nfc', {});
-              const data = response.data.data;
-              Alert.alert('Fare paid', `PHP ${formatCurrency(data.deductedFare)} deducted. Remaining balance: PHP ${formatCurrency(data.remainingBalance)}`);
-              fetchData();
-            } catch (error) {
-              Alert.alert('NFC payment failed', error.response?.data?.message || 'Please try again.');
-            }
-          },
-        },
-      ],
-    );
+    if (nfcScanning) return;
+
+    if (Platform.OS !== 'android') {
+      Alert.alert('Android required', 'PN532 mobile NFC payment uses Android HCE. iPhone does not allow this card-emulation mode.');
+      return;
+    }
+
+    if (nfcSupported === false) {
+      Alert.alert('NFC unavailable', 'This phone does not support NFC payments.');
+      return;
+    }
+
+    setNfcScanning(true);
+
+    try {
+      const NfcManager = loadNfcManager();
+      const hce = loadHce();
+      if (!NfcManager || !hce) {
+        Alert.alert('NFC unavailable', 'This app build does not include the native NFC/HCE module. Install a custom development build or APK with HCE support.');
+        return;
+      }
+
+      const { HCESession, NFCTagType4, NFCTagType4NDEFContentType } = hce;
+      const enabled = await NfcManager.isEnabled();
+
+      if (!enabled) {
+        Alert.alert('Turn on NFC', 'Please enable NFC in your phone settings, then try again.');
+        return;
+      }
+
+      const response = await api.post('/fare/nfc/token');
+      const tokenData = response.data.data || {};
+      const payload = tokenData.payload;
+
+      if (!payload) {
+        throw new Error('Unable to create mobile NFC token.');
+      }
+
+      const tag = new NFCTagType4({
+        type: NFCTagType4NDEFContentType.Text,
+        content: payload,
+        writable: false,
+      });
+
+      const session = await HCESession.getInstance();
+      await stopMobileNfcCard();
+      await session.setApplication(tag);
+      await session.setEnabled(true);
+
+      hceSessionRef.current = session;
+      hceReadListenerRef.current = session.on(HCESession.Events.HCE_STATE_READ, () => {
+        Alert.alert('NFC token sent', 'The PN532 received your mobile fare token. Wait for the conductor confirmation.');
+        setTimeout(fetchData, 1500);
+      });
+
+      setNfcCardActive(true);
+      hceExpiryTimerRef.current = setTimeout(() => {
+        stopMobileNfcCard();
+      }, Math.max(15, Number(tokenData.expiresInSeconds || 60)) * 1000);
+      Alert.alert('Ready to tap', 'Hold your phone near the PN532 reader. Keep this app open until the conductor confirms payment.');
+    } catch (error) {
+      const message = error.response?.data?.message || error.message || 'Please tap again.';
+      Alert.alert('NFC payment failed', message);
+    } finally {
+      setNfcScanning(false);
+    }
   };
 
   const confirmLogout = () => {
@@ -390,7 +545,7 @@ export default function DashboardScreen() {
   const renderHome = () => (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       <View style={styles.homeHeader}>
-        <Image source={require('../../assets/image/logo.png')} style={styles.headerLogo} />
+        <Image source={require('../../assets/image/premier-logo.png')} style={styles.headerLogo} />
         <View style={styles.headerTitleBlock}>
           <Text style={styles.headerTitle}>Premier Transport</Text>
           <Text style={styles.headerSubtitle}>RFID Smart Fare System</Text>
@@ -411,6 +566,16 @@ export default function DashboardScreen() {
         <Text style={styles.secureText}>Secure Session Active</Text>
       </View>
 
+      {dashboardError && (
+        <View style={styles.inlineError}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.inlineErrorTitle}>Unable to refresh data</Text>
+            <Text style={styles.inlineErrorText}>{dashboardError}</Text>
+          </View>
+          <Button variant="ghost" style={styles.retryButton} onPress={fetchData}>Retry</Button>
+        </View>
+      )}
+
       <View style={styles.balancePanel}>
         <View style={styles.balanceBusMark}>
           <MaterialCommunityIcons name="bus-side" size={58} color="rgba(255,255,255,0.08)" />
@@ -430,10 +595,10 @@ export default function DashboardScreen() {
 
       <View style={styles.quickPanel}>
         <ActionButton color="#E2AA22" icon="wallet-plus-outline" label="Top Up" onPress={() => setActiveTab('TopUp')} />
-        <ActionButton color={colors.maroon} icon="history" label="Transactions" onPress={fetchAllTransactions} />
+        <ActionButton color={colors.maroon} icon="history" label="History" onPress={fetchAllTransactions} />
         <ActionButton color="#1C2A44" icon="credit-card-outline" label="My Card" onPress={() => setActiveTab('Wallet')} />
         <ActionButton color="#246A21" icon="qrcode" label="Pay QR" onPress={generateFareQr} />
-        <ActionButton color="#0F766E" icon="nfc" label="NFC Pay" onPress={handleNfcPayment} />
+        <ActionButton color="#0F766E" icon="nfc" label={nfcScanning ? 'Preparing...' : nfcCardActive ? 'Tap PN532' : 'NFC Pay'} onPress={handleNfcPayment} disabled={nfcScanning} />
       </View>
 
       <View style={styles.sectionHeader}>
@@ -463,7 +628,7 @@ export default function DashboardScreen() {
       <View style={styles.walletActions}>
         <Button variant="secondary" style={styles.walletButtonGold} onPress={() => setActiveTab('TopUp')} icon={<MaterialCommunityIcons name="wallet-plus-outline" size={17} color={colors.maroon} />}>Top Up</Button>
         <Button variant="ghost" style={styles.walletButton} onPress={generateFareQr} icon={<MaterialCommunityIcons name="qrcode" size={17} color={colors.maroon} />}>Pay</Button>
-        <Button variant="ghost" style={styles.walletButton} onPress={handleNfcPayment} icon={<MaterialCommunityIcons name="nfc" size={17} color={colors.maroon} />}>NFC</Button>
+        <Button variant="ghost" style={styles.walletButton} loading={nfcScanning} onPress={handleNfcPayment} icon={<MaterialCommunityIcons name="nfc" size={17} color={colors.maroon} />}>{nfcCardActive ? 'Tap PN532' : 'NFC'}</Button>
       </View>
       <View style={styles.statsGrid}>
         <View style={styles.statCard}><Text style={styles.statLabel}>Spent This Month</Text><Text style={styles.statRed}>PHP {formatCurrency(spent)}</Text><Text style={styles.statSub}>fare taps</Text></View>
@@ -540,8 +705,14 @@ export default function DashboardScreen() {
           <View style={[styles.totalCard, styles.totalIn]}><MaterialCommunityIcons name="cellphone" size={20} color="#D6FFF0" /><Text style={styles.totalLabel}>Total In</Text><Text style={styles.totalValue}>+PHP {formatCurrency(loaded)}</Text></View>
           <View style={[styles.totalCard, styles.totalOut]}><MaterialCommunityIcons name="map-marker-outline" size={20} color="#FFE5EA" /><Text style={styles.totalLabel}>Total Out</Text><Text style={styles.totalValue}>-PHP {formatCurrency(spent)}</Text></View>
         </View>
-        {data.map((tx) => <TransactionRow key={tx.id} tx={tx} />)}
-        {!data.length && <Text style={styles.empty}>No transactions found.</Text>}
+        {transactionLoading && (
+          <View style={styles.loadingInline}>
+            <ActivityIndicator color={colors.maroon} />
+            <Text style={styles.loadingInlineText}>Loading transactions...</Text>
+          </View>
+        )}
+        {!transactionLoading && data.map((tx) => <TransactionRow key={tx.id} tx={tx} />)}
+        {!transactionLoading && !data.length && <Text style={styles.empty}>No transactions found.</Text>}
       </ScrollView>
     );
   };
@@ -693,11 +864,11 @@ export default function DashboardScreen() {
   );
 }
 
-function ActionButton({ color, icon, label, onPress }) {
+function ActionButton({ color, icon, label, onPress, disabled }) {
   return (
-    <Pressable onPress={onPress} style={styles.actionItem}>
+    <Pressable onPress={onPress} disabled={disabled} style={[styles.actionItem, disabled && styles.actionItemDisabled]}>
       <View style={[styles.actionIcon, { backgroundColor: color }]}><MaterialCommunityIcons name={icon} size={19} color="#fff" /></View>
-      <Text style={styles.actionLabel}>{label}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={styles.actionLabel}>{label}</Text>
     </Pressable>
   );
 }
@@ -775,10 +946,11 @@ const styles = StyleSheet.create({
   cardMiniLabel: { color: '#C9A1A6', fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginBottom: 5 },
   cardMini: { color: '#fff', fontSize: 14, fontWeight: '900', flex: 1 },
   activeBadge: { color: '#4ADE80', backgroundColor: 'rgba(20,83,45,0.7)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', overflow: 'hidden' },
-  quickPanel: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 30, backgroundColor: '#fff', borderRadius: 22, marginTop: 16, paddingVertical: 18, paddingHorizontal: 12, rowGap: 19, ...shadow, shadowOpacity: 0.08 },
-  actionItem: { alignItems: 'center', gap: 8, width: 78 },
+  quickPanel: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 24, backgroundColor: '#fff', borderRadius: 22, marginTop: 16, paddingVertical: 18, paddingHorizontal: 12, rowGap: 19, ...shadow, shadowOpacity: 0.08 },
+  actionItem: { alignItems: 'center', gap: 8, width: 82 },
+  actionItemDisabled: { opacity: 0.58 },
   actionIcon: { width: 46, height: 46, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  actionLabel: { color: '#101827', fontSize: 10, fontWeight: '900', textTransform: 'uppercase', textAlign: 'center' },
+  actionLabel: { color: '#101827', fontSize: 10, fontWeight: '900', textTransform: 'uppercase', textAlign: 'center', width: '100%' },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 12 },
   sectionTitle: { color: '#101827', fontSize: 15, fontWeight: '900', textTransform: 'uppercase' },
   sectionTitleSmall: { color: '#7186A5', fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginTop: 20, marginBottom: 10 },
@@ -816,6 +988,12 @@ const styles = StyleSheet.create({
   statGreen: { color: '#00A86B', fontSize: 15, fontWeight: '900', marginTop: 9 },
   statSub: { color: '#7186A5', fontSize: 11, marginTop: 5 },
   infoCard: { backgroundColor: '#fff', borderRadius: 17, paddingHorizontal: 16, marginTop: 18, ...shadow, shadowOpacity: 0.05 },
+  inlineError: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', borderRadius: 16, padding: 14, marginBottom: 16 },
+  inlineErrorTitle: { color: colors.maroon, fontSize: 12, fontWeight: '900' },
+  inlineErrorText: { color: '#7C5A33', fontSize: 11, lineHeight: 16, marginTop: 3 },
+  retryButton: { minHeight: 36, paddingHorizontal: 12, backgroundColor: '#fff' },
+  loadingInline: { alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 16, padding: 18, marginBottom: 12, ...shadow, shadowOpacity: 0.04 },
+  loadingInlineText: { color: '#536987', fontSize: 12, fontWeight: '800' },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#EDF2F7', paddingVertical: 15 },
   infoLabel: { color: '#7186A5', fontSize: 12, fontWeight: '800' },
   infoValue: { color: '#1C2A44', fontSize: 12, fontWeight: '900' },
@@ -907,3 +1085,4 @@ const styles = StyleSheet.create({
   qrCardNumber: { color: colors.maroon, fontWeight: '900', fontSize: 13 },
   qrHelp: { color: '#536987', fontSize: 12, lineHeight: 18, textAlign: 'center' },
 });
+

@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand-primary: #5c2028;
+  --color-brand-primary-dark: #42171d;
+  --color-brand-accent: #f2b134;
+  --color-text-heading: #1e2537;
+  --color-text-body: #5b6478;
+  --color-text-placeholder: #9ca3af;
+  --color-border-input: #d8dce3;
+  --color-page: #f3f4f7;
+}
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -19,12 +30,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(123, 24, 30, 0.2);
+  background: rgba(92, 32, 40, 0.2);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(123, 24, 30, 0.4);
+  background: rgba(92, 32, 40, 0.4);
 }
 
 @keyframes pulse-soft {

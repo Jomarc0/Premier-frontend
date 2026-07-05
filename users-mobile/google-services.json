@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "352529483146",
+    "project_id": "premier-b25d6",
+    "storage_bucket": "premier-b25d6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:352529483146:android:53bf31c2c41193547ff473",
+        "android_client_info": {
+          "package_name": "com.togi012322.premier"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyASRTkBCVw2hlVeoYI_EBJ43gB8OUzC22w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

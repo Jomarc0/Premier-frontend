@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import { processQrFare, tapRfidCard } from './rfidService';
+import { createSerialRfidReader, isSerialReaderSupported, normalizeRfidUid } from './hardwareReader';
 import {
     FiRadio, FiCheckCircle, FiXCircle,
-    FiArrowLeft, FiCreditCard, FiTruck, FiLock, FiCamera,
+    FiCreditCard, FiTruck, FiLock, FiCamera, FiCpu,
 } from 'react-icons/fi';
-import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 
 const peso = (n) =>
-    `₱${parseFloat(n ?? 0).toLocaleString('en-PH', {
+    `\u20B1${parseFloat(n ?? 0).toLocaleString('en-PH', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     })}`;
 
 const fmtDate = (ts) => {
-    if (!ts) return '—';
+    if (!ts) return '\u2014';
     return new Date(ts).toLocaleString('en-PH', {
         month: 'short', day: 'numeric', year: 'numeric',
         hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -27,13 +27,13 @@ function ScannerIcon({ loading }) {
     return (
         <div className="relative w-20 h-20 mx-auto mb-4 flex items-center justify-center">
             <div className={`absolute inset-0 rounded-full border-2 transition-colors duration-300 ${
-                loading ? 'border-yellow-500 animate-ping' : 'border-[#7B181E]/20'
+                loading ? 'border-yellow-500 animate-ping' : 'border-[#7A2F3D]/20'
             }`} />
-            <div className="w-14 h-14 rounded-full bg-[#7B181E] text-white flex items-center justify-center text-2xl shadow-md z-10">
+            <div className="w-14 h-14 rounded-full bg-[#7A2F3D] text-white flex items-center justify-center text-2xl shadow-md z-10">
                 <FiRadio className={loading ? 'animate-pulse text-yellow-400' : ''} />
             </div>
             {loading && (
-                <div className="absolute -inset-1 rounded-full border-2 border-transparent border-t-[#7B181E] animate-spin" />
+                <div className="absolute -inset-1 rounded-full border-2 border-transparent border-t-[#7A2F3D] animate-spin" />
             )}
         </div>
     );
@@ -72,11 +72,11 @@ function ResultPanel({ status, result, errorMsg }) {
                         <DataRow label="Card No."         value={result.cardNumber} />
                         {result.rfidUid && (
                             <DataRow label="RFID UID" value={result.rfidUid}
-                                valueClass="tracking-widest text-[#7B181E]" />
+                                valueClass="tracking-widest text-[#7A2F3D]" />
                         )}
                         {result.source && (
                             <DataRow label="Source" value={result.source}
-                                valueClass="tracking-widest text-[#7B181E]" />
+                                valueClass="tracking-widest text-[#7A2F3D]" />
                         )}
                         <DataRow label="Fare Deducted"    value={`− ${peso(result.deductedFare)}`}
                             valueClass="text-red-600 font-black text-base" />
@@ -122,12 +122,12 @@ function VehicleSelector({ onSelect }) {
     return (
         <div className="min-h-screen bg-[#F1F5F9] flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-md bg-white rounded-4xl shadow-2xl overflow-hidden">
-                <div className="h-2 bg-[#7B181E]" />
+                <div className="h-2 bg-[#7A2F3D]" />
                 <div className="p-8 text-center border-b border-slate-100">
-                    <div className="w-14 h-14 rounded-full bg-[#7B181E] text-white flex items-center justify-center text-2xl shadow-md mx-auto mb-4">
+                    <div className="w-14 h-14 rounded-full bg-[#7A2F3D] text-white flex items-center justify-center text-2xl shadow-md mx-auto mb-4">
                         <FiTruck />
                     </div>
-                    <h1 className="text-xl font-black text-[#7B181E] uppercase tracking-tight">
+                    <h1 className="text-xl font-black text-[#7A2F3D] uppercase tracking-tight">
                         Premier Transit
                     </h1>
                     <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mt-1">
@@ -157,17 +157,17 @@ function VehicleSelector({ onSelect }) {
                                         onClick={() => setSelected(v.plateNumber)}
                                         className={`w-full text-left p-4 rounded-xl border-2 transition-all cursor-pointer ${
                                             selected === v.plateNumber
-                                                ? 'border-[#7B181E] bg-[#7B181E]/5'
+                                                ? 'border-[#7A2F3D] bg-[#7A2F3D]/5'
                                                 : 'border-slate-200 hover:border-slate-300 bg-white'
                                         }`}
                                     >
                                         <div className="flex justify-between items-center">
                                             <div>
                                                 <div className="font-black text-slate-800 text-sm tracking-wider">
-                                                    🚌 {v.plateNumber}
+                                                    <FiTruck className="inline mr-1 align-[-2px] text-[#7A2F3D]" /> {v.plateNumber}
                                                 </div>
                                                 <div className="text-[11px] text-slate-500 mt-0.5">
-                                                    {v.route || 'SM Lipa ↔ SM Batangas'}
+                                                    {v.route || 'SM Lipa to SM Batangas'}
                                                 </div>
                                             </div>
                                             <div className="text-right">
@@ -194,7 +194,7 @@ function VehicleSelector({ onSelect }) {
                         disabled={!selected || loading}
                         className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-none ${
                             selected && !loading
-                                ? 'bg-[#7B181E] hover:bg-[#601217] text-white cursor-pointer shadow-lg active:scale-95'
+                                ? 'bg-[#7A2F3D] hover:bg-[#642633] text-white cursor-pointer shadow-lg active:scale-95'
                                 : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                         }`}
                     >
@@ -205,7 +205,7 @@ function VehicleSelector({ onSelect }) {
             </div>
 
             <footer className="mt-6 text-center text-[10px] text-slate-400 uppercase font-bold tracking-tight">
-                Premier Transit Turnstile Grid © {new Date().getFullYear()}
+                Premier Transit Turnstile Grid {'\u00A9'} {new Date().getFullYear()}
             </footer>
         </div>
     );
@@ -254,18 +254,29 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
     const [result,   setResult]   = useState(null);
     const [errorMsg, setErrorMsg] = useState('');
     const [focused,  setFocused]  = useState(false);
+    const [readerStatus, setReaderStatus] = useState('DISCONNECTED');
+    const [readerMessage, setReaderMessage] = useState('Connect the PN532 terminal over USB serial.');
     const inputRef = useRef(null);
+    const serialReaderRef = useRef(null);
+    const abortReaderRef = useRef(null);
+    const busyRef = useRef(false);
 
     useEffect(() => { inputRef.current?.focus(); }, []);
 
-    const handleTap = useCallback(async () => {
-        const uid = rfidUid.trim().toUpperCase();
+    useEffect(() => () => {
+        abortReaderRef.current?.abort();
+        serialReaderRef.current?.close?.();
+    }, []);
+
+    const processUid = useCallback(async (rawUid, source = 'manual') => {
+        const uid = normalizeRfidUid(rawUid);
         if (!uid) {
-            toast.warn('Enter an RFID UID first.');
+            toast.warn(source === 'serial' ? 'Reader sent an invalid RFID UID.' : 'Enter an RFID UID first.');
             inputRef.current?.focus();
             return;
         }
-        if (status === 'LOADING') return;
+        if (busyRef.current) return;
+        busyRef.current = true;
 
         setStatus('LOADING');
         setResult(null);
@@ -278,7 +289,7 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
             if (res.success) {
                 setResult(res.data);
                 setStatus('SUCCESS');
-                toast.success('Fare deducted successfully!');
+                toast.success(source === 'serial' ? `PN532 card ${uid} processed.` : 'Fare deducted successfully!');
             } else {
                 setErrorMsg(res.message || 'Transaction failed.');
                 setStatus('ERROR');
@@ -293,10 +304,59 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
             setStatus('ERROR');
             toast.error(msg);
         } finally {
+            busyRef.current = false;
             setRfidUid('');
             setTimeout(() => inputRef.current?.focus(), 120);
         }
-    }, [rfidUid, status, vehicle.plateNumber]);
+    }, [vehicle.plateNumber]);
+
+    const handleTap = useCallback(() => processUid(rfidUid, 'manual'), [processUid, rfidUid]);
+
+    const handleConnectReader = useCallback(async () => {
+        if (readerStatus === 'CONNECTED') {
+            abortReaderRef.current?.abort();
+            await serialReaderRef.current?.close?.();
+            serialReaderRef.current = null;
+            abortReaderRef.current = null;
+            setReaderStatus('DISCONNECTED');
+            setReaderMessage('PN532 reader disconnected.');
+            return;
+        }
+
+        if (!isSerialReaderSupported()) {
+            toast.error('Use Chrome or Edge to connect the PN532 USB serial reader.');
+            setReaderStatus('UNSUPPORTED');
+            setReaderMessage('Web Serial is unavailable in this browser.');
+            return;
+        }
+
+        try {
+            const controller = new AbortController();
+            abortReaderRef.current = controller;
+            setReaderStatus('CONNECTING');
+            setReaderMessage('Select the Arduino / ESP32 PN532 terminal.');
+
+            serialReaderRef.current = await createSerialRfidReader({
+                signal: controller.signal,
+                onStatus: (nextStatus) => {
+                    setReaderStatus(nextStatus);
+                    setReaderMessage(nextStatus === 'CONNECTED'
+                        ? 'PN532 reader connected at 115200 baud. Tap a card.'
+                        : 'PN532 reader disconnected.');
+                },
+                onUid: async (uid) => {
+                    setRfidUid(uid);
+                    setReaderMessage(`PN532 scanned ${uid}. Processing fare...`);
+                    await processUid(uid, 'serial');
+                },
+            });
+        } catch (err) {
+            const msg = err?.message || 'Unable to connect RFID reader.';
+            setReaderStatus('DISCONNECTED');
+            setReaderMessage(msg);
+            toast.error(msg);
+        }
+    }, [processUid, readerStatus]);
 
     const handleQrPayment = useCallback(async () => {
         const payload = qrPayload.trim();
@@ -304,7 +364,8 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
             toast.warn('Paste or scan a passenger fare QR first.');
             return;
         }
-        if (status === 'LOADING') return;
+        if (busyRef.current) return;
+        busyRef.current = true;
 
         setStatus('LOADING');
         setResult(null);
@@ -331,10 +392,11 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
             setStatus('ERROR');
             toast.error(msg);
         } finally {
+            busyRef.current = false;
             setQrPayload('');
             setTimeout(() => inputRef.current?.focus(), 120);
         }
-    }, [qrPayload, status, vehicle.plateNumber]);
+    }, [qrPayload, vehicle.plateNumber]);
 
     const handleKeyDown  = (e) => { if (e.key === 'Enter') handleTap(); };
     const handleChange   = (e) => {
@@ -344,10 +406,11 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
 
     const isLoading = status === 'LOADING';
     const hasResult = status === 'SUCCESS' || status === 'ERROR';
+    const isReaderConnected = readerStatus === 'CONNECTED';
     const canTap    = !isLoading && rfidUid.trim().length > 0;
 
     return (
-        <div className="min-h-screen bg-[#F1F5F9] font-sans text-slate-800 p-4 md:p-8 flex flex-col items-center justify-center selection:bg-[#7B181E] selection:text-white">
+        <div className="min-h-screen bg-[#F1F5F9] font-sans text-slate-800 p-4 md:p-8 flex flex-col items-center justify-center selection:bg-[#7A2F3D] selection:text-white">
 
             {/* Top bar */}
             <div className="w-full max-w-md mb-4 flex items-center justify-between">
@@ -359,31 +422,31 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
             {/* Vehicle badge */}
             <div className="w-full max-w-md mb-3 flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm">
                 <div className="flex items-center gap-2">
-                    <FiTruck className="text-[#7B181E] shrink-0" size={15} />
+                    <FiTruck className="text-[#7A2F3D] shrink-0" size={15} />
                     <div>
                         <div className="text-xs font-black text-slate-700 tracking-wider">
                             {vehicle.plateNumber}
                         </div>
                         <div className="text-[10px] text-slate-400">
-                            {vehicle.route || 'SM Lipa ↔ SM Batangas'}
+                            {vehicle.route || 'SM Lipa to SM Batangas'}
                         </div>
                     </div>
                 </div>
                 <button
                     onClick={onChangeVehicle}
-                    className="text-[10px] text-[#7B181E] font-black uppercase tracking-wider hover:underline bg-transparent border-0 cursor-pointer"
+                    className="text-[10px] text-[#7A2F3D] font-black uppercase tracking-wider hover:underline bg-transparent border-0 cursor-pointer"
                 >
                     Change
                 </button>
             </div>
 
             <div className="w-full max-w-md bg-white rounded-3xl md:rounded-4xl shadow-2xl border border-white overflow-hidden">
-                <div className="h-2 bg-[#7B181E]" />
+                <div className="h-2 bg-[#7A2F3D]" />
 
                 {/* Header */}
                 <div className="p-6 md:p-8 text-center bg-linear-to-b from-slate-50 to-white border-b border-slate-100">
                     <ScannerIcon loading={isLoading} />
-                    <h1 className="text-xl md:text-2xl font-black tracking-tight text-[#7B181E] uppercase m-0 leading-tight">
+                    <h1 className="text-xl md:text-2xl font-black tracking-tight text-[#7A2F3D] uppercase m-0 leading-tight">
                         Premier Transit
                     </h1>
                     <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mt-0.5 m-0">
@@ -395,15 +458,42 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
                 <div className="p-6 md:p-8 space-y-4 bg-white">
 
                     {/* Fixed Fare */}
-                    <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#7B181E]/5 border border-[#7B181E]/10">
+                    <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#7A2F3D]/5 border border-[#7A2F3D]/10">
                         <span className="text-xs font-black text-slate-600 uppercase tracking-wider">
                             Fixed Boarding Fare
                         </span>
-                        <span className="text-xl font-black font-mono text-[#7B181E]">
+                        <span className="text-xl font-black font-mono text-[#7A2F3D]">
                             ₱60.00
                         </span>
                     </div>
 
+                    <div className={`rounded-xl border p-3.5 ${
+                        isReaderConnected
+                            ? 'border-emerald-200 bg-emerald-50'
+                            : 'border-slate-200 bg-slate-50'
+                    }`}>
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <FiCpu className={isReaderConnected ? 'text-emerald-700' : 'text-slate-400'} size={18} />
+                                <div className="min-w-0">
+                                    <div className="text-xs font-black text-slate-700 uppercase tracking-wider">PN532 USB Reader</div>
+                                    <div className="text-[10px] text-slate-500 font-semibold truncate">{readerMessage}</div>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleConnectReader}
+                                disabled={isLoading || readerStatus === 'CONNECTING'}
+                                className={`shrink-0 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border-none transition-all ${
+                                    isReaderConnected
+                                        ? 'bg-slate-900 text-white hover:bg-slate-700 cursor-pointer'
+                                        : 'bg-[#7A2F3D] text-white hover:bg-[#642633] cursor-pointer disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed'
+                                }`}
+                            >
+                                {readerStatus === 'CONNECTING' ? 'Connecting' : isReaderConnected ? 'Disconnect' : 'Connect'}
+                            </button>
+                        </div>
+                    </div>
                     {/* RFID Input */}
                     <div>
                         <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1.5">
@@ -411,7 +501,7 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
                         </label>
                         <div className={`flex items-center gap-2 px-3.5 py-3.5 rounded-xl bg-slate-50 border transition-all ${
                             focused
-                                ? 'border-[#7B181E] ring-2 ring-[#7B181E]/20 bg-white'
+                                ? 'border-[#7A2F3D] ring-2 ring-[#7A2F3D]/20 bg-white'
                                 : 'border-slate-300'
                         }`}>
                             <FiCreditCard className="text-slate-400 shrink-0" size={18} />
@@ -432,7 +522,7 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
                             />
                         </div>
                         <p className="text-[10px] text-slate-400 font-medium text-center mt-2 italic">
-                            Type the badge ID then press{' '}
+                            Connect the PN532 reader, or type the UID manually then press{' '}
                             <strong className="text-slate-600 font-bold">Enter</strong>.
                         </p>
                     </div>
@@ -444,7 +534,7 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
                         disabled={!canTap}
                         className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 border-none mt-2 ${
                             canTap
-                                ? 'bg-[#7B181E] hover:bg-[#601217] text-white cursor-pointer active:scale-95'
+                                ? 'bg-[#7A2F3D] hover:bg-[#642633] text-white cursor-pointer active:scale-95'
                                 : 'bg-slate-100 text-slate-400 shadow-none cursor-not-allowed'
                         }`}
                     >
@@ -510,8 +600,13 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
             </div>
 
             <footer className="mt-8 text-center text-[10px] text-slate-400 uppercase font-bold tracking-tight">
-                Premier Transit Turnstile Grid © {new Date().getFullYear()} | Secure Handshake
+                Premier Transit Turnstile Grid {'\u00A9'} {new Date().getFullYear()} | Secure Handshake
             </footer>
         </div>
     );
 }
+
+
+
+
+

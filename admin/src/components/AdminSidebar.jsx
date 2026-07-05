@@ -26,10 +26,12 @@ const AdminSidebar = () => {
         { label: 'Analytics',     icon: FiActivity,      path: '/admin/reports',       superOnly: false },
         { label: 'Transactions',  icon: FiFileText,      path: '/admin/transactions',  superOnly: false },
         { label: 'All Users',     icon: FiUsers,         path: '/admin/users',         superOnly: false },
-        { label: 'Create User',   icon: FiUserPlus,      path: '/admin/create-user',   superOnly: false },
+        { label: 'Create Cards',  icon: FiUserPlus,      path: '/admin/create-user',   superOnly: false },
         { label: 'Drivers',       icon: FiUsers,         path: '/admin/drivers',       superOnly: false },
         { label: 'Vehicles',      icon: FiTruck,         path: '/admin/vehicles',      superOnly: false },
         { label: 'Bus Monitoring', icon: FiTruck, path: '/admin/vehicle-monitoring', superOnly: false },
+        { label: 'Security',      icon: FiShield,        path: '/admin/security',      superOnly: false },
+        { label: 'Card Requests', icon: FiShield,        path: '/admin/card-freeze-requests', superOnly: false },
         { label: 'Activity Logs', icon: FiClock,         path: '/admin/logs',          superOnly: true  },
         { label: 'Manage Admins', icon: FiShield,        path: '/admin/manage-admins', superOnly: true  },
     ];
@@ -48,7 +50,7 @@ const AdminSidebar = () => {
                 <img
                     src={logo}
                     alt="Premier Transit Logo"
-                    className="w-13 h-13 rounded-full object-cover mb-2.5 max-[1060px]:row-span-2 max-[1060px]:w-[3.2rem] max-[1060px]:h-[3.2rem] max-[1060px]:m-0"
+                    className="w-13 h-13 rounded-full bg-white p-1.5 object-contain mb-2.5 max-[1060px]:row-span-2 max-[1060px]:w-[3.2rem] max-[1060px]:h-[3.2rem] max-[1060px]:m-0"
                 />
                 <strong className="text-[1.05rem] font-black tracking-[0.04em]">PREMIER TRANSIT</strong>
                 <span className="mt-[0.2rem] text-white/75 text-[0.78rem]">Admin Panel</span>
@@ -114,20 +116,6 @@ const AdminSidebar = () => {
 
             {/* Bottom */}
             <div className="grid gap-[0.7rem] pt-[0.9rem] border-t border-white/10">
-                <div className="px-[0.8rem] py-[0.7rem] rounded-lg bg-white/10">
-                    <span className="block text-white/60 text-[0.7rem] mb-[0.15rem]">Logged in as</span>
-                    <span className="block text-white text-[0.85rem] font-extrabold overflow-hidden text-ellipsis whitespace-nowrap">
-                        {admin?.fullName || 'Admin'}
-                    </span>
-                    <span
-                        className={[
-                            'block mt-1 text-[0.72rem] font-black',
-                            isSuperAdmin() ? 'text-gold' : 'text-white/85',
-                        ].join(' ')}
-                    >
-                        {isSuperAdmin() ? 'Super Admin' : 'Admin'}
-                    </span>
-                </div>
                 <button
                     type="button"
                     onClick={logout}

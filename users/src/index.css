@@ -1,9 +1,9 @@
   @import "tailwindcss";
 
   :root {
-    --brand-maroon: #8f151d;
-    --brand-maroon-dark: #761016;
-    --brand-maroon-soft: #a5212a;
+    --brand-maroon: #5c2028;
+    --brand-maroon-dark: #42171d;
+    --brand-maroon-soft: #7f4750;
     --brand-gold: #f4c84d;
     --brand-green: #236531;
     --text-main: #392d33;
@@ -33,6 +33,17 @@
   button {
     border: 0;
     cursor: pointer;
+  }
+
+  @theme {
+    --color-brand-primary: #5c2028;
+    --color-brand-primary-dark: #42171d;
+    --color-brand-accent: #f2b134;
+    --color-text-heading: #1e2537;
+    --color-text-body: #5b6478;
+    --color-text-placeholder: #9ca3af;
+    --color-border-input: #d8dce3;
+    --color-page: #f3f4f7;
   }
 
   a {

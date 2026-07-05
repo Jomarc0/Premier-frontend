@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import logo from "./assets/image/premier-logo.png";
+import { BRAND_NAME } from "./constants/brand";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8080").replace(/\/$/, "");
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:8080"
+).replace(/\/$/, "");
 const SESSION_KEY = "premier_staff_session";
 
 const emptyQueue = {
@@ -171,7 +177,9 @@ function LoginPage({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const hasError = Boolean(error);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -213,21 +221,28 @@ function LoginPage({ onLogin }) {
     }
   }
 
+  function handleForgotPassword() {
+    window.alert("Please contact your administrator to reset your password");
+  }
+
   return (
     <main className="min-h-screen grid place-items-center px-4 py-8 bg-[linear-gradient(135deg,#edf1f6_0%,#f8fafc_100%)]">
       <section className="grid grid-cols-[minmax(280px,1fr)_minmax(320px,1fr)] w-full max-w-5xl min-h-[35rem] overflow-hidden rounded-2xl bg-white shadow-[0_22px_52px_rgba(44,36,41,0.18)] max-[860px]:grid-cols-1">
-        <div className="grid place-content-center p-8 text-white text-center bg-[linear-gradient(180deg,#6f2f3c_0%,#572631_100%)] max-[860px]:min-h-64">
+        <div
+          className="grid place-content-center p-8 text-white text-center bg-brand-primary max-[860px]:min-h-64"
+          style={{ backgroundColor: "#5c2028" }}
+        >
           <div>
-            <div className="w-24 h-24 mx-auto mb-6 border-4 border-white/75 rounded-full bg-white overflow-hidden shadow-[0_10px_22px_rgba(0,0,0,0.18)]">
-              <img src={logo} alt="Premier Transit" className="w-full h-full object-cover" />
+            <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-white p-4 overflow-hidden shadow-[0_10px_22px_rgba(0,0,0,0.18)] ring-4 ring-white/75">
+              <img src={logo} alt={BRAND_NAME} className="w-full h-full object-contain" />
             </div>
-            <h1 className="m-0 text-3xl font-black tracking-wider">PREMIER TRANSIT</h1>
-            <p className="mt-3 mb-0 text-[#e8bd47] font-extrabold tracking-wider">Staff Bus Queue</p>
+            <h1 className="m-0 text-3xl font-black tracking-wider">{BRAND_NAME}</h1>
+            <p className="mt-3 mb-0 text-brand-accent font-extrabold tracking-wider">Staff Bus Queue</p>
           </div>
         </div>
 
         <div className="grid content-center p-[clamp(2rem,5vw,3.5rem)] bg-white">
-          <h2 className="m-0 text-[#6f2f3c] text-3xl font-black">Staff Login</h2>
+          <h2 className="m-0 text-brand-primary text-3xl font-black" style={{ color: "#5c2028" }}>Staff Login</h2>
           <p className="mt-1 mb-7 text-[#717680] text-sm">Sign in using the staff account created by the admin.</p>
 
           <form onSubmit={handleSubmit}>
@@ -240,25 +255,49 @@ function LoginPage({ onLogin }) {
               placeholder="Enter staff username"
               autoComplete="username"
               required
-              className="w-full min-h-12 mb-5 px-4 border-2 border-[#d9dce2] rounded-lg bg-white text-[#352f33] outline-none transition focus:border-[#e8bd47] focus:shadow-[0_0_0_4px_rgba(232,189,71,0.18)]"
+              className={`w-full min-h-12 mb-5 px-4 border-2 rounded-lg bg-white text-[#352f33] outline-none transition focus:border-brand-primary focus:shadow-[0_0_0_4px_rgba(92,32,40,0.14)] ${hasError ? "border-red-500" : "border-[#d9dce2]"}`}
             />
 
             <label htmlFor="staff-password" className="block mb-2 text-[#343946] font-extrabold text-sm">Password</label>
-            <input
-              id="staff-password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Enter password"
-              autoComplete="current-password"
-              required
-              className="w-full min-h-12 mb-5 px-4 border-2 border-[#d9dce2] rounded-lg bg-white text-[#352f33] outline-none transition focus:border-[#e8bd47] focus:shadow-[0_0_0_4px_rgba(232,189,71,0.18)]"
-            />
+            <div className="relative">
+              <input
+                id="staff-password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Enter password"
+                autoComplete="current-password"
+                required
+                className={`w-full min-h-12 px-4 pr-12 border-2 rounded-lg bg-white text-[#352f33] outline-none transition focus:border-brand-primary focus:shadow-[0_0_0_4px_rgba(92,32,40,0.14)] ${hasError ? "border-red-500" : "border-[#d9dce2]"}`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                className="absolute inset-y-0 right-3 grid place-items-center text-[#717680] transition hover:text-brand-primary"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            <div className="mb-5 mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-sm font-semibold text-brand-primary hover:underline"
+              >
+                Forgot your password?
+              </button>
+            </div>
 
-            {error ? <p className="mb-5 rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-red-700 border border-red-100">{error}</p> : null}
+            {error ? <p className="mb-5 text-sm font-semibold text-red-600">{error}</p> : null}
 
-            <button type="submit" disabled={submitting} className="w-full min-h-12 rounded-lg bg-[#6f2f3c] text-white font-black transition hover:bg-[#572631] hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(111,47,60,0.22)] disabled:opacity-60 disabled:cursor-not-allowed">
-              {submitting ? "Signing in..." : "Login"}
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full min-h-12 rounded-lg bg-brand-primary text-white font-black transition hover:bg-brand-primary-dark hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(92,32,40,0.22)] disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ backgroundColor: submitting ? "rgba(92, 32, 40, 0.55)" : "#5c2028", color: "#ffffff" }}
+            >
+              {submitting ? "Signing in..." : "Log In"}
             </button>
           </form>
         </div>
@@ -340,12 +379,21 @@ function Dashboard({ username, onLogout }) {
           Authorization: `Bearer ${savedSession?.token || ""}`,
         },
       });
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem(SESSION_KEY);
+        throw new Error("STAFF_SESSION_EXPIRED");
+      }
       if (!response.ok) throw new Error(`API returned ${response.status}`);
       const payload = await response.json();
       setQueue(normalizeQueuePayload(payload));
       setError("");
       setLastUpdated(new Date());
     } catch (requestError) {
+      if (requestError.message === "STAFF_SESSION_EXPIRED") {
+        setError("Staff session expired. Please sign in again.");
+        onLogout();
+        return;
+      }
       setError("Live bus queue is unavailable. Check if the Spring Boot backend is running.");
     } finally {
       setLoading(false);
@@ -369,10 +417,10 @@ function Dashboard({ username, onLogout }) {
 
   return (
     <main className="min-h-screen bg-[#f3f4f7] text-[#352f33]">
-      <header className="bg-[#8b1a1a] text-white shadow-sm">
+      <header className="bg-brand-primary text-white shadow-sm">
         <div className="relative mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <img src={logo} alt="Premier Transit" className="h-11 w-11 shrink-0 rounded-full border-2 border-white/80 bg-white object-cover" />
+            <img src={logo} alt="Premier Transit" className="h-11 w-11 shrink-0 rounded-full border-2 border-white/80 bg-white p-1 object-contain" />
             <div className="min-w-0">
               <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#f8d26a]">Premier Transit</p>
               <h1 className="truncate text-lg font-black leading-tight">Staff Bus Queue</h1>
@@ -396,7 +444,7 @@ function Dashboard({ username, onLogout }) {
               <button
                 type="button"
                 onClick={onLogout}
-                className="min-h-11 w-full rounded-lg bg-red-50 px-3 text-left text-sm font-black text-[#8b1a1a]"
+                className="min-h-11 w-full rounded-lg bg-brand-primary/10 px-3 text-left text-sm font-black text-brand-primary"
               >
                 Logout
               </button>
@@ -413,7 +461,7 @@ function Dashboard({ username, onLogout }) {
               <h2 className="mt-1 text-2xl font-black text-[#352f33] max-[420px]:text-xl">Bus Queue Monitoring</h2>
               <p className="mt-1 max-w-[14rem] text-xs font-semibold text-[#717680] sm:max-w-none">Last updated: {updatedLabel} - Auto refresh every 5 seconds</p>
             </div>
-            <button onClick={() => loadQueue()} className="min-h-11 shrink-0 rounded-xl bg-[#8b1a1a] px-4 text-sm font-black text-white transition hover:bg-[#6f2f3c]">
+            <button onClick={() => loadQueue()} className="min-h-11 shrink-0 rounded-xl bg-brand-primary px-4 text-sm font-black text-white transition hover:bg-brand-primary-dark">
               Refresh
             </button>
           </div>
