@@ -4,7 +4,7 @@ import driverAPI from '../api/driverAxios';
 import { useDriver } from '../context/DriverContext';
 import { toast } from 'react-toastify';
 import { Lock, Info } from 'lucide-react';
-import logo from '../assets/image/premier-logo.png';
+import logo from '../assets/image/logo-premier.webp';
 import { BRAND_NAME, FOOTER_TEXT } from '../constants/brand';
 
 const LoginPage = () => {
@@ -48,8 +48,8 @@ const LoginPage = () => {
                             <div className="w-28 h-28 md:w-32 md:h-32 mb-4 rounded-full overflow-hidden shadow-2xl border-2 border-brand-primary">
                                 <img
                                     src={logo}
-                                    alt="Premier Transport Logo"
-                                    className="w-full h-full object-cover"
+                                    alt="Premier"
+                                    className="w-full h-full object-contain"
                                 />
                             </div>
 

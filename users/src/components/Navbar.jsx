@@ -2,7 +2,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { FiLogOut, FiUser } from 'react-icons/fi';
 import NotificationBell from './NotificationBell';
-import logo from '../assets/image/premier-logo.png';
+import logo from '../assets/image/logo-premier.webp';
 const Navbar = () => {
   const { logout, passenger } = useAuth();
   const navigate = useNavigate();
@@ -23,7 +23,7 @@ const Navbar = () => {
         <div className="bg-white w-10 h-10 md:w-11 md:h-11 rounded-full shadow-inner flex items-center justify-center overflow-hidden border border-white/20 transition-transform group-hover:scale-105">
           <img 
             src={logo}
-            alt="Premier Logo" 
+            alt="Premier" 
             className="w-8 h-8 object-contain" 
           />
         </div>

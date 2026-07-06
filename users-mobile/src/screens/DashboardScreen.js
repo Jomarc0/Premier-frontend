@@ -33,14 +33,6 @@ const loadNfcManager = () => {
   }
 };
 
-const loadHce = () => {
-  try {
-    return require('react-native-hce');
-  } catch {
-    return null;
-  }
-};
-
 const QUICK_AMOUNTS = [20, 40, 50, 100, 200, 500];
 const QUICK_REPLIES = ['Top-up issue', 'Fare deduction', 'Payment failed', 'Lost RFID card', 'Check balance'];
 const PAYMENT_OPTIONS = [
@@ -115,7 +107,7 @@ function TransactionRow({ tx }) {
   );
 }
 
-export default function DashboardScreen() {
+export default function DashboardScreen({ navigation }) {
   const { passenger, logout, biometricEnabled, enableBiometrics, disableBiometrics } = useAuth();
   const [activeTab, setActiveTab] = useState('Home');
   const [balance, setBalance] = useState(null);
@@ -433,17 +425,13 @@ export default function DashboardScreen() {
       return;
     }
 
-    setNfcScanning(true);
-
     try {
       const NfcManager = loadNfcManager();
-      const hce = loadHce();
-      if (!NfcManager || !hce) {
-        Alert.alert('NFC unavailable', 'This app build does not include the native NFC/HCE module. Install a custom development build or APK with HCE support.');
+      if (!NfcManager) {
+        Alert.alert('NFC unavailable', 'Install and open the Premier Android APK to use mobile NFC payment.');
         return;
       }
 
-      const { HCESession, NFCTagType4, NFCTagType4NDEFContentType } = hce;
       const enabled = await NfcManager.isEnabled();
 
       if (!enabled) {
@@ -451,41 +439,10 @@ export default function DashboardScreen() {
         return;
       }
 
-      const response = await api.post('/fare/nfc/token');
-      const tokenData = response.data.data || {};
-      const payload = tokenData.payload;
-
-      if (!payload) {
-        throw new Error('Unable to create mobile NFC token.');
-      }
-
-      const tag = new NFCTagType4({
-        type: NFCTagType4NDEFContentType.Text,
-        content: payload,
-        writable: false,
-      });
-
-      const session = await HCESession.getInstance();
-      await stopMobileNfcCard();
-      await session.setApplication(tag);
-      await session.setEnabled(true);
-
-      hceSessionRef.current = session;
-      hceReadListenerRef.current = session.on(HCESession.Events.HCE_STATE_READ, () => {
-        Alert.alert('NFC token sent', 'The PN532 received your mobile fare token. Wait for the conductor confirmation.');
-        setTimeout(fetchData, 1500);
-      });
-
-      setNfcCardActive(true);
-      hceExpiryTimerRef.current = setTimeout(() => {
-        stopMobileNfcCard();
-      }, Math.max(15, Number(tokenData.expiresInSeconds || 60)) * 1000);
-      Alert.alert('Ready to tap', 'Hold your phone near the PN532 reader. Keep this app open until the conductor confirms payment.');
+      navigation.navigate('MobileNfcPayment');
     } catch (error) {
       const message = error.response?.data?.message || error.message || 'Please tap again.';
       Alert.alert('NFC payment failed', message);
-    } finally {
-      setNfcScanning(false);
     }
   };
 
@@ -545,7 +502,7 @@ export default function DashboardScreen() {
   const renderHome = () => (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       <View style={styles.homeHeader}>
-        <Image source={require('../../assets/image/premier-logo.png')} style={styles.headerLogo} />
+        <Image source={require('../../assets/image/logo-premier.png')} style={styles.headerLogo} />
         <View style={styles.headerTitleBlock}>
           <Text style={styles.headerTitle}>Premier Transport</Text>
           <Text style={styles.headerSubtitle}>RFID Smart Fare System</Text>
@@ -598,7 +555,7 @@ export default function DashboardScreen() {
         <ActionButton color={colors.maroon} icon="history" label="History" onPress={fetchAllTransactions} />
         <ActionButton color="#1C2A44" icon="credit-card-outline" label="My Card" onPress={() => setActiveTab('Wallet')} />
         <ActionButton color="#246A21" icon="qrcode" label="Pay QR" onPress={generateFareQr} />
-        <ActionButton color="#0F766E" icon="nfc" label={nfcScanning ? 'Preparing...' : nfcCardActive ? 'Tap PN532' : 'NFC Pay'} onPress={handleNfcPayment} disabled={nfcScanning} />
+        <ActionButton color="#0F766E" icon="nfc" label="NFC Pay" onPress={handleNfcPayment} />
       </View>
 
       <View style={styles.sectionHeader}>
@@ -628,7 +585,7 @@ export default function DashboardScreen() {
       <View style={styles.walletActions}>
         <Button variant="secondary" style={styles.walletButtonGold} onPress={() => setActiveTab('TopUp')} icon={<MaterialCommunityIcons name="wallet-plus-outline" size={17} color={colors.maroon} />}>Top Up</Button>
         <Button variant="ghost" style={styles.walletButton} onPress={generateFareQr} icon={<MaterialCommunityIcons name="qrcode" size={17} color={colors.maroon} />}>Pay</Button>
-        <Button variant="ghost" style={styles.walletButton} loading={nfcScanning} onPress={handleNfcPayment} icon={<MaterialCommunityIcons name="nfc" size={17} color={colors.maroon} />}>{nfcCardActive ? 'Tap PN532' : 'NFC'}</Button>
+        <Button variant="ghost" style={styles.walletButton} onPress={handleNfcPayment} icon={<MaterialCommunityIcons name="nfc" size={17} color={colors.maroon} />}>NFC</Button>
       </View>
       <View style={styles.statsGrid}>
         <View style={styles.statCard}><Text style={styles.statLabel}>Spent This Month</Text><Text style={styles.statRed}>PHP {formatCurrency(spent)}</Text><Text style={styles.statSub}>fare taps</Text></View>

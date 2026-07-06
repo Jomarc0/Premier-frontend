@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 import { setUnauthorizedHandler } from '../api/api';
+import { clearHceToken } from '../api/hceTokenStore';
 import { registerPushNotifications } from '../notifications/pushNotifications';
 
 const AuthContext = createContext(null);
@@ -66,6 +67,7 @@ export function AuthProvider({ children }) {
           await SecureStore.deleteItemAsync('passengerName');
           await SecureStore.deleteItemAsync('tempToken');
           await SecureStore.deleteItemAsync('biometricEnabled');
+          await clearHceToken();
         }
       }
 
@@ -137,6 +139,7 @@ export function AuthProvider({ children }) {
       await SecureStore.deleteItemAsync('passengerName');
       await SecureStore.deleteItemAsync('tempToken');
       await SecureStore.deleteItemAsync('biometricEnabled');
+      await clearHceToken();
       clearSessionState();
     },
   }), [biometricEnabled, clearSessionState, loading, lockedPassenger, needsBiometricUnlock, passenger]);

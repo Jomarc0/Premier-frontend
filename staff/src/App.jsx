@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import logo from "./assets/image/premier-logo.png";
+import logo from "./assets/image/logo-premier.webp";
 import { BRAND_NAME } from "./constants/brand";
 
 const API_BASE_URL = (

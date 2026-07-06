@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
 import { API_PASSENGER_BASE } from '../config';
+import { clearHceToken } from './hceTokenStore';
 
 let unauthorizedHandler = null;
 
@@ -31,6 +32,7 @@ api.interceptors.response.use(
       await SecureStore.deleteItemAsync('token');
       await SecureStore.deleteItemAsync('passengerName');
       await SecureStore.deleteItemAsync('tempToken');
+      await clearHceToken();
 
       if (unauthorizedHandler) {
         unauthorizedHandler();

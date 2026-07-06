@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+dist/
+web-build/
+
+android/.gradle/
+android/build/
+android/app/build/
+
+*.apk
+*.aab
+*.tar.gz
+*.zip
+
+npm-debug.*
+yarn-debug.*
+yarn-error.*

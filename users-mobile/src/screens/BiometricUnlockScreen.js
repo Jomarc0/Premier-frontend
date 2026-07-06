@@ -20,7 +20,7 @@ export default function BiometricUnlockScreen() {
     <View style={styles.screen}>
       <View style={styles.card}>
         <View style={styles.logoWrap}>
-          <Image source={require('../../assets/image/premier-logo.png')} style={styles.logo} />
+          <Image source={require('../../assets/image/logo-premier.png')} style={styles.logo} />
         </View>
         <Text style={styles.title}>Premier Transport Corporation</Text>
         <Text style={styles.subtitle}>Secure mobile session</Text>

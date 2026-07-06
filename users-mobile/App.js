@@ -9,6 +9,7 @@ import BiometricUnlockScreen from './src/screens/BiometricUnlockScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import LandingScreen from './src/screens/LandingScreen';
 import LoginScreen from './src/screens/LoginScreen';
+import MobileNfcPaymentScreen from './src/screens/MobileNfcPaymentScreen';
 import TotpSetupScreen from './src/screens/TotpSetupScreen';
 import TotpVerifyScreen from './src/screens/TotpVerifyScreen';
 import { colors } from './src/theme';
@@ -29,7 +30,10 @@ function Routes() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {passenger ? (
-        <Stack.Screen name="Dashboard" component={DashboardScreen} />
+        <>
+          <Stack.Screen name="Dashboard" component={DashboardScreen} />
+          <Stack.Screen name="MobileNfcPayment" component={MobileNfcPaymentScreen} />
+        </>
       ) : needsBiometricUnlock ? (
         <Stack.Screen name="BiometricUnlock" component={BiometricUnlockScreen} />
       ) : (

@@ -50,7 +50,7 @@ export default function LoginScreen({ navigation }) {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.screen}>
       <SafeAreaView style={styles.content}>
-        <Image source={require('../../assets/image/premier-logo.png')} style={styles.logo} />
+        <Image source={require('../../assets/image/logo-premier.png')} style={styles.logo} />
 
         <Text style={styles.brand}>Premier Transport</Text>
         <View style={styles.taglineRow}>

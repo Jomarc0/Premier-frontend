@@ -24,7 +24,7 @@ export default function LandingScreen({ navigation }) {
       </View>
 
       <View style={styles.content}>
-        <Image source={require('../../assets/image/premier-logo.png')} style={styles.logo} />
+        <Image source={require('../../assets/image/logo-premier.png')} style={styles.logo} />
 
         <View style={styles.titleBlock}>
           <Text style={styles.titleWhite}>Premier</Text>

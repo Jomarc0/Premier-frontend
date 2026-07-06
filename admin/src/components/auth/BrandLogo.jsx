@@ -1,4 +1,4 @@
-import logo from '../../assets/image/premier-logo.png';
+import logo from '../../assets/image/logo-premier.webp';
 import { BRAND_NAME } from '../../constants/brand';
 
 const BrandLogo = ({ className = 'w-[5.6rem] h-[5.6rem]' }) => {

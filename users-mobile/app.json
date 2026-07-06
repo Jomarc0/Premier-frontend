@@ -1,67 +1,70 @@
-﻿{
-    "expo":  {
-    "name":  "Premier",
-    "slug":  "Premier",
-    "version":  "1.0.0",
-    "orientation":  "portrait",
-    "icon":  "./assets/image/logo.png",
-    "scheme":  "premier",
-    "userInterfaceStyle":  "light",
-    "android":  {
-        "package":  "com.togi012322.premier",
-        "edgeToEdgeEnabled":  true,
-        "adaptiveIcon":  {
-            "foregroundImage":  "./assets/image/logo.png",
-            "backgroundColor":  "#E6F4FE"
-        },
-        "googleServicesFile":  "./google-services.json"
-        },
-        "ios":  {
-            "bundleIdentifier":  "com.togi012322.premier",
-            "supportsTablet":  true
-        },
-        "web":  {
-            "output":  "single",
-            "favicon":  "./assets/image/logo.png"
-        },
-        "plugins":  [
-            [
-            "expo-splash-screen",
-                                     {
-                                         "image":  "./assets/image/logo.png",
-                                         "resizeMode":  "contain",
-                                         "backgroundColor":  "#E6F4FE"
-                                     }
-                                 ],
-                                 "expo-secure-store",
-                                 "expo-web-browser",
-                                 "expo-local-authentication",
-                                 "expo-font",
-                                 [
-                                     "react-native-nfc-manager",
-                                     {
-                                         "nfcPermission":  "Allow Premier to use NFC for fare payments."
-                                     }
-                                 ],
-                                 "./plugins/withAndroidHce",
-                                 "expo-notifications"
-                             ],
-                 "extra":  {
-                               "apiUrl":  "https://premiertranspo.onrender.com",
-                               "authBaseUrl":  "https://premiertranspo.onrender.com",
-                               "eas":  {
-                                           "projectId":  "0471fbd5-e9a9-479e-9864-2918c73262e3"
-                                       }
-                           },
-                 "owner":  "togi012322",
-                 "runtimeVersion":  {
-                                        "policy":  "appVersion"
-                                    },
-                 "updates":  {
-                                 "url":  "https://u.expo.dev/0471fbd5-e9a9-479e-9864-2918c73262e3"
-                             },
-                 "notification":  {
-                                      "color":  "#9B1022"
-                                  }
-             }
+{
+  "expo": {
+    "name": "Premier",
+    "slug": "Premier",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/image/logo.png",
+    "scheme": "premier",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "android": {
+      "package": "com.togi012322.premier",
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/image/logo.png",
+        "backgroundColor": "#5C2028"
+      },
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.NFC"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.togi012322.premier",
+      "supportsTablet": true
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/image/logo.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/image/logo.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#E6F4FE"
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-local-authentication",
+      "expo-font",
+      [
+        "react-native-nfc-manager",
+        {
+          "nfcPermission": "Allow Premier to use NFC for fare payments."
+        }
+      ],
+      "./plugins/withAndroidHce",
+      "expo-notifications"
+    ],
+    "extra": {
+      "apiUrl": "https://premiertranspo.onrender.com",
+      "authBaseUrl": "https://premiertranspo.onrender.com",
+      "eas": {
+        "projectId": "3d3d9e8b-dcd6-47de-821f-82032043e12f"
+      }
+    },
+    "owner": "luffy2",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "notification": {
+      "color": "#9B1022"
+    }
+  }
 }

@@ -11,7 +11,7 @@ import {
     FiLogOut,
 } from 'react-icons/fi';
 import { useAdminAuth } from '../context/AdminAuthContext';
-import logo from '../assets/image/premier-logo.png';
+import logo from '../assets/image/logo-premier.webp';
 
 const AdminSidebar = () => {
     const navigate     = useNavigate();
@@ -49,7 +49,7 @@ const AdminSidebar = () => {
             <div className="grid justify-items-center pb-[1.1rem] border-b border-white/10 text-center max-[1060px]:justify-items-start max-[1060px]:grid-cols-[auto_1fr] max-[1060px]:gap-x-[0.85rem] max-[1060px]:text-left">
                 <img
                     src={logo}
-                    alt="Premier Transit Logo"
+                    alt="Premier"
                     className="w-13 h-13 rounded-full bg-white p-1.5 object-contain mb-2.5 max-[1060px]:row-span-2 max-[1060px]:w-[3.2rem] max-[1060px]:h-[3.2rem] max-[1060px]:m-0"
                 />
                 <strong className="text-[1.05rem] font-black tracking-[0.04em]">PREMIER TRANSIT</strong>
