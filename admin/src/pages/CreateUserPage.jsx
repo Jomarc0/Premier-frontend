@@ -73,54 +73,40 @@ const CreateUserPage = () => {
     };
 
     const handleReadSingleUid = async () => {
-        if (!('serial' in navigator)) {
-            toast.info('USB RFID reading needs Chrome or Edge with Web Serial support.');
-            return;
-        }
-
         setReadingUid(true);
         try {
-            const port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 115200 });
+            const startRes = await adminAPI.post('/rfid/uid-capture/start');
+            const requestId = startRes.data?.data?.requestId;
+            if (!requestId) {
+                throw new Error('Unable to start RFID UID capture.');
+            }
 
-            const decoder = new TextDecoderStream();
-            const readableClosed = port.readable.pipeTo(decoder.writable);
-            const reader = decoder.readable.getReader();
+            toast.info('Tap the blank RFID card on the PN532 reader.');
 
-            let buffer = '';
-            let foundUid = '';
+            const startedAt = Date.now();
+            const timeoutMs = 65000;
 
-            while (!foundUid) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += value || '';
+            while (Date.now() - startedAt < timeoutMs) {
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+                const statusRes = await adminAPI.get(`/rfid/uid-capture/${requestId}`);
+                const status = statusRes.data?.data?.status;
+                const rfidUid = normalizeReaderUid(statusRes.data?.data?.rfidUid);
 
-                const lines = buffer.split(/\r?\n/);
-                buffer = lines.pop() || '';
+                if (status === 'CAPTURED' && rfidUid) {
+                    setSingleUid(rfidUid);
+                    toast.success(`RFID UID captured: ${rfidUid}`);
+                    return;
+                }
 
-                for (const line of lines) {
-                    const uid = normalizeReaderUid(line);
-                    if (uid) {
-                        foundUid = uid;
-                        break;
-                    }
+                if (status === 'EXPIRED') {
+                    toast.warning('RFID UID capture expired. Click Read UID again.');
+                    return;
                 }
             }
 
-            if (foundUid) {
-                setSingleUid(foundUid);
-                toast.success(`RFID UID captured: ${foundUid}`);
-            } else {
-                toast.info('No RFID UID was read. Tap the card again.');
-            }
-
-            try { await reader.cancel(); } catch { /* already closed */ }
-            try { await readableClosed; } catch { /* cancel closes pipe */ }
-            await port.close();
+            toast.warning('No RFID UID was read. Click Read UID and tap the card again.');
         } catch (err) {
-            if (err.name !== 'NotFoundError') {
-                toast.error(err.message || 'Failed to read RFID UID.');
-            }
+            toast.error(err.response?.data?.message || err.message || 'Failed to read RFID UID.');
         } finally {
             setReadingUid(false);
         }
@@ -267,7 +253,7 @@ const CreateUserPage = () => {
                                     </button>
                                 </div>
                                 <div className="mt-[0.35rem] text-[0.74rem] text-text-muted">
-                                    Use the reader button in Chrome/Edge, or type/paste the UID manually. The backend generates the 10-digit card number for printing.
+                                    Click Read UID, then tap the blank card on the PN532 device. You can also type/paste the UID manually.
                                 </div>
                             </div>
                         ) : (
