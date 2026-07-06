@@ -48,6 +48,7 @@ const CreateUserPage = () => {
     const [singleUid, setSingleUid] = useState('');
     const [bulkUids, setBulkUids] = useState('');
     const [recentCards, setRecentCards] = useState([]);
+    const [generatedCard, setGeneratedCard] = useState(null);
     const [loading, setLoading] = useState(false);
     const [readingUid, setReadingUid] = useState(false);
     const [bulkProgress, setBulkProgress] = useState(null);
@@ -122,6 +123,7 @@ const CreateUserPage = () => {
         setLoading(true);
         try {
             const card = await createCard(rfidUid);
+            setGeneratedCard(card);
             setRecentCards((prev) => [card, ...prev]);
             setSingleUid('');
             toast.success(`Card created. Print card number ${card.cardNumber || ''}`);
@@ -174,6 +176,7 @@ const CreateUserPage = () => {
         setSingleUid('');
         setBulkUids('');
         setBulkProgress(null);
+        setGeneratedCard(null);
     };
 
     return (
@@ -254,6 +257,17 @@ const CreateUserPage = () => {
                                 </div>
                                 <div className="mt-[0.35rem] text-[0.74rem] text-text-muted">
                                     Click Read UID, then tap the blank card on the PN532 device. You can also type/paste the UID manually.
+                                </div>
+                                <div className="mt-4 rounded-lg border border-slate-200 bg-page-bg p-4">
+                                    <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-maroon">
+                                        Generated Card Number
+                                    </div>
+                                    <div className="mt-1 font-mono text-[clamp(1.35rem,3vw,2rem)] font-black tracking-[0.12em] text-text-main">
+                                        {generatedCard?.cardNumber || 'Generated after creation'}
+                                    </div>
+                                    <div className="mt-1 text-[0.74rem] text-text-muted">
+                                        This appears after you create the RFID card, then print or write it on the physical card.
+                                    </div>
                                 </div>
                             </div>
                         ) : (
