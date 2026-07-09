@@ -1,13 +1,15 @@
+import { forwardRef } from 'react';
 import { ActivityIndicator, Pressable, Text, StyleSheet } from 'react-native';
 
 import { colors } from '../theme';
 
-export default function Button({ children, icon, variant = 'primary', loading, disabled, style, textStyle, ...props }) {
+const Button = forwardRef(function Button({ children, icon, variant = 'primary', loading, disabled, style, textStyle, ...props }, ref) {
   const isSecondary = variant === 'secondary';
   const isGhost = variant === 'ghost';
 
   return (
     <Pressable
+      ref={ref}
       {...props}
       disabled={disabled || loading}
       style={({ pressed }) => [
@@ -31,7 +33,9 @@ export default function Button({ children, icon, variant = 'primary', loading, d
       )}
     </Pressable>
   );
-}
+});
+
+export default Button;
 
 const styles = StyleSheet.create({
   base: {

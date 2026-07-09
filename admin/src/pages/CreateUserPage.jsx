@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
     FiCheckCircle,
+    FiCopy,
     FiCreditCard,
     FiLayers,
     FiPrinter,
@@ -33,6 +34,17 @@ const normalizeReaderUid = (value) => {
 
 const formatCategory = (value) =>
     CARD_CATEGORIES.find((category) => category.value === value)?.label || value;
+
+const formatCreatedAt = (value) =>
+    value
+        ? new Date(value).toLocaleString('en-PH', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        })
+        : 'Just now';
 
 const modeButtonClass = (active) =>
     [
@@ -71,6 +83,29 @@ const CreateUserPage = () => {
             category,
         });
         return res.data.data;
+    };
+
+    const copyCardNumber = async (cardNumber) => {
+        if (!cardNumber) return;
+
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(cardNumber);
+            } else {
+                const input = document.createElement('textarea');
+                input.value = cardNumber;
+                input.setAttribute('readonly', '');
+                input.style.position = 'fixed';
+                input.style.opacity = '0';
+                document.body.appendChild(input);
+                input.select();
+                document.execCommand('copy');
+                document.body.removeChild(input);
+            }
+            toast.success('Card number copied.');
+        } catch {
+            toast.error('Copy failed. Please copy the card number manually.');
+        }
     };
 
     const handleReadSingleUid = async () => {
@@ -262,8 +297,20 @@ const CreateUserPage = () => {
                                     <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-maroon">
                                         Generated Card Number
                                     </div>
-                                    <div className="mt-1 font-mono text-[clamp(1.35rem,3vw,2rem)] font-black tracking-[0.12em] text-text-main">
-                                        {generatedCard?.cardNumber || 'Generated after creation'}
+                                    <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                                        <div className="font-mono text-[clamp(1.35rem,3vw,2rem)] font-black tracking-[0.12em] text-text-main">
+                                            {generatedCard?.cardNumber || 'Generated after creation'}
+                                        </div>
+                                        {generatedCard?.cardNumber && (
+                                            <button
+                                                type="button"
+                                                onClick={() => copyCardNumber(generatedCard.cardNumber)}
+                                                className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-maroon bg-white px-3 text-[0.78rem] font-black text-maroon transition-colors hover:bg-maroon hover:text-white"
+                                            >
+                                                <FiCopy />
+                                                Copy Card Number
+                                            </button>
+                                        )}
                                     </div>
                                     <div className="mt-1 text-[0.74rem] text-text-muted">
                                         This appears after you create the RFID card, then print or write it on the physical card.
@@ -338,10 +385,22 @@ const CreateUserPage = () => {
                                                 <div className="mt-1 font-mono text-[clamp(1.3rem,3vw,1.9rem)] font-black tracking-[0.12em] text-text-main">
                                                     {card.cardNumber || 'N/A'}
                                                 </div>
+                                                {card.cardNumber && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => copyCardNumber(card.cardNumber)}
+                                                        className="mt-3 inline-flex min-h-8 items-center justify-center gap-2 rounded-md border border-maroon bg-white px-3 text-[0.72rem] font-black text-maroon transition-colors hover:bg-maroon hover:text-white"
+                                                    >
+                                                        <FiCopy />
+                                                        Copy
+                                                    </button>
+                                                )}
                                             </div>
                                             <div className="mt-3 grid grid-cols-2 gap-2 text-text-main max-[620px]:grid-cols-1">
                                                 <div>RFID UID: <strong>{card.rfidUid || 'N/A'}</strong></div>
                                                 <div>Type: <strong>{formatCategory(card.cardCategory || category)}</strong></div>
+                                                <div>Status: <strong>{card.status || 'AVAILABLE'}</strong></div>
+                                                <div>Created: <strong>{formatCreatedAt(card.createdAt)}</strong></div>
                                             </div>
                                         </div>
                                     ))}

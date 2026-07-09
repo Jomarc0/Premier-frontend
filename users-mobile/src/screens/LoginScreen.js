@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { Alert, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
@@ -13,7 +13,9 @@ export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!cardNumber.trim()) {
+    const normalizedCardNumber = cardNumber.trim().replace(/\s/g, '');
+
+    if (!normalizedCardNumber) {
       Alert.alert('Card number required', 'Enter your Premier card number to continue.');
       return;
     }
@@ -24,7 +26,7 @@ export default function LoginScreen({ navigation }) {
       const response = await fetch(`${API_PASSENGER_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cardNumber: cardNumber.trim().replace(/\s/g, '') }),
+        body: JSON.stringify({ cardNumber: normalizedCardNumber }),
       });
       const data = await response.json();
 
@@ -39,6 +41,7 @@ export default function LoginScreen({ navigation }) {
       }
 
       await SecureStore.setItemAsync('tempToken', tempToken);
+      await SecureStore.setItemAsync('pendingCardNumber', normalizedCardNumber);
       navigation.navigate(requireSetup ? 'TotpSetup' : 'TotpVerify');
     } catch (error) {
       Alert.alert('Login failed', error.message || 'Please check your backend connection.');
@@ -50,7 +53,7 @@ export default function LoginScreen({ navigation }) {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.screen}>
       <SafeAreaView style={styles.content}>
-        <Image source={require('../../assets/image/logo-premier.png')} style={styles.logo} />
+        <Image source={require('../../assets/image/logo-premier-transparent.png')} style={styles.logo} />
 
         <Text style={styles.brand}>Premier Transport</Text>
         <View style={styles.taglineRow}>
@@ -107,7 +110,7 @@ export default function LoginScreen({ navigation }) {
 
         <View style={styles.footer}>
           <Feather name="lock" size={18} color="#68717E" />
-          <Text style={styles.copyright}>© 2026 Premier Transport Corp. - Encrypted Portal</Text>
+          <Text style={styles.copyright}>� 2026 Premier Transport Corp. - Encrypted Portal</Text>
         </View>
       </SafeAreaView>
     </KeyboardAvoidingView>
@@ -126,16 +129,11 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   logo: {
-    width: 102,
-    height: 102,
-    borderRadius: 22,
+    width: 112,
+    height: 112,
     resizeMode: 'contain',
     alignSelf: 'center',
-    marginBottom: 28,
-    ...shadow,
-    shadowColor: '#8B1723',
-    shadowOpacity: 0.16,
-    shadowRadius: 22,
+    marginBottom: 24,
   },
   brand: {
     color: colors.maroon,
@@ -299,5 +297,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 });
+
+
+
 
 

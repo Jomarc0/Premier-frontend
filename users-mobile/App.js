@@ -1,7 +1,7 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -10,10 +10,16 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import LandingScreen from './src/screens/LandingScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import MobileNfcPaymentScreen from './src/screens/MobileNfcPaymentScreen';
+import QRFarePaymentScreen from './src/screens/QRFarePaymentScreen';
 import TotpSetupScreen from './src/screens/TotpSetupScreen';
 import TotpVerifyScreen from './src/screens/TotpVerifyScreen';
 import { colors } from './src/theme';
 
+
+Text.defaultProps = Text.defaultProps || {};
+Text.defaultProps.allowFontScaling = false;
+TextInput.defaultProps = TextInput.defaultProps || {};
+TextInput.defaultProps.allowFontScaling = false;
 const Stack = createNativeStackNavigator();
 
 function Routes() {
@@ -33,6 +39,7 @@ function Routes() {
         <>
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
           <Stack.Screen name="MobileNfcPayment" component={MobileNfcPaymentScreen} />
+          <Stack.Screen name="QRFarePayment" component={QRFarePaymentScreen} />
         </>
       ) : needsBiometricUnlock ? (
         <Stack.Screen name="BiometricUnlock" component={BiometricUnlockScreen} />
@@ -60,3 +67,5 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
+
+

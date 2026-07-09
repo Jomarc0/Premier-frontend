@@ -1,0 +1,162 @@
+﻿name: Premier Frontend CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+jobs:
+  users-web:
+    name: Users Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: users
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: users/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint users web
+        run: npm run lint
+
+      - name: Build users web
+        run: npm run build
+
+  users-mobile:
+    name: React Native Expo Mobile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: users-mobile
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: users-mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Expo project
+        run: npx expo doctor
+
+      - name: Export Android bundle
+        run: npm run build
+
+  admin:
+    name: Admin Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint admin if available
+        run: npm run lint --if-present
+
+      - name: Build admin
+        run: npm run build
+
+  staff:
+    name: Staff Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: staff
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: staff/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build staff web
+        run: npm run build
+
+  rfid:
+    name: RFID Terminal Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rfid
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: rfid/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint RFID terminal
+        run: npm run lint
+
+      - name: Build RFID terminal
+        run: npm run build
+
+  driver:
+    name: Driver Monitoring Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: driver
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: driver/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint driver web
+        run: npm run lint
+
+      - name: Build driver web
+        run: npm run build

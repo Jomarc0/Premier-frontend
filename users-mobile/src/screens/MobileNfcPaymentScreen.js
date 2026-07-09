@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -202,16 +202,7 @@ export default function MobileNfcPaymentScreen({ navigation }) {
           </View>
         </View>
 
-        <View style={styles.tokenCard}>
-          <View style={styles.tokenHeader}>
-            <Text style={styles.cardTitle}>Mobile NFC Token</Text>
-            <Text style={styles.tokenMode}>{mobileToken ? 'Live' : 'Pending'}</Text>
-          </View>
-          <Text selectable style={styles.tokenValue}>
-            {tokenLoading ? 'Preparing...' : mobileToken || 'No token ready'}
-          </Text>
-          {tokenExpiresAt ? <Text style={styles.tokenMeta}>Expires {formatExpiry(tokenExpiresAt)}</Text> : null}
-        </View>
+
 
         <View style={styles.steps}>
           <Step icon="unlock" title="Unlock" text="Keep your phone awake." />
@@ -226,22 +217,14 @@ export default function MobileNfcPaymentScreen({ navigation }) {
           onPress={refreshNfcPayment}
           icon={<Feather name="refresh-cw" size={17} color="#fff" />}
         >
-          Refresh NFC Token
+          Refresh NFC Pay
         </Button>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function formatExpiry(value) {
-  const parsed = new Date(value);
 
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
 
 function Step({ icon, title, text }) {
   return (
@@ -282,12 +265,6 @@ const styles = StyleSheet.create({
   statusCopy: { flex: 1 },
   statusLabel: { color: '#1C2A44', fontSize: 14, fontWeight: '900' },
   statusDetail: { color: '#536987', fontSize: 12, lineHeight: 18, marginTop: 4 },
-  tokenCard: { backgroundColor: '#fff', borderRadius: 17, padding: 16, marginTop: 14, borderWidth: 1, borderColor: '#E4EBF4' },
-  tokenHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardTitle: { color: colors.maroon, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
-  tokenMode: { color: colors.green, backgroundColor: '#E8FFF6', borderRadius: 999, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
-  tokenValue: { color: '#101827', fontSize: 16, fontWeight: '900', marginTop: 14, textAlign: 'center', letterSpacing: 0 },
-  tokenMeta: { color: '#536987', fontSize: 11, fontWeight: '800', marginTop: 8, textAlign: 'center' },
   steps: { gap: 10, marginTop: 14 },
   step: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E4EBF4' },
   stepIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: '#FFF1F3', alignItems: 'center', justifyContent: 'center' },
@@ -296,3 +273,4 @@ const styles = StyleSheet.create({
   stepText: { color: '#536987', fontSize: 12, lineHeight: 18, marginTop: 3 },
   refreshButton: { marginTop: 16, backgroundColor: '#0F766E' },
 });
+
