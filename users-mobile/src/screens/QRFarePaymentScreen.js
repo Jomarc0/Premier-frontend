@@ -214,8 +214,8 @@ export default function QRFarePaymentScreen({ navigation }) {
 
         <View style={styles.guideList}>
           <PaymentGuideCard icon="check-circle" iconColor={colors.success} title="Ready to scan" text="Keep this QR code visible while boarding." />
-          <PaymentGuideCard icon="qrcode-scan" iconColor={colors.maroon} title="Show to reader" text="Place your phone screen in front of the Premier fare reader." />
-          <PaymentGuideCard icon="cellphone" iconColor={colors.maroon} title="Hold steady" text="Keep your phone still until the reader confirms payment." />
+          <PaymentGuideCard icon="qrcode-scan" iconColor={colors.green} title="Show to reader" text="Place your phone screen in front of the Premier fare reader." />
+          <PaymentGuideCard icon="cellphone" iconColor={colors.green} title="Hold steady" text="Keep your phone still until the reader confirms payment." />
           <PaymentGuideCard icon="check-decagram" iconColor={colors.success} title="Wait for confirmation" text="Wait for the beep or success message before entering." />
         </View>
 
@@ -344,16 +344,16 @@ const styles = StyleSheet.create({
   heroTitleWrap: { flex: 1 },
   eyebrow: { color: colors.yellow, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   title: { color: '#fff', fontSize: 24, fontWeight: '900', marginTop: 7 },
-  qrMark: { width: 54, height: 54, borderRadius: 18, backgroundColor: '#0F766E', alignItems: 'center', justifyContent: 'center' },
+  qrMark: { width: 54, height: 54, borderRadius: 18, backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center' },
   qrStage: { alignItems: 'center', justifyContent: 'center', minHeight: 210, marginTop: 16 },
   scanPrompt: { width: '100%', borderRadius: 24, borderWidth: 1, borderColor: 'rgba(250,204,21,0.28)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 24 },
-  scanPromptIcon: { width: 86, height: 86, borderRadius: 28, backgroundColor: '#0F766E', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  scanPromptIcon: { width: 86, height: 86, borderRadius: 28, backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   scanPromptTitle: { color: '#fff', fontSize: 20, fontWeight: '900', textAlign: 'center' },
   scanPromptText: { color: '#F8D7DA', fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
   scanStatusChip: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'rgba(232,255,246,0.96)', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginTop: 2 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success },
   scanStatusText: { color: colors.green, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
-  showQrButton: { marginTop: 16, minHeight: 54, borderRadius: 16 },
+  showQrButton: { marginTop: 16, minHeight: 54, borderRadius: 16, backgroundColor: colors.green },
   countdown: { color: '#fff', fontSize: 13, textAlign: 'center', fontWeight: '900', marginTop: 8 },
   securityNote: { color: '#F8D7DA', fontSize: 11, textAlign: 'center', marginTop: 6 },
   guideList: { gap: 10, marginTop: 16 },

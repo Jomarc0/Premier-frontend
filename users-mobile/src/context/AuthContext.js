@@ -1,12 +1,14 @@
 ﻿import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { setUnauthorizedHandler } from '../api/api';
 import { clearHceToken } from '../api/hceTokenStore';
 import { registerPushNotifications } from '../notifications/pushNotifications';
 
 const AuthContext = createContext(null);
+const FINGERPRINT_ENABLED_KEY = 'premier_fingerprint_enabled';
 
 function syncPushNotificationToken() {
   registerPushNotifications().catch((error) => {
@@ -28,13 +30,13 @@ export function AuthProvider({ children }) {
   const [passenger, setPassenger] = useState(null);
   const [loading, setLoading] = useState(true);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [needsBiometricUnlock, setNeedsBiometricUnlock] = useState(false);
+  const [biometricUnlockAvailable, setBiometricUnlockAvailable] = useState(false);
   const [lockedPassenger, setLockedPassenger] = useState(null);
 
   const clearSessionState = useCallback(() => {
     setPassenger(null);
     setLockedPassenger(null);
-    setNeedsBiometricUnlock(false);
+    setBiometricUnlockAvailable(false);
     setBiometricEnabled(false);
   }, []);
 
@@ -52,15 +54,19 @@ export function AuthProvider({ children }) {
         const decoded = decodeJwt(token);
 
         if (!decoded?.exp || decoded.exp * 1000 > Date.now()) {
-          const enabled = await SecureStore.getItemAsync('biometricEnabled');
-          setBiometricEnabled(enabled === 'true');
+          const secureEnabled = await SecureStore.getItemAsync('biometricEnabled');
+          const storedEnabled = await AsyncStorage.getItem(FINGERPRINT_ENABLED_KEY);
+          const enabled = secureEnabled === 'true' && storedEnabled === 'true';
+          setBiometricEnabled(enabled);
 
-          if (enabled === 'true') {
-            setLockedPassenger({ id: decoded?.sub, name, token });
-            setNeedsBiometricUnlock(true);
-          } else {
-            setPassenger({ id: decoded?.sub, name, token });
-            syncPushNotificationToken();
+          if (enabled) {
+            const compatible = await LocalAuthentication.hasHardwareAsync();
+            const enrolled = await LocalAuthentication.isEnrolledAsync();
+
+            if (compatible && enrolled) {
+              setLockedPassenger({ id: decoded?.sub, name, token });
+              setBiometricUnlockAvailable(true);
+            }
           }
         } else {
           await SecureStore.deleteItemAsync('token');
@@ -81,15 +87,14 @@ export function AuthProvider({ children }) {
     passenger,
     loading,
     biometricEnabled,
-    needsBiometricUnlock,
+    biometricUnlockAvailable,
     login: async (token, name) => {
       await SecureStore.setItemAsync('token', token);
       await SecureStore.setItemAsync('passengerName', name || '');
       const decoded = decodeJwt(token);
       setPassenger({ id: decoded?.sub, name, token });
-      syncPushNotificationToken();
       setLockedPassenger(null);
-      setNeedsBiometricUnlock(false);
+      setBiometricUnlockAvailable(false);
     },
     enableBiometrics: async () => {
       const compatible = await LocalAuthentication.hasHardwareAsync();
@@ -110,15 +115,21 @@ export function AuthProvider({ children }) {
       }
 
       await SecureStore.setItemAsync('biometricEnabled', 'true');
+      await AsyncStorage.setItem(FINGERPRINT_ENABLED_KEY, 'true');
       setBiometricEnabled(true);
     },
     disableBiometrics: async () => {
       await SecureStore.deleteItemAsync('biometricEnabled');
+      await AsyncStorage.removeItem(FINGERPRINT_ENABLED_KEY);
       setBiometricEnabled(false);
-      setNeedsBiometricUnlock(false);
+      setBiometricUnlockAvailable(false);
       setLockedPassenger(null);
     },
     unlockWithBiometrics: async () => {
+      if (!lockedPassenger) {
+        throw new Error('No saved passenger session is available.');
+      }
+
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: 'Unlock Premier Transit',
         cancelLabel: 'Use card login',
@@ -130,24 +141,23 @@ export function AuthProvider({ children }) {
       }
 
       setPassenger(lockedPassenger);
-      syncPushNotificationToken();
       setLockedPassenger(null);
-      setNeedsBiometricUnlock(false);
+      setBiometricUnlockAvailable(false);
     },
+    syncPushNotifications: syncPushNotificationToken,
     logout: async () => {
       await SecureStore.deleteItemAsync('token');
       await SecureStore.deleteItemAsync('passengerName');
       await SecureStore.deleteItemAsync('tempToken');
       await SecureStore.deleteItemAsync('biometricEnabled');
+      await AsyncStorage.removeItem(FINGERPRINT_ENABLED_KEY);
       await clearHceToken();
       clearSessionState();
     },
-  }), [biometricEnabled, clearSessionState, loading, lockedPassenger, needsBiometricUnlock, passenger]);
+  }), [biometricEnabled, biometricUnlockAvailable, clearSessionState, loading, lockedPassenger, passenger]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);
-
-
 

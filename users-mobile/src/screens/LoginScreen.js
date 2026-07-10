@@ -1,16 +1,72 @@
-import { useState } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Button from '../components/Button';
-import { API_PASSENGER_BASE } from '../config';
+import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL, API_PASSENGER_BASE } from '../config';
 import { colors, shadow } from '../theme';
 
 export default function LoginScreen({ navigation }) {
+  const { biometricUnlockAvailable, unlockWithBiometrics } = useAuth();
   const [cardNumber, setCardNumber] = useState('');
   const [loading, setLoading] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportForm, setSupportForm] = useState({
+    cardNumber: '',
+    email: '',
+    issueType: 'LOST_CARD',
+    reason: '',
+  });
+  const biometricPromptedRef = useRef(false);
+
+  const issueTypes = [
+    ['LOST_CARD', 'Lost Card'],
+    ['FREEZE_CARD', 'Freeze Card'],
+    ['DAMAGED_CARD', 'Damaged Card'],
+    ['TOP_UP_ISSUE', 'Top-up Issue'],
+    ['BALANCE_CONCERN', 'Balance Concern'],
+    ['LOGIN_PROBLEM', 'Login Problem'],
+    ['RFID_NOT_WORKING', 'RFID Not Working'],
+    ['OTHER', 'Other'],
+  ];
+
+
+  const openBiometricPrompt = useCallback(async () => {
+    if (!biometricUnlockAvailable || biometricLoading || supportOpen) return;
+
+    setBiometricLoading(true);
+
+    try {
+      await unlockWithBiometrics();
+    } catch {
+      // Stay on Login. Passenger must use card number after cancelling or failing biometrics.
+    } finally {
+      setBiometricLoading(false);
+    }
+  }, [biometricLoading, biometricUnlockAvailable, supportOpen, unlockWithBiometrics]);
+
+  useEffect(() => {
+    if (
+      biometricPromptedRef.current ||
+      !biometricUnlockAvailable ||
+      supportOpen
+    ) {
+      return;
+    }
+
+    biometricPromptedRef.current = true;
+
+    const timer = setTimeout(() => {
+      openBiometricPrompt();
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [biometricUnlockAvailable, openBiometricPrompt, supportOpen]);
 
   const handleLogin = async () => {
     const normalizedCardNumber = cardNumber.trim().replace(/\s/g, '');
@@ -47,6 +103,62 @@ export default function LoginScreen({ navigation }) {
       Alert.alert('Login failed', error.message || 'Please check your backend connection.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openSupport = (issueType = 'LOST_CARD', reason = '') => {
+    setSupportForm({
+      cardNumber: cardNumber.trim().replace(/\s/g, ''),
+      email: '',
+      issueType,
+      reason,
+    });
+    setSupportOpen(true);
+  };
+
+  const submitSupportTicket = async () => {
+    const normalizedCardNumber = supportForm.cardNumber.trim().replace(/\s/g, '');
+    const email = supportForm.email.trim();
+    const reason = supportForm.reason.trim();
+
+    if (!normalizedCardNumber) {
+      Alert.alert('Card number required', 'You must know your card number before submitting a support ticket.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert('Valid email required', 'Enter an email address where admin can send confirmation.');
+      return;
+    }
+    if (!reason) {
+      Alert.alert('Description required', 'Tell admin what happened so they can review the ticket.');
+      return;
+    }
+
+    setSupportLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/public/support-tickets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardNumber: normalizedCardNumber,
+          email,
+          issueType: supportForm.issueType,
+          reason,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Unable to submit support ticket.');
+      }
+      setSupportOpen(false);
+      Alert.alert(
+        'Ticket submitted',
+        data.message || `Your ticket has been submitted successfully. Your ticket number is ${data.data?.ticketNumber}. Please wait for admin confirmation through your email.`,
+      );
+    } catch (error) {
+      Alert.alert('Support ticket failed', error.message || 'Please try again.');
+    } finally {
+      setSupportLoading(false);
     }
   };
 
@@ -101,6 +213,11 @@ export default function LoginScreen({ navigation }) {
           Login Securely
         </Button>
 
+        <Pressable style={styles.supportButton} onPress={() => openSupport('LOGIN_PROBLEM', 'I need help with my Premier card or login.')}>
+          <MaterialCommunityIcons name="chat-question-outline" size={20} color={colors.maroon} />
+          <Text style={styles.supportButtonText}>Need help? Chat with support</Text>
+        </Pressable>
+
         <View style={styles.secureRow}>
           <View style={styles.secureIcon}>
             <MaterialCommunityIcons name="shield-check-outline" size={21} color="#9A6514" />
@@ -110,9 +227,82 @@ export default function LoginScreen({ navigation }) {
 
         <View style={styles.footer}>
           <Feather name="lock" size={18} color="#68717E" />
-          <Text style={styles.copyright}>© 2026 Premier Transport Corp. - Encrypted Portal</Text>
+          <Text style={styles.copyright}>(C) 2026 Premier Transport Corp. - Encrypted Portal</Text>
         </View>
       </SafeAreaView>
+
+      <Modal visible={supportOpen} transparent animationType="slide" onRequestClose={() => setSupportOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboard}>
+            <View style={styles.supportSheet}>
+              <View style={styles.supportHeader}>
+                <View>
+                  <Text style={styles.supportTitle}>Premier Support</Text>
+                  <Text style={styles.supportSubtitle}>Admin will review your ticket and reply by email.</Text>
+                </View>
+                <Pressable style={styles.closeButton} onPress={() => setSupportOpen(false)}>
+                  <Feather name="x" size={20} color={colors.maroon} />
+                </Pressable>
+              </View>
+
+              <ScrollView contentContainerStyle={styles.supportContent} keyboardShouldPersistTaps="handled">
+                <Text style={styles.botBubble}>This request needs admin review. Fill out this support form using your card number, email address, and reason.</Text>
+
+                <Text style={styles.supportLabel}>Card Number</Text>
+                <TextInput
+                  value={supportForm.cardNumber}
+                  onChangeText={(value) => setSupportForm((current) => ({ ...current, cardNumber: value }))}
+                  placeholder="Enter your Premier card number"
+                  placeholderTextColor="#8A94A3"
+                  keyboardType="number-pad"
+                  style={styles.supportInput}
+                />
+
+                <Text style={styles.supportLabel}>Email Address</Text>
+                <TextInput
+                  value={supportForm.email}
+                  onChangeText={(value) => setSupportForm((current) => ({ ...current, email: value }))}
+                  placeholder="email@example.com"
+                  placeholderTextColor="#8A94A3"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  style={styles.supportInput}
+                />
+
+                <Text style={styles.supportLabel}>Issue Type</Text>
+                <View style={styles.issueGrid}>
+                  {issueTypes.map(([value, label]) => {
+                    const selected = supportForm.issueType === value;
+                    return (
+                      <Pressable
+                        key={value}
+                        onPress={() => setSupportForm((current) => ({ ...current, issueType: value }))}
+                        style={[styles.issueChip, selected && styles.issueChipActive]}
+                      >
+                        <Text style={[styles.issueChipText, selected && styles.issueChipTextActive]}>{label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.supportLabel}>Reason / Description</Text>
+                <TextInput
+                  value={supportForm.reason}
+                  onChangeText={(value) => setSupportForm((current) => ({ ...current, reason: value }))}
+                  placeholder="Example: I lost my RFID card yesterday."
+                  placeholderTextColor="#8A94A3"
+                  multiline
+                  style={[styles.supportInput, styles.supportTextarea]}
+                />
+
+                <Button loading={supportLoading} onPress={submitSupportTicket} style={styles.submitSupportButton}>
+                  Submit Ticket
+                </Button>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -266,6 +456,23 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.26,
     shadowRadius: 20,
   },
+  supportButton: {
+    minHeight: 54,
+    marginTop: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F0BDC4',
+    backgroundColor: '#FFF9FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  supportButtonText: {
+    color: colors.maroon,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   secureRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -296,9 +503,116 @@ const styles = StyleSheet.create({
     color: '#646D78',
     fontSize: 12,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(20, 18, 24, 0.48)',
+    justifyContent: 'flex-end',
+  },
+  modalKeyboard: {
+    width: '100%',
+  },
+  supportSheet: {
+    maxHeight: '88%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: '#FFFCFD',
+    overflow: 'hidden',
+  },
+  supportHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 22,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2D0D5',
+  },
+  supportTitle: {
+    color: colors.maroon,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  supportSubtitle: {
+    marginTop: 3,
+    color: '#68717E',
+    fontSize: 12,
+  },
+  closeButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF0F1',
+  },
+  supportContent: {
+    padding: 22,
+    paddingBottom: 30,
+  },
+  botBubble: {
+    color: '#4F5966',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F2D0D5',
+    borderRadius: 16,
+    padding: 14,
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 18,
+  },
+  supportLabel: {
+    color: colors.maroon,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  supportInput: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: '#F0BDC4',
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    color: '#1C2A44',
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  supportTextarea: {
+    minHeight: 110,
+    paddingTop: 14,
+    textAlignVertical: 'top',
+  },
+  issueGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  issueChip: {
+    borderWidth: 1,
+    borderColor: '#F0BDC4',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  issueChipActive: {
+    borderColor: colors.maroon,
+    backgroundColor: colors.maroon,
+  },
+  issueChipText: {
+    color: '#626C77',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  issueChipTextActive: {
+    color: '#FFFFFF',
+  },
+  submitSupportButton: {
+    marginTop: 4,
+    borderRadius: 16,
+    minHeight: 58,
+  },
 });
-
-
-
-
-

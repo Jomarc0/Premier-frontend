@@ -10,8 +10,10 @@ import {
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import LottieView from 'lottie-react-native';
 
 import { colors, shadow } from '../theme';
+import handTapAnimation from '../../assets/animations/hand-tap.json';
 
 const OVERLAY_COLOR = 'rgba(8, 13, 26, 0.72)';
 const SPOTLIGHT_PADDING = 8;
@@ -32,6 +34,7 @@ export default function AppGuideOverlay({
   currentIndex,
 }) {
   const [targetRect, setTargetRect] = useState(null);
+  const [handAnimationAvailable, setHandAnimationAvailable] = useState(true);
 
   const bounce = useRef(new Animated.Value(0)).current;
   const screen = useWindowDimensions();
@@ -311,6 +314,37 @@ export default function AppGuideOverlay({
     targetRect,
   ]);
 
+  const handStyle = useMemo(() => {
+  if (!targetRect || !spotlightRect || !arrowStyle) return null;
+
+  const size = 52;
+  const centerX = targetRect.centerX;s
+
+  const horizontalOffset = -20;
+  const spaceBelow =
+    screen.height - (spotlightRect.y + spotlightRect.height);
+
+  const targetIsNearBottom = spotlightRect.y > screen.height * 0.62;
+
+  const handTopBelow = spotlightRect.y + spotlightRect.height + 28;
+  const handTopAbove = spotlightRect.y - size + 70;
+
+  return {
+    left: clamp(centerX + horizontalOffset, 12, screen.width - size - 12),
+    top: targetIsNearBottom || spaceBelow < 130
+      ? clamp(handTopAbove, 12, screen.height - size - 12)
+      : clamp(handTopBelow, 12, screen.height - size - 12),
+    width: size,
+    height: size,
+  };
+}, [
+  arrowStyle,
+  screen.height,
+  screen.width,
+  spotlightRect,
+  targetRect,
+]);
+
   if (!step) return null;
 
   return (
@@ -388,6 +422,19 @@ export default function AppGuideOverlay({
                   color="#fff"
                 />
               </Animated.View>
+            )}
+
+            {handStyle && handAnimationAvailable && (
+              <View pointerEvents="none" style={[styles.handHint, handStyle]}>
+                <LottieView
+                  source={handTapAnimation}
+                  autoPlay
+                  loop
+                  onAnimationFailure={() => setHandAnimationAvailable(false)}
+                  resizeMode="contain"
+                  style={styles.guideHandAnimation}
+                />
+              </View>
             )}
           </>
         ) : (
@@ -467,6 +514,16 @@ spotlight: {
   borderColor: '#fff',
   backgroundColor: 'transparent',
 },
+
+  handHint: {
+    position: 'absolute',
+    opacity: 0.92,
+  },
+
+  guideHandAnimation: {
+    width: '100%',
+    height: '100%',
+  },
 
   pointer: {
     position: 'absolute',

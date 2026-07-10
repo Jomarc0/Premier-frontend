@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiClock } from 'react-icons/fi';
 import { toast } from 'react-toastify';
@@ -11,7 +11,7 @@ import { useAuth } from '../context/AuthContext';
 const CountdownBadge = ({ timerLabel }) => (
   <div className="inline-flex items-center gap-2 rounded-full bg-brand-primary/5 px-4 py-2 text-sm text-text-body shadow-[0_8px_18px_rgba(31,36,48,0.08)]">
     <FiClock className="text-brand-primary" />
-    Expires in <span className="font-black text-brand-primary">{timerLabel}</span>
+    Authenticator refreshes in <span className="font-black text-brand-primary">{timerLabel}</span>
   </div>
 );
 
@@ -21,8 +21,11 @@ const TotpVerifyPage = () => {
   const [secondsLeft, setSecondsLeft] = useState(30);
   const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const verifyingRef = useRef(false);
+  const loginCompletedRef = useRef(false);
 
   useEffect(() => {
+    if (loginCompletedRef.current) return;
     const tempToken = localStorage.getItem('tempToken');
     if (!tempToken) {
       toast.error('Session expired. Please login again.');
@@ -43,12 +46,13 @@ const TotpVerifyPage = () => {
 
   const handleVerify = async (nextCode = code) => {
     const cleanCode = String(nextCode).replace(/\D/g, '').slice(0, 6);
-    if (verifying) return;
+    if (verifyingRef.current || loginCompletedRef.current) return;
     if (cleanCode.length !== 6) {
       toast.warning('Enter your 6-digit code');
       return;
     }
 
+    verifyingRef.current = true;
     setVerifying(true);
     try {
       const tempToken = localStorage.getItem('tempToken');
@@ -74,6 +78,7 @@ const TotpVerifyPage = () => {
 
       const { token, passengerName } = data.data;
       login(token, passengerName);
+      loginCompletedRef.current = true;
       localStorage.removeItem('tempToken');
 
       toast.success('Welcome back!');
@@ -82,12 +87,9 @@ const TotpVerifyPage = () => {
       toast.error(err.message || 'Wrong code. Please try again.');
       setCode('');
     } finally {
+      verifyingRef.current = false;
       setVerifying(false);
     }
-  };
-
-  const handleResend = () => {
-    toast.info('Use the current code from your authenticator app.');
   };
 
   const timerLabel = `00:${String(secondsLeft).padStart(2, '0')}`;
@@ -138,14 +140,7 @@ const TotpVerifyPage = () => {
         <div className="mt-5">
           <CountdownBadge timerLabel={timerLabel} />
           <p className="mt-4 text-center text-sm text-text-body">
-            Didn't receive the code?{' '}
-            <button
-              type="button"
-              onClick={handleResend}
-              className="font-semibold text-brand-primary hover:underline"
-            >
-              Resend
-            </button>
+            Open Google Authenticator and enter the current 6-digit code.
           </p>
         </div>
 

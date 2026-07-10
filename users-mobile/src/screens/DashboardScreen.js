@@ -5,6 +5,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,9 +39,15 @@ const loadNfcManager = () => {
 
 const QUICK_AMOUNTS = [20, 40, 50, 100, 200, 500];
 const QUICK_REPLIES = ['Top-up issue', 'Fare deduction', 'Payment failed', 'Lost RFID card', 'Check balance'];
-const APP_GUIDE_STORAGE_KEY = 'premierPassengerAppGuideCompleted';
+const LEGACY_APP_GUIDE_STORAGE_KEY = 'premierPassengerAppGuideCompleted';
+const APP_GUIDE_STORAGE_KEY = 'premier_app_guide_completed';
+const APP_GUIDE_REPLAYED_KEY = 'premier_app_guide_replayed';
+const FINGERPRINT_PROMPT_SHOWN_KEY = 'premier_fingerprint_prompt_shown';
+const FINGERPRINT_ENABLED_KEY = 'premier_fingerprint_enabled';
+const DASHBOARD_FIRST_VISIT_DONE_KEY = 'premier_dashboard_first_visit_done';
 const WALLET_GUIDE_STORAGE_KEY = 'premierPassengerWalletGuideCompleted';
 const TOPUP_GUIDE_STORAGE_KEY = 'premierPassengerTopUpGuideCompleted';
+const QR_REFRESH_BUFFER_SECONDS = 8;
 
 const PAYMENT_OPTIONS = [
   {
@@ -74,6 +81,8 @@ const csvEscape = (value) => {
 
 const transactionId = (tx) => tx?.referenceNumber || `TX-${tx?.id}`;
 
+const TRANSACTION_FILTERS = ['All', 'RFID', 'QR', 'NFC', 'Top Up', 'Failed'];
+
 function formatCurrency(value) {
   return Number(value || 0).toLocaleString('en-PH', {
     minimumFractionDigits: 2,
@@ -100,36 +109,161 @@ function formatDate(dateStr) {
   });
 }
 
-function TransactionRow({ tx }) {
-  const isCredit = tx.type === 'TOPUP';
+function formatFullDate(dateStr) {
+  if (!dateStr) return '-';
+
+  return new Date(dateStr).toLocaleString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function groupDateLabel(dateStr) {
+  if (!dateStr) return 'Unknown Date';
+
+  const date = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return 'Today';
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+  return date.toLocaleDateString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function txStatus(tx) {
+  const raw = String(tx?.status || 'SUCCESS').toUpperCase();
+  if (raw.includes('FAIL')) return 'FAILED';
+  if (raw === 'SUCCESS') return 'COMPLETED';
+  return raw.replace(/_/g, ' ');
+}
+
+function txMethod(tx) {
+  const rawType = String(tx?.type || '').toUpperCase();
+  const ref = String(transactionId(tx) || '').toUpperCase();
+  const description = String(tx?.description || '').toUpperCase();
+
+  if (txStatus(tx) === 'FAILED') return 'FAILED';
+  if (rawType.includes('TOPUP') || rawType.includes('TOP_UP')) return 'TOP_UP';
+  if (rawType.includes('REFUND')) return 'REFUND';
+  if (rawType.includes('QR') || ref.startsWith('QR-') || description.includes('QR')) return 'QR';
+  if (rawType.includes('NFC') || ref.startsWith('NFC-') || description.includes('NFC')) return 'NFC';
+  if (rawType.includes('RFID') || ref.startsWith('RFID-') || description.includes('RFID')) return 'RFID';
+  return 'FARE';
+}
+
+function txTitle(tx) {
+  const method = txMethod(tx);
+
+  if (method === 'FAILED') return 'Failed Transaction';
+  if (method === 'TOP_UP') return 'Wallet Top Up';
+  if (method === 'REFUND') return 'Refund';
+  if (method === 'QR') return 'QR Fare Payment';
+  if (method === 'NFC') return 'NFC Fare Payment';
+  if (method === 'RFID') return 'RFID Fare Payment';
+  return 'Fare Payment';
+}
+
+function txMethodLabel(tx) {
+  const method = txMethod(tx);
+
+  if (method === 'TOP_UP') return 'Top Up';
+  if (method === 'FARE') return 'Fare';
+  return method.replace('_', ' ');
+}
+
+function txVisual(tx) {
+  const method = txMethod(tx);
+
+  if (method === 'TOP_UP') {
+    return { icon: 'cellphone-arrow-down', color: colors.green, bg: '#EAF7EE' };
+  }
+  if (method === 'QR') {
+    return { icon: 'qrcode-scan', color: colors.green, bg: '#EAF7EE' };
+  }
+  if (method === 'NFC') {
+    return { icon: 'contactless-payment', color: colors.teal, bg: '#E8F5F3' };
+  }
+  if (method === 'RFID') {
+    return { icon: 'card-account-details-outline', color: colors.navy, bg: '#EEF3FA' };
+  }
+  if (method === 'REFUND') {
+    return { icon: 'cash-refund', color: colors.green, bg: '#EAF7EE' };
+  }
+  if (method === 'FAILED') {
+    return { icon: 'alert-circle-outline', color: '#B4232D', bg: '#FDECEC' };
+  }
+  return { icon: 'map-marker-outline', color: colors.maroon, bg: '#FFF1F3' };
+}
+
+function isMoneyIn(tx) {
+  const method = txMethod(tx);
+  return method === 'TOP_UP' || method === 'REFUND';
+}
+
+function txSearchText(tx) {
+  return [
+    tx?.id,
+    tx?.referenceNumber,
+    transactionId(tx),
+    tx?.type,
+    tx?.status,
+    tx?.description,
+    txMethodLabel(tx),
+    txTitle(tx),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function TransactionRow({ tx, onPress }) {
+  const visual = txVisual(tx);
+  const isCredit = isMoneyIn(tx);
+  const status = txStatus(tx);
+  const failed = status === 'FAILED';
 
   return (
-    <View style={styles.txRow}>
-      <View style={[styles.txIcon, isCredit ? styles.txIconCredit : styles.txIconFare]}>
+    <Pressable onPress={() => onPress?.(tx)} style={styles.txRow}>
+      <View style={[styles.txIcon, { backgroundColor: visual.bg }]}>
         <MaterialCommunityIcons
-          name={isCredit ? 'cellphone' : 'map-marker-outline'}
+          name={visual.icon}
           size={17}
-          color={isCredit ? '#00A86B' : colors.maroon}
+          color={visual.color}
         />
       </View>
 
       <View style={styles.txMeta}>
-        <Text style={styles.txTitle}>
-          {isCredit ? 'Top-Up Load' : 'Fare Payment'}
-        </Text>
+        <Text style={styles.txTitle}>{txTitle(tx)}</Text>
         <Text style={styles.txId}>ID: {transactionId(tx)}</Text>
         <Text style={styles.txDate}>
-          {formatDate(tx.createdAt)} {isCredit ? 'via Wallet' : ''}
+          {formatDate(tx.createdAt)} • {txMethodLabel(tx)}
         </Text>
       </View>
 
       <View style={styles.txRight}>
-        <Text style={[styles.txAmount, isCredit && styles.txAmountCredit]}>
+        <Text
+          style={[
+            styles.txAmount,
+            isCredit && styles.txAmountCredit,
+            failed && styles.txAmountFailed,
+          ]}
+        >
           {isCredit ? '+' : '-'}PHP {formatCurrency(tx.amount)}
         </Text>
-        <Text style={styles.txStatus}>Completed</Text>
+        <Text style={[styles.txStatus, failed && styles.txStatusFailed]}>
+          {status}
+        </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -140,6 +274,7 @@ export default function DashboardScreen({ navigation }) {
     biometricEnabled,
     enableBiometrics,
     disableBiometrics,
+    syncPushNotifications,
   } = useAuth();
 
   const screen = useWindowDimensions();
@@ -149,6 +284,11 @@ export default function DashboardScreen({ navigation }) {
   const [transactions, setTransactions] = useState([]);
   const [allTransactions, setAllTransactions] = useState([]);
   const [transactionLoading, setTransactionLoading] = useState(false);
+  const [transactionRefreshing, setTransactionRefreshing] = useState(false);
+  const [transactionError, setTransactionError] = useState(null);
+  const [transactionSearch, setTransactionSearch] = useState('');
+  const [transactionFilter, setTransactionFilter] = useState('All');
+  const [exportingTransactions, setExportingTransactions] = useState(false);
   const [dashboardError, setDashboardError] = useState(null);
 
   const [selectedAmount, setSelectedAmount] = useState(100);
@@ -167,10 +307,18 @@ export default function DashboardScreen({ navigation }) {
   const [qrOpen, setQrOpen] = useState(false);
   const [qrLoading, setQrLoading] = useState(false);
   const [qrData, setQrData] = useState(null);
+  const [qrSeconds, setQrSeconds] = useState(0);
+  const [qrPayment, setQrPayment] = useState(null);
+  const [qrError, setQrError] = useState(null);
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
 
   const [guideVisible, setGuideVisible] = useState(false);
   const [guideIndex, setGuideIndex] = useState(0);
   const [guideMode, setGuideMode] = useState('home');
+  const [isGuideActive, setIsGuideActive] = useState(false);
+  const [isCheckingStartupFlow, setIsCheckingStartupFlow] = useState(true);
+  const [showChatbotIntro, setShowChatbotIntro] = useState(false);
+  const [showOtherModal, setShowOtherModal] = useState(false);
 
   const [helpContent, setHelpContent] = useState(null);
   const [chatInput, setChatInput] = useState('');
@@ -188,6 +336,7 @@ export default function DashboardScreen({ navigation }) {
 
   const balanceGuideRef = useRef(null);
   const walletGuideRef = useRef(null);
+  const myCardGuideRef = useRef(null);
   const topUpGuideRef = useRef(null);
   const qrGuideRef = useRef(null);
   const nfcGuideRef = useRef(null);
@@ -219,11 +368,21 @@ export default function DashboardScreen({ navigation }) {
   const hceSessionRef = useRef(null);
   const hceReadListenerRef = useRef(null);
   const hceExpiryTimerRef = useRef(null);
+  const qrRefreshingRef = useRef(false);
+  const hasStartedStartupFlowRef = useRef(false);
+  const guideReplayRef = useRef(false);
+  const recentActivityRef = useRef(null);
 
   const currentBalance = useMemo(
     () => Number(balance?.balance || 0),
     [balance],
   );
+
+  const automaticModalBlocked =
+    isGuideActive ||
+    isCheckingStartupFlow ||
+    showChatbotIntro ||
+    showOtherModal;
 
   const rawPassengerName =
     passenger?.name ||
@@ -245,6 +404,83 @@ export default function DashboardScreen({ navigation }) {
   const notificationCount =
     transactions.length +
     (currentBalance > 0 && currentBalance < 100 ? 1 : 0);
+
+  const transactionSource = allTransactions.length ? allTransactions : transactions;
+
+  const filteredTransactions = useMemo(() => {
+    const query = transactionSearch.trim().toLowerCase();
+
+    return transactionSource.filter((tx) => {
+      const method = txMethod(tx);
+      const status = txStatus(tx);
+      const matchesSearch = !query || txSearchText(tx).includes(query);
+      const matchesFilter =
+        transactionFilter === 'All' ||
+        (transactionFilter === 'Top Up' && method === 'TOP_UP') ||
+        (transactionFilter === 'Failed' && status === 'FAILED') ||
+        method === transactionFilter.toUpperCase();
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [transactionFilter, transactionSearch, transactionSource]);
+
+  const groupedTransactions = useMemo(() => {
+    const groups = [];
+
+    filteredTransactions.forEach((tx) => {
+      const label = groupDateLabel(tx.createdAt);
+      const existing = groups.find((group) => group.label === label);
+
+      if (existing) {
+        existing.items.push(tx);
+      } else {
+        groups.push({ label, items: [tx] });
+      }
+    });
+
+    return groups;
+  }, [filteredTransactions]);
+
+  const transactionTotals = useMemo(
+    () =>
+      transactionSource.reduce(
+        (totals, tx) => {
+          const amount = Number(tx.amount || 0);
+
+          if (isMoneyIn(tx)) {
+            totals.in += amount;
+          } else if (txStatus(tx) !== 'FAILED') {
+            totals.out += amount;
+          }
+
+          return totals;
+        },
+        { in: 0, out: 0 },
+      ),
+    [transactionSource],
+  );
+
+  const focusRecentActivity = useCallback(() => {
+    setActiveTab('Home');
+
+    requestAnimationFrame(() => {
+      recentActivityRef.current?.measureLayout(
+        homeScrollRef.current,
+        (_x, y) => {
+          homeScrollRef.current?.scrollTo({
+            y: Math.max(0, y - 18),
+            animated: true,
+          });
+        },
+        () => {
+          homeScrollRef.current?.scrollTo({
+            y: 520,
+            animated: true,
+          });
+        },
+      );
+    });
+  }, []);
 
   const scrollGuideTargetIntoView = useCallback(
     (step) =>
@@ -310,7 +546,7 @@ export default function DashboardScreen({ navigation }) {
       },
       {
         key: 'wallet',
-        targetRef: walletGuideRef,
+        targetRef: myCardGuideRef,
         title: 'Wallet',
         message: 'Open your wallet to view your RFID card, balance, and payment options.',
       },
@@ -324,9 +560,9 @@ export default function DashboardScreen({ navigation }) {
       },
       {
         key: 'qr',
-        targetRef: scanGuideRef,
+        targetRef: qrGuideRef,
         title: 'QR Payment',
-        message: 'Tap Scan to show your large payment QR code to the fare reader.',
+        message: 'Tap Pay QR to show your payment QR code to the fare reader.',
       },
       {
         key: 'nfc',
@@ -501,43 +737,127 @@ export default function DashboardScreen({ navigation }) {
     fetchData();
   }, [fetchData]);
 
-  useEffect(() => {
-    let active = true;
+  const closeAllAutomaticModals = useCallback(() => {
+    setShowChatbotIntro(false);
+    setShowOtherModal(false);
+    setHelpContent(null);
+  }, []);
 
-    const maybeStartGuide = async () => {
-      if (loading || activeTab !== 'Home') return;
+  const startGuide = useCallback((mode = 'home') => {
+    setGuideMode(mode);
+    setGuideIndex(0);
+    setIsGuideActive(true);
 
-      try {
-        const completed = await AsyncStorage.getItem(
-          APP_GUIDE_STORAGE_KEY,
-        );
+    if (mode === 'home') {
+      setActiveTab('Home');
+    }
 
-        if (!active || completed === 'true') return;
+    setTimeout(() => {
+      setGuideVisible(true);
+    }, 450);
+  }, []);
 
-        setTimeout(() => {
-          if (!active) return;
+  const checkPostGuidePrompts = useCallback(async () => {
+    try {
+      const [promptShown, storedEnabled] = await Promise.all([
+        AsyncStorage.getItem(FINGERPRINT_PROMPT_SHOWN_KEY),
+        AsyncStorage.getItem(FINGERPRINT_ENABLED_KEY),
+      ]);
+      const fingerprintEnabled =
+        biometricEnabled || storedEnabled === 'true';
 
-          setGuideMode('home');
-          setGuideIndex(0);
-          setGuideVisible(true);
-        }, 450);
-      } catch {
-        // Do not block the dashboard if storage fails.
+      if (fingerprintEnabled) {
+        await AsyncStorage.setItem(FINGERPRINT_ENABLED_KEY, 'true');
+        syncPushNotifications?.();
+        return;
       }
-    };
 
-    maybeStartGuide();
+      if (promptShown === 'true') {
+        syncPushNotifications?.();
+        return;
+      }
 
-    return () => {
-      active = false;
-    };
-  }, [activeTab, loading]);
+      Alert.alert(
+        'Enable biometric login?',
+        'Use fingerprint or Face ID next time instead of entering OTP on this device.',
+        [
+          {
+            text: 'NOT NOW',
+            style: 'cancel',
+            onPress: async () => {
+              await AsyncStorage.setItem(FINGERPRINT_PROMPT_SHOWN_KEY, 'true');
+              syncPushNotifications?.();
+            },
+          },
+          {
+            text: 'ENABLE',
+            onPress: async () => {
+              try {
+                await AsyncStorage.setItem(FINGERPRINT_PROMPT_SHOWN_KEY, 'true');
+                await enableBiometrics();
+                await AsyncStorage.setItem(FINGERPRINT_ENABLED_KEY, 'true');
+              } catch (error) {
+                Alert.alert(
+                  'Biometrics unavailable',
+                  error.message || 'You can enable it later in Settings.',
+                );
+              } finally {
+                syncPushNotifications?.();
+              }
+            },
+          },
+        ],
+        { cancelable: false },
+      );
+    } catch {
+      syncPushNotifications?.();
+    }
+  }, [biometricEnabled, enableBiometrics, syncPushNotifications]);
+
+  const runDashboardStartupFlow = useCallback(async () => {
+    setIsCheckingStartupFlow(true);
+    closeAllAutomaticModals();
+
+    try {
+      const [completed, legacyCompleted] = await Promise.all([
+        AsyncStorage.getItem(APP_GUIDE_STORAGE_KEY),
+        AsyncStorage.getItem(LEGACY_APP_GUIDE_STORAGE_KEY),
+      ]);
+      const guideCompleted =
+        completed === 'true' || legacyCompleted === 'true';
+
+      await AsyncStorage.setItem(DASHBOARD_FIRST_VISIT_DONE_KEY, 'true');
+
+      if (legacyCompleted === 'true' && completed !== 'true') {
+        await AsyncStorage.setItem(APP_GUIDE_STORAGE_KEY, 'true');
+      }
+
+      if (!guideCompleted) {
+        startGuide('home');
+        return;
+      }
+
+      await checkPostGuidePrompts();
+    } catch {
+      await checkPostGuidePrompts();
+    } finally {
+      setIsCheckingStartupFlow(false);
+    }
+  }, [checkPostGuidePrompts, closeAllAutomaticModals, startGuide]);
+  useEffect(() => {
+    if (loading || activeTab !== 'Home' || hasStartedStartupFlowRef.current) {
+      return;
+    }
+
+    hasStartedStartupFlowRef.current = true;
+    runDashboardStartupFlow();
+  }, [activeTab, loading, runDashboardStartupFlow]);
 
   useEffect(() => {
     let active = true;
 
     const maybeStartWalletGuide = async () => {
-      if (loading || guideVisible || activeTab !== 'Wallet') return;
+      if (loading || guideVisible || automaticModalBlocked || activeTab !== 'Wallet') return;
 
       try {
         const completed = await AsyncStorage.getItem(
@@ -551,6 +871,7 @@ export default function DashboardScreen({ navigation }) {
 
           setGuideMode('wallet');
           setGuideIndex(0);
+          setIsGuideActive(true);
           setGuideVisible(true);
         }, 450);
       } catch {
@@ -563,13 +884,13 @@ export default function DashboardScreen({ navigation }) {
     return () => {
       active = false;
     };
-  }, [activeTab, guideVisible, loading]);
+  }, [activeTab, automaticModalBlocked, guideVisible, loading]);
 
   useEffect(() => {
     let active = true;
 
     const maybeStartTopUpGuide = async () => {
-      if (loading || guideVisible || activeTab !== 'TopUp') return;
+      if (loading || guideVisible || automaticModalBlocked || activeTab !== 'TopUp') return;
 
       try {
         const completed = await AsyncStorage.getItem(
@@ -583,6 +904,7 @@ export default function DashboardScreen({ navigation }) {
 
           setGuideMode('topup');
           setGuideIndex(0);
+          setIsGuideActive(true);
           setGuideVisible(true);
         }, 450);
       } catch {
@@ -595,7 +917,7 @@ export default function DashboardScreen({ navigation }) {
     return () => {
       active = false;
     };
-  }, [activeTab, guideVisible, loading]);
+  }, [activeTab, automaticModalBlocked, guideVisible, loading]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -653,10 +975,15 @@ export default function DashboardScreen({ navigation }) {
     };
   }, []);
 
-  const fetchAllTransactions = async () => {
-    if (transactionLoading) return;
+  const fetchAllTransactions = async ({ refreshing = false } = {}) => {
+    if (transactionLoading || transactionRefreshing) return;
 
-    setTransactionLoading(true);
+    if (refreshing) {
+      setTransactionRefreshing(true);
+    } else {
+      setTransactionLoading(true);
+    }
+    setTransactionError(null);
 
     try {
       const response = await api.get('/transactions?page=0&size=50');
@@ -664,16 +991,24 @@ export default function DashboardScreen({ navigation }) {
       setAllTransactions(response.data.data?.content || []);
       setActiveTab('Transactions');
     } catch (error) {
-      Alert.alert(
-        'Failed to load transactions',
-        error.response?.data?.message || 'Please try again.',
+      setTransactionError(
+        error.response?.data?.message ||
+          'Unable to load transactions. Please try again.',
       );
     } finally {
-      setTransactionLoading(false);
+      if (refreshing) {
+        setTransactionRefreshing(false);
+      } else {
+        setTransactionLoading(false);
+      }
     }
   };
 
   const downloadTransactions = async () => {
+    if (exportingTransactions) return;
+
+    setExportingTransactions(true);
+
     try {
       let rows = allTransactions.length ? allTransactions : [];
 
@@ -723,7 +1058,7 @@ export default function DashboardScreen({ navigation }) {
         ),
       ].join('\n');
 
-      const fileName = `premier-transactions-${new Date()
+      const fileName = `premier-transaction-report-${new Date()
         .toISOString()
         .slice(0, 10)}.csv`;
 
@@ -757,7 +1092,7 @@ export default function DashboardScreen({ navigation }) {
           );
 
           Alert.alert(
-            'Transactions downloaded',
+            'Report downloaded',
             `${fileName} was saved to the folder you selected.`,
           );
           return;
@@ -767,15 +1102,75 @@ export default function DashboardScreen({ navigation }) {
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(fileUri, {
           mimeType: 'text/csv',
-          dialogTitle: 'Download Premier transactions',
+          dialogTitle: 'Download Premier transaction report',
           UTI: 'public.comma-separated-values-text',
         });
       } else {
-        Alert.alert('Transactions exported', `Saved to ${fileUri}`);
+        Alert.alert('Report exported', `Saved to ${fileUri}`);
       }
     } catch (error) {
       Alert.alert(
         'Download failed',
+        error.message || 'Please try again.',
+      );
+    } finally {
+      setExportingTransactions(false);
+    }
+  };
+
+  const downloadReceipt = async (tx) => {
+    if (!tx) return;
+
+    try {
+      const amountSign = isMoneyIn(tx) ? '+' : '-';
+      const receipt = [
+        'PREMIER TRANSPORT',
+        'Transaction Receipt',
+        '',
+        `Type: ${txTitle(tx)}`,
+        `Status: ${txStatus(tx)}`,
+        `Transaction ID: ${tx.id || '-'}`,
+        `Reference Number: ${tx.referenceNumber || transactionId(tx)}`,
+        `Payment Method: ${txMethodLabel(tx)}`,
+        `Card Number: ${maskCardNumber(balance?.cardNumber || passenger?.cardNumber)}`,
+        `Date & Time: ${formatFullDate(tx.createdAt) || '-'}`,
+        `Amount: ${amountSign}PHP ${formatCurrency(tx.amount)}`,
+        tx.balanceBefore !== undefined && tx.balanceBefore !== null
+          ? `Balance Before: PHP ${formatCurrency(tx.balanceBefore)}`
+          : null,
+        tx.balanceAfter !== undefined && tx.balanceAfter !== null
+          ? `Balance After: PHP ${formatCurrency(tx.balanceAfter)}`
+          : null,
+        tx.busNumber ? `Bus Number: ${tx.busNumber}` : null,
+        tx.terminalName || tx.terminal ? `Terminal: ${tx.terminalName || tx.terminal}` : null,
+        tx.description ? `Description: ${tx.description}` : null,
+        tx.notes || tx.reason ? `Notes: ${tx.notes || tx.reason}` : null,
+        '',
+        'Thank you for using Premier Transport.',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const safeId = transactionId(tx).replace(/[^a-zA-Z0-9_-]/g, '-');
+      const fileName = `premier-receipt-${safeId}.txt`;
+      const fileUri = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}${fileName}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, receipt, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/plain',
+          dialogTitle: 'Download Premier receipt',
+          UTI: 'public.plain-text',
+        });
+      } else {
+        Alert.alert('Receipt exported', `Saved to ${fileUri}`);
+      }
+    } catch (error) {
+      Alert.alert(
+        'Receipt download failed',
         error.message || 'Please try again.',
       );
     }
@@ -862,24 +1257,98 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
-  const generateFareQr = async () => {
+  const generateFareQr = useCallback(async (refreshing = false) => {
+    if (qrRefreshingRef.current) return;
+    qrRefreshingRef.current = true;
     setQrLoading(true);
-    setQrData(null);
+    setQrError(null);
+    setQrPayment(null);
+    if (!refreshing) {
+      setQrData(null);
+    }
     setQrOpen(true);
 
     try {
       const response = await api.post('/fare/qr');
-      setQrData(response.data.data);
+      const data = response.data.data;
+      if (!data?.payload) {
+        throw new Error('Unable to prepare secure fare QR.');
+      }
+      setQrData(data);
+      setQrSeconds(Number(data.expiresInSeconds || 45));
     } catch (error) {
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        'Please try again.';
+      setQrError(message);
+      if (!refreshing) {
+        setQrData(null);
+      }
       Alert.alert(
         'QR unavailable',
-        error.response?.data?.message || 'Please try again.',
+        message,
       );
-      setQrOpen(false);
     } finally {
+      qrRefreshingRef.current = false;
       setQrLoading(false);
     }
-  };
+  }, []);
+
+  const checkFareQrStatus = useCallback(async () => {
+    if (!qrOpen || !qrData?.payload || qrLoading || qrPayment) return;
+
+    try {
+      const response = await api.post('/fare/qr/status', {
+        payload: qrData.payload,
+      });
+      const status = response.data.data;
+
+      if (status?.status === 'USED' && status.payment) {
+        setQrPayment(status.payment);
+        setQrSeconds(0);
+        fetchData({ silent: true });
+        return;
+      }
+
+      if (status?.status === 'EXPIRED') {
+        generateFareQr(true);
+        return;
+      }
+
+      if (typeof status?.expiresInSeconds === 'number') {
+        setQrSeconds(status.expiresInSeconds);
+      }
+    } catch (error) {
+      setQrError(
+        error.response?.data?.message ||
+          'Reader connection issue. Please try again.',
+      );
+    }
+  }, [fetchData, generateFareQr, qrData?.payload, qrLoading, qrOpen, qrPayment]);
+
+  useEffect(() => {
+    if (!qrOpen || !qrData?.payload || qrLoading || qrPayment) return undefined;
+
+    const timer = setInterval(() => {
+      setQrSeconds((current) => {
+        const next = Math.max(0, Number(current || 0) - 1);
+        if (next <= QR_REFRESH_BUFFER_SECONDS) {
+          generateFareQr(true);
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [generateFareQr, qrData?.payload, qrLoading, qrOpen, qrPayment]);
+
+  useEffect(() => {
+    if (!qrOpen || !qrData?.payload || qrLoading || qrPayment) return undefined;
+
+    const poller = setInterval(checkFareQrStatus, 2500);
+    return () => clearInterval(poller);
+  }, [checkFareQrStatus, qrData?.payload, qrLoading, qrOpen, qrPayment]);
 
   const handleNfcPayment = async () => {
     if (nfcScanning) return;
@@ -947,30 +1416,44 @@ export default function DashboardScreen({ navigation }) {
   };
 
   const completeGuide = async () => {
+    const completedMode = guideMode;
+    const wasReplay = guideReplayRef.current;
+
+    guideReplayRef.current = false;
     setGuideVisible(false);
+    setIsGuideActive(false);
     setGuideIndex(0);
 
-    await AsyncStorage.setItem(
-      guideMode === 'wallet'
+    const storageKey =
+      completedMode === 'wallet'
         ? WALLET_GUIDE_STORAGE_KEY
-        : guideMode === 'topup'
+        : completedMode === 'topup'
           ? TOPUP_GUIDE_STORAGE_KEY
-          : APP_GUIDE_STORAGE_KEY,
-      'true',
-    );
+          : APP_GUIDE_STORAGE_KEY;
+
+    await AsyncStorage.setItem(storageKey, 'true');
+
+    if (completedMode === 'home') {
+      await AsyncStorage.setItem(LEGACY_APP_GUIDE_STORAGE_KEY, 'true');
+    }
+
+    if (completedMode === 'home' && !wasReplay) {
+      setTimeout(() => {
+        checkPostGuidePrompts();
+      }, 350);
+    }
   };
 
-  const replayGuide = () => {
-    setActiveTab('Home');
-    setGuideMode('home');
-    setGuideIndex(0);
-
-    setTimeout(() => {
-      setGuideVisible(true);
-    }, 450);
+  const replayGuide = async () => {
+    guideReplayRef.current = true;
+    await AsyncStorage.setItem(APP_GUIDE_REPLAYED_KEY, 'true');
+    closeAllAutomaticModals();
+    startGuide('home');
   };
 
   const showHelp = (title, message) => {
+    if (automaticModalBlocked) return;
+
     setHelpContent({
       title,
       message,
@@ -1091,7 +1574,7 @@ export default function DashboardScreen({ navigation }) {
       </View>
 
       <View style={styles.securePill}>
-        <Feather name="shield" size={14} color="#D49312" />
+        <Feather name="shield" size={14} color={colors.maroon} />
         <Text style={styles.secureText}>Secure Session Active</Text>
       </View>
 
@@ -1149,7 +1632,7 @@ export default function DashboardScreen({ navigation }) {
             </Text>
           </View>
 
-          <Feather name="credit-card" size={20} color="#F4B8BE" />
+          <Feather name="credit-card" size={20} color={colors.navy} />
 
           <Text style={styles.activeBadge}>Active</Text>
         </View>
@@ -1158,7 +1641,7 @@ export default function DashboardScreen({ navigation }) {
       <View style={styles.quickPanel}>
         <ActionButton
           targetRef={topUpGuideRef}
-          color="#E2AA22"
+          color={colors.gold}
           icon="wallet-plus-outline"
           label="Top Up"
           onPress={() => setActiveTab('TopUp')}
@@ -1167,13 +1650,14 @@ export default function DashboardScreen({ navigation }) {
         <ActionButton
           targetRef={transactionGuideRef}
           color={colors.maroon}
-          icon="history"
-          label="History"
-          onPress={fetchAllTransactions}
+          icon="clipboard-text-clock-outline"
+          label="Recent"
+          onPress={focusRecentActivity}
         />
 
         <ActionButton
-          color="#1C2A44"
+          targetRef={myCardGuideRef}
+          color={colors.navy}
           icon="credit-card-outline"
           label="My Card"
           onPress={() => setActiveTab('Wallet')}
@@ -1181,7 +1665,7 @@ export default function DashboardScreen({ navigation }) {
 
         <ActionButton
           targetRef={qrGuideRef}
-          color="#246A21"
+          color={colors.green}
           icon="qrcode"
           label="Pay QR"
           onPress={() => navigation.navigate('QRFarePayment')}
@@ -1189,14 +1673,18 @@ export default function DashboardScreen({ navigation }) {
 
         <ActionButton
           targetRef={nfcGuideRef}
-          color="#0F766E"
+          color={colors.teal}
           icon="nfc"
           label="NFC Pay"
           onPress={handleNfcPayment}
         />
       </View>
 
-      <View style={styles.sectionHeader}>
+      <View
+        ref={recentActivityRef}
+        collapsable={false}
+        style={styles.sectionHeader}
+      >
         <Text style={styles.sectionTitle}>Recent Activity</Text>
 
         <Pressable onPress={fetchAllTransactions}>
@@ -1205,7 +1693,7 @@ export default function DashboardScreen({ navigation }) {
       </View>
 
       {(transactions.length ? transactions.slice(0, 3) : []).map((tx) => (
-        <TransactionRow key={tx.id} tx={tx} />
+        <TransactionRow key={tx.id} tx={tx} onPress={setSelectedReceipt} />
       ))}
 
       {!transactions.length && (
@@ -1240,7 +1728,7 @@ export default function DashboardScreen({ navigation }) {
           <MaterialCommunityIcons
             name="bus"
             size={28}
-            color={colors.yellow}
+                color="#D9E2F1"
           />
         </View>
 
@@ -1265,12 +1753,13 @@ export default function DashboardScreen({ navigation }) {
           <Button
             variant="secondary"
             style={styles.walletButtonGold}
+            textStyle={styles.walletActionTextLight}
             onPress={() => setActiveTab('TopUp')}
             icon={
               <MaterialCommunityIcons
                 name="wallet-plus-outline"
                 size={17}
-                color={colors.maroon}
+                color="#fff"
               />
             }
           >
@@ -1285,13 +1774,14 @@ export default function DashboardScreen({ navigation }) {
         >
           <Button
             variant="ghost"
-            style={styles.walletButton}
+            style={styles.walletButtonQr}
+            textStyle={styles.walletActionTextLight}
             onPress={() => navigation.navigate('QRFarePayment')}
             icon={
               <MaterialCommunityIcons
                 name="qrcode"
                 size={17}
-                color={colors.maroon}
+                color="#fff"
               />
             }
           >
@@ -1306,13 +1796,14 @@ export default function DashboardScreen({ navigation }) {
         >
           <Button
             variant="ghost"
-            style={styles.walletButton}
+            style={styles.walletButtonNfc}
+            textStyle={styles.walletActionTextLight}
             onPress={handleNfcPayment}
             icon={
               <MaterialCommunityIcons
                 name="nfc"
                 size={17}
-                color={colors.maroon}
+                color="#fff"
               />
             }
           >
@@ -1539,20 +2030,24 @@ export default function DashboardScreen({ navigation }) {
   );
 
   const renderTransactions = () => {
-    const data = allTransactions.length
-      ? allTransactions
-      : transactions;
-
     return (
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={transactionRefreshing}
+            onRefresh={() => fetchAllTransactions({ refreshing: true })}
+            tintColor={colors.maroon}
+            colors={[colors.maroon]}
+          />
+        }
       >
         <BackTitle
           title="Transactions"
-          subtitle="Full ledger history"
+          subtitle="Complete transaction history"
           onBack={() => setActiveTab('Home')}
-          rightText="Download"
+          rightText={exportingTransactions ? 'Exporting...' : 'Download Report'}
           onRightPress={downloadTransactions}
         />
 
@@ -1561,11 +2056,11 @@ export default function DashboardScreen({ navigation }) {
             <MaterialCommunityIcons
               name="cellphone"
               size={20}
-              color="#D6FFF0"
+              color="#DCFCE7"
             />
             <Text style={styles.totalLabel}>Total In</Text>
             <Text style={styles.totalValue}>
-              +PHP {formatCurrency(loaded)}
+              +PHP {formatCurrency(transactionTotals.in)}
             </Text>
           </View>
 
@@ -1577,25 +2072,117 @@ export default function DashboardScreen({ navigation }) {
             />
             <Text style={styles.totalLabel}>Total Out</Text>
             <Text style={styles.totalValue}>
-              -PHP {formatCurrency(spent)}
+              -PHP {formatCurrency(transactionTotals.out)}
             </Text>
           </View>
         </View>
 
+        <View style={styles.transactionSearchBox}>
+          <Feather name="search" size={17} color="#8AA0BF" />
+          <TextInput
+            value={transactionSearch}
+            onChangeText={setTransactionSearch}
+            placeholder="Search transaction ID or reference number"
+            placeholderTextColor="#94A3B8"
+            style={styles.transactionSearchInput}
+          />
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterChipRow}
+        >
+          {TRANSACTION_FILTERS.map((filter) => {
+            const active = transactionFilter === filter;
+
+            return (
+              <Pressable
+                key={filter}
+                onPress={() => setTransactionFilter(filter)}
+                style={[
+                  styles.filterChip,
+                  active && styles.filterChipActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    active && styles.filterChipTextActive,
+                  ]}
+                >
+                  {filter}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
         {transactionLoading && (
-          <View style={styles.loadingInline}>
-            <ActivityIndicator color={colors.maroon} />
-            <Text style={styles.loadingInlineText}>
-              Loading transactions...
+          <View>
+            {[1, 2, 3].map((item) => (
+              <View key={item} style={styles.transactionSkeleton}>
+                <View style={styles.transactionSkeletonIcon} />
+                <View style={styles.transactionSkeletonBody}>
+                  <View style={styles.transactionSkeletonLineWide} />
+                  <View style={styles.transactionSkeletonLine} />
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {!transactionLoading && !!transactionError && (
+          <View style={styles.transactionStateCard}>
+            <MaterialCommunityIcons
+              name="alert-circle-outline"
+              size={28}
+              color={colors.maroon}
+            />
+            <Text style={styles.transactionStateTitle}>
+              Unable to load transactions
             </Text>
+            <Text style={styles.transactionStateText}>
+              {transactionError}
+            </Text>
+            <Pressable
+              style={styles.transactionRetryButton}
+              onPress={() => fetchAllTransactions()}
+            >
+              <Text style={styles.transactionRetryText}>Retry</Text>
+            </Pressable>
           </View>
         )}
 
         {!transactionLoading &&
-          data.map((tx) => <TransactionRow key={tx.id} tx={tx} />)}
+          !transactionError &&
+          groupedTransactions.map((group) => (
+            <View key={group.label} style={styles.transactionDateGroup}>
+              <Text style={styles.transactionDateTitle}>{group.label}</Text>
+              {group.items.map((tx) => (
+                <TransactionRow
+                  key={tx.id || transactionId(tx)}
+                  tx={tx}
+                  onPress={setSelectedReceipt}
+                />
+              ))}
+            </View>
+          ))}
 
-        {!transactionLoading && !data.length && (
-          <Text style={styles.empty}>No transactions found.</Text>
+        {!transactionLoading && !transactionError && !filteredTransactions.length && (
+          <View style={styles.transactionStateCard}>
+            <MaterialCommunityIcons
+              name="receipt-text-outline"
+              size={30}
+              color={colors.navy}
+            />
+            <Text style={styles.transactionStateTitle}>
+              No transactions yet.
+            </Text>
+            <Text style={styles.transactionStateText}>
+              Your fare payments and top-ups will appear here.
+            </Text>
+          </View>
         )}
       </ScrollView>
     );
@@ -1886,6 +2473,136 @@ export default function DashboardScreen({ navigation }) {
       )}
 
       <Modal
+        visible={!!selectedReceipt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedReceipt(null)}
+      >
+        <View style={styles.centerModalBackdrop}>
+          <View style={styles.receiptCard}>
+            <View style={styles.receiptHeader}>
+              <View>
+                <Text style={styles.receiptBrand}>Premier Transport</Text>
+                <Text style={styles.receiptTitle}>Receipt</Text>
+              </View>
+
+              <Pressable
+                style={styles.receiptClose}
+                onPress={() => setSelectedReceipt(null)}
+              >
+                <Feather name="x" size={18} color="#536987" />
+              </Pressable>
+            </View>
+
+            {!!selectedReceipt && (
+              <View style={styles.receiptBody}>
+                <View style={styles.receiptSummary}>
+                  <View>
+                    <Text style={styles.receiptType}>
+                      {txTitle(selectedReceipt)}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.receiptAmount,
+                        isMoneyIn(selectedReceipt) && styles.receiptAmountCredit,
+                        txStatus(selectedReceipt) === 'FAILED' && styles.receiptAmountFailed,
+                      ]}
+                    >
+                      {isMoneyIn(selectedReceipt) ? '+' : '-'}PHP {formatCurrency(selectedReceipt.amount)}
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.receiptStatus,
+                      txStatus(selectedReceipt) === 'FAILED' && styles.receiptStatusFailed,
+                    ]}
+                  >
+                    {txStatus(selectedReceipt)}
+                  </Text>
+                </View>
+
+                <View style={styles.receiptDetails}>
+                  <InfoRow label="Transaction ID" value={String(selectedReceipt.id || '-')} />
+                  <InfoRow label="Reference No." value={selectedReceipt.referenceNumber || transactionId(selectedReceipt)} />
+                  <InfoRow label="Payment Method" value={txMethodLabel(selectedReceipt)} />
+                  <InfoRow label="Date & Time" value={formatFullDate(selectedReceipt.createdAt) || '-'} />
+                  <InfoRow
+                    label="Card Number"
+                    value={maskCardNumber(balance?.cardNumber || passenger?.cardNumber)}
+                  />
+
+                  {!!(selectedReceipt.busNumber || selectedReceipt.busCode) && (
+                    <InfoRow
+                      label="Bus Number"
+                      value={selectedReceipt.busNumber || selectedReceipt.busCode}
+                    />
+                  )}
+
+                  {!!(selectedReceipt.terminalName || selectedReceipt.terminal) && (
+                    <InfoRow
+                      label="Terminal"
+                      value={selectedReceipt.terminalName || selectedReceipt.terminal}
+                    />
+                  )}
+
+                  {selectedReceipt.balanceBefore !== undefined &&
+                    selectedReceipt.balanceBefore !== null && (
+                      <InfoRow
+                        label="Balance Before"
+                        value={`PHP ${formatCurrency(selectedReceipt.balanceBefore)}`}
+                      />
+                    )}
+
+                  {selectedReceipt.balanceAfter !== undefined &&
+                    selectedReceipt.balanceAfter !== null && (
+                      <InfoRow
+                        label="Balance After"
+                        value={`PHP ${formatCurrency(selectedReceipt.balanceAfter)}`}
+                      />
+                    )}
+
+                  {!!selectedReceipt.description && (
+                    <View style={styles.receiptDescription}>
+                      <Text style={styles.infoLabel}>Description</Text>
+                      <Text style={styles.receiptDescriptionText}>
+                        {selectedReceipt.description}
+                      </Text>
+                    </View>
+                  )}
+
+                  {!!(selectedReceipt.notes || selectedReceipt.reason) && (
+                    <View style={styles.receiptDescription}>
+                      <Text style={styles.infoLabel}>Notes</Text>
+                      <Text style={styles.receiptDescriptionText}>
+                        {selectedReceipt.notes || selectedReceipt.reason}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.receiptActions}>
+                  <Pressable
+                    style={styles.receiptDownloadButton}
+                    onPress={() => downloadReceipt(selectedReceipt)}
+                  >
+                    <Text style={styles.receiptDownloadText}>Download</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.receiptDoneButton}
+                    onPress={() => setSelectedReceipt(null)}
+                  >
+                    <Text style={styles.receiptDoneText}>Close</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={qrOpen}
         transparent
         animationType="fade"
@@ -1937,8 +2654,31 @@ export default function DashboardScreen({ navigation }) {
                   </Text>
 
                   <Text style={styles.qrCountdown}>
-                    Refreshes in {formatCountdown(qrData.expiresInSeconds)}
+                    Refreshes in {formatCountdown(qrSeconds)}
                   </Text>
+
+                  {qrPayment && (
+                    <View style={styles.qrSuccessBox}>
+                      <MaterialCommunityIcons
+                        name="check-circle"
+                        size={26}
+                        color={colors.green}
+                      />
+                      <Text style={styles.qrSuccessTitle}>
+                        Payment successful
+                      </Text>
+                      <Text style={styles.qrSuccessText}>
+                        Fare deducted: PHP {formatCurrency(qrPayment.deductedFare)}
+                      </Text>
+                      <Text style={styles.qrSuccessText}>
+                        Remaining balance: PHP {formatCurrency(qrPayment.remainingBalance)}
+                      </Text>
+                    </View>
+                  )}
+
+                  {!!qrError && !qrPayment && (
+                    <Text style={styles.qrErrorText}>{qrError}</Text>
+                  )}
 
                   <Text style={styles.qrHelp}>
                     Keep brightness high and hold the phone steady until the
@@ -1962,7 +2702,7 @@ export default function DashboardScreen({ navigation }) {
       </Modal>
 
       <Modal
-        visible={!!helpContent}
+        visible={!!helpContent && !isGuideActive}
         transparent
         animationType="fade"
         onRequestClose={() => setHelpContent(null)}
@@ -2109,7 +2849,14 @@ function BackTitle({
 
       {rightText && (
         <Pressable onPress={onRightPress}>
-          <Text style={styles.markAll}>{rightText}</Text>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.72}
+            style={styles.markAll}
+          >
+            {rightText}
+          </Text>
         </Pressable>
       )}
     </View>
@@ -2129,11 +2876,11 @@ function InfoRow({ label, value, green }) {
 
 function NotificationCard({ icon, title, body, time, unread, green, gold, blue }) {
   const color = green
-    ? '#00A86B'
+    ? colors.green
     : gold
-      ? '#D49312'
+      ? colors.gold
       : blue
-        ? '#2563EB'
+        ? colors.navy
         : colors.maroon;
 
   return (
@@ -2227,7 +2974,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.yellow,
+    backgroundColor: colors.gold,
   },
 
   securePill: {
@@ -2235,7 +2982,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     alignSelf: 'flex-start',
-    backgroundColor: '#F8E9EB',
+    backgroundColor: '#FFF8E7',
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
@@ -2267,7 +3014,7 @@ const styles = StyleSheet.create({
   },
 
   balanceLabel: {
-    color: colors.yellow,
+    color: colors.gold,
     fontSize: 13,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -2282,7 +3029,7 @@ const styles = StyleSheet.create({
 
   balanceDivider: {
     height: 1,
-    backgroundColor: 'rgba(250,204,21,0.55)',
+    backgroundColor: 'rgba(212,147,18,0.55)',
     marginVertical: 20,
   },
 
@@ -2308,8 +3055,8 @@ const styles = StyleSheet.create({
   },
 
   activeBadge: {
-    color: '#4ADE80',
-    backgroundColor: 'rgba(20,83,45,0.7)',
+    color: '#DCFCE7',
+    backgroundColor: 'rgba(22,163,74,0.72)',
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -2405,16 +3152,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  txIconCredit: {
-    backgroundColor: '#E8FFF6',
-  },
-
-  txIconFare: {
-    backgroundColor: '#FFF1F3',
-  },
-
   txMeta: {
     flex: 1,
+    minWidth: 0,
   },
 
   txTitle: {
@@ -2438,6 +3178,7 @@ const styles = StyleSheet.create({
 
   txRight: {
     alignItems: 'flex-end',
+    maxWidth: 112,
   },
 
   txAmount: {
@@ -2447,14 +3188,189 @@ const styles = StyleSheet.create({
   },
 
   txAmountCredit: {
-    color: '#00A86B',
+    color: colors.green,
+  },
+
+  txAmountFailed: {
+    color: '#B4232D',
   },
 
   txStatus: {
-    color: '#00A86B',
+    color: colors.green,
+    backgroundColor: '#DCFCE7',
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     fontSize: 10,
     fontWeight: '900',
     marginTop: 7,
+    textTransform: 'uppercase',
+  },
+
+  txStatusFailed: {
+    color: '#B4232D',
+    backgroundColor: '#FDECEC',
+  },
+
+  receiptCard: {
+    width: '90%',
+    maxWidth: 380,
+    backgroundColor: '#fff',
+    borderRadius: 22,
+    overflow: 'hidden',
+    ...shadow,
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+  },
+
+  receiptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EDF1F6',
+  },
+
+  receiptBrand: {
+    color: colors.maroon,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+
+  receiptTitle: {
+    color: '#101827',
+    fontSize: 17,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+
+  receiptClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  receiptBody: {
+    padding: 18,
+  },
+
+  receiptSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 14,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#EDF1F6',
+    padding: 15,
+  },
+
+  receiptType: {
+    color: '#8AA0BF',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+
+  receiptAmount: {
+    color: '#101827',
+    fontSize: 23,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+
+  receiptAmountCredit: {
+    color: colors.green,
+  },
+
+  receiptAmountFailed: {
+    color: '#B4232D',
+  },
+
+  receiptStatus: {
+    color: colors.greenDark,
+    backgroundColor: '#DCFCE7',
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+
+  receiptStatusFailed: {
+    color: '#B4232D',
+    backgroundColor: '#FDECEC',
+  },
+
+  receiptDetails: {
+    marginTop: 14,
+    gap: 2,
+  },
+
+  receiptDescription: {
+    paddingTop: 12,
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#EDF1F6',
+  },
+
+  receiptDescriptionText: {
+    color: '#536987',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 5,
+    fontWeight: '700',
+  },
+
+  receiptActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+
+  receiptDownloadButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E7CCD1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+
+  receiptDownloadText: {
+    color: colors.maroon,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+
+  receiptDoneButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.maroon,
+  },
+
+  receiptDoneText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
     textTransform: 'uppercase',
   },
 
@@ -2466,7 +3382,7 @@ const styles = StyleSheet.create({
   },
 
   pageTitle: {
-    color: '#1C2A44',
+    color: colors.navy,
     fontSize: 17,
     fontWeight: '900',
   },
@@ -2494,7 +3410,7 @@ const styles = StyleSheet.create({
   },
 
   cardArtSmall: {
-    color: '#F4B8BE',
+    color: '#D9E2F1',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1.5,
@@ -2517,7 +3433,7 @@ const styles = StyleSheet.create({
   },
 
   cardArtLabel: {
-    color: '#F4B8BE',
+    color: '#D9E2F1',
     fontSize: 10,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -2535,7 +3451,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     bottom: 20,
-    color: '#4ADE80',
+    color: '#DCFCE7',
     fontSize: 11,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -2553,10 +3469,25 @@ const styles = StyleSheet.create({
 
   walletButtonGold: {
     minHeight: 48,
+    backgroundColor: colors.gold,
   },
 
   walletButton: {
     minHeight: 48,
+  },
+
+  walletButtonQr: {
+    minHeight: 48,
+    backgroundColor: colors.green,
+  },
+
+  walletButtonNfc: {
+    minHeight: 48,
+    backgroundColor: colors.teal,
+  },
+
+  walletActionTextLight: {
+    color: '#fff',
   },
 
   statsGrid: {
@@ -2589,7 +3520,7 @@ const styles = StyleSheet.create({
   },
 
   statGreen: {
-    color: '#00A86B',
+    color: colors.green,
     fontSize: 17,
     fontWeight: '900',
     marginTop: 9,
@@ -2636,7 +3567,7 @@ const styles = StyleSheet.create({
   },
 
   infoGreen: {
-    color: '#00A86B',
+    color: colors.green,
   },
 
   backTitle: {
@@ -2871,7 +3802,7 @@ const styles = StyleSheet.create({
   },
 
   totalIn: {
-    backgroundColor: '#00A86B',
+    backgroundColor: colors.green,
   },
 
   totalOut: {
@@ -2891,6 +3822,156 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     marginTop: 7,
+  },
+
+  transactionSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    minHeight: 48,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5EAF0',
+    ...shadow,
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+  },
+
+  transactionSearchInput: {
+    flex: 1,
+    minHeight: 46,
+    color: colors.navy,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  filterChipRow: {
+    gap: 9,
+    paddingBottom: 16,
+  },
+
+  filterChip: {
+    borderRadius: 999,
+    paddingHorizontal: 15,
+    paddingVertical: 9,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E5EAF0',
+  },
+
+  filterChipActive: {
+    backgroundColor: colors.maroon,
+    borderColor: colors.maroon,
+  },
+
+  filterChipText: {
+    color: colors.navy,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+
+  filterChipTextActive: {
+    color: '#fff',
+  },
+
+  transactionDateGroup: {
+    marginTop: 6,
+  },
+
+  transactionDateTitle: {
+    color: colors.maroon,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    marginBottom: 10,
+    marginLeft: 2,
+  },
+
+  transactionStateCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 22,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#EDF1F6',
+    ...shadow,
+    shadowOpacity: 0.05,
+  },
+
+  transactionStateTitle: {
+    color: colors.navy,
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+
+  transactionStateText: {
+    color: '#7186A5',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: 6,
+  },
+
+  transactionRetryButton: {
+    marginTop: 14,
+    borderRadius: 13,
+    backgroundColor: colors.maroon,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+  },
+
+  transactionRetryText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+
+  transactionSkeleton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#fff',
+    borderRadius: 17,
+    padding: 13,
+    marginBottom: 12,
+    minHeight: 78,
+    borderWidth: 1,
+    borderColor: '#EEF2F7',
+  },
+
+  transactionSkeletonIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 13,
+    backgroundColor: '#EEF2F7',
+  },
+
+  transactionSkeletonBody: {
+    flex: 1,
+    gap: 9,
+  },
+
+  transactionSkeletonLineWide: {
+    width: '62%',
+    height: 11,
+    borderRadius: 999,
+    backgroundColor: '#EEF2F7',
+  },
+
+  transactionSkeletonLine: {
+    width: '42%',
+    height: 9,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
   },
 
   loadingInline: {
@@ -3210,12 +4291,12 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 18,
-    backgroundColor: colors.maroon,
+    backgroundColor: colors.green,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: -25,
     ...shadow,
-    shadowColor: colors.maroon,
+    shadowColor: colors.green,
     shadowOpacity: 0.25,
   },
 
@@ -3224,7 +4305,7 @@ const styles = StyleSheet.create({
     bottom: 7,
     left: '50%',
     marginLeft: -15,
-    color: colors.maroon,
+    color: colors.green,
     fontSize: 9,
     fontWeight: '900',
   },
@@ -3302,11 +4383,11 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: '#00A86B',
+    backgroundColor: colors.green,
   },
 
   qrReadyText: {
-    color: '#008554',
+    color: colors.greenDark,
     fontSize: 11,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -3329,6 +4410,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     textAlign: 'center',
+  },
+
+  qrSuccessBox: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#E8FFF6',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#BDEFD8',
+  },
+
+  qrSuccessTitle: {
+    color: colors.greenDark,
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+
+  qrSuccessText: {
+    color: '#1C2A44',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+
+  qrErrorText: {
+    color: colors.maroon,
+    backgroundColor: '#FFF1F3',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+    width: '100%',
   },
 
   qrRefreshButton: {

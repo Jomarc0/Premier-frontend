@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, CheckCircle2, RotateCcw, Send, Wifi, X } from 'lucide-react';
 import { useChatbot } from '../hooks/useChatbot';
 import { useAuth } from '../context/AuthContext';
-import { submitCardRequest } from '../api/chatbotApi';
+import { submitPublicSupportTicket } from '../api/chatbotApi';
 
 const STATIC_QUICK_REPLIES = [
+  'Contact support',
   'Top-up issue',
   'Fare deduction',
   'Payment failed',
@@ -13,15 +14,24 @@ const STATIC_QUICK_REPLIES = [
 ];
 
 const CARD_REQUEST_TYPES = [
-  { value: 'LOST', label: 'Lost card' },
-  { value: 'STOLEN', label: 'Stolen card' },
-  { value: 'FREEZE_REQUEST', label: 'Freeze card' },
-  { value: 'CARD_UPDATE', label: 'Card information / change concern' },
+  { value: 'LOST_CARD', label: 'Lost card' },
+  { value: 'FREEZE_CARD', label: 'Freeze card' },
+  { value: 'DAMAGED_CARD', label: 'Damaged card' },
+  { value: 'TOP_UP_ISSUE', label: 'Top-up issue' },
+  { value: 'BALANCE_CONCERN', label: 'Balance concern' },
+  { value: 'LOGIN_PROBLEM', label: 'Login problem' },
+  { value: 'RFID_NOT_WORKING', label: 'RFID not working' },
+  { value: 'OTHER', label: 'Other' },
 ];
 
 const shouldOpenCardForm = (text) => {
   const value = (text || '').toLowerCase();
-  return value.includes('lost') ||
+  return value.includes('contact support') ||
+    value.includes('support ticket') ||
+    value.includes('admin support') ||
+    value.includes('talk to support') ||
+    value.includes('customer support') ||
+    value.includes('lost') ||
     value.includes('stolen') ||
     value.includes('freeze') ||
     value.includes('block my card') ||
@@ -33,10 +43,14 @@ const shouldOpenCardForm = (text) => {
 
 const resolveRequestType = (text) => {
   const value = (text || '').toLowerCase();
-  if (value.includes('stolen')) return 'STOLEN';
-  if (value.includes('lost')) return 'LOST';
-  if (value.includes('change') || value.includes('update')) return 'CARD_UPDATE';
-  return 'FREEZE_REQUEST';
+  if (value.includes('lost') || value.includes('stolen')) return 'LOST_CARD';
+  if (value.includes('freeze') || value.includes('block')) return 'FREEZE_CARD';
+  if (value.includes('damage') || value.includes('replace')) return 'DAMAGED_CARD';
+  if (value.includes('top-up') || value.includes('topup')) return 'TOP_UP_ISSUE';
+  if (value.includes('balance')) return 'BALANCE_CONCERN';
+  if (value.includes('login')) return 'LOGIN_PROBLEM';
+  if (value.includes('rfid') || value.includes('tap')) return 'RFID_NOT_WORKING';
+  return 'OTHER';
 };
 
 const FloatingChatbot = () => {
@@ -44,7 +58,7 @@ const FloatingChatbot = () => {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [cardFormOpen, setCardFormOpen] = useState(false);
-  const [cardForm, setCardForm] = useState({ requestType: 'LOST', details: '', confirmed: false });
+  const [cardForm, setCardForm] = useState({ cardNumber: '', email: '', requestType: 'LOST_CARD', details: '', confirmed: false });
   const [submittingCardRequest, setSubmittingCardRequest] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
@@ -61,7 +75,7 @@ const FloatingChatbot = () => {
   const openCardRequestForm = (text = 'Lost RFID card') => {
     setFormError('');
     setFormSuccess('');
-    setCardForm({ requestType: resolveRequestType(text), details: text, confirmed: false });
+    setCardForm({ cardNumber: '', email: '', requestType: resolveRequestType(text), details: text, confirmed: false });
     setCardFormOpen(true);
     setOpen(true);
   };
@@ -72,11 +86,8 @@ const FloatingChatbot = () => {
     setInput('');
 
     if (shouldOpenCardForm(text)) {
-      if (!passenger) {
-        sendMessage(text);
-        return;
-      }
       openCardRequestForm(text);
+      sendMessage(text);
       return;
     }
 
@@ -84,12 +95,20 @@ const FloatingChatbot = () => {
   };
 
   const handleSubmitCardRequest = async () => {
+    if (!cardForm.cardNumber.trim()) {
+      setFormError('Card number is required before admin can review the ticket.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cardForm.email.trim())) {
+      setFormError('Enter a valid email address for admin confirmation.');
+      return;
+    }
     if (!cardForm.details.trim()) {
       setFormError('Please describe what happened or what card change you need.');
       return;
     }
     if (!cardForm.confirmed) {
-      setFormError('Please confirm that this request is for your own linked card.');
+      setFormError('Please confirm that you know this card number and want admin review.');
       return;
     }
 
@@ -99,8 +118,13 @@ const FloatingChatbot = () => {
     try {
       const typeLabel = CARD_REQUEST_TYPES.find((item) => item.value === cardForm.requestType)?.label || cardForm.requestType;
       const reason = `${typeLabel}: ${cardForm.details.trim()}`;
-      const result = await submitCardRequest({ requestType: cardForm.requestType, reason });
-      setFormSuccess(result.message || 'Your card request was submitted for admin review.');
+      const result = await submitPublicSupportTicket({
+          cardNumber: cardForm.cardNumber.trim(),
+          email: cardForm.email.trim(),
+          issueType: cardForm.requestType,
+          reason,
+        });
+      setFormSuccess(result.message || `Your ticket has been submitted successfully. Your ticket number is ${result.ticketNumber}. Please wait for admin confirmation through your email.`);
       setCardFormOpen(false);
     } catch (error) {
       setFormError(error.response?.data?.message || 'Failed to submit card request. Please try again.');
@@ -189,13 +213,29 @@ const FloatingChatbot = () => {
               <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div>
-                    <p className="m-0 text-[12px] font-black text-brand-primary">Card request form</p>
-                    <p className="m-0 mt-0.5 text-[10.5px] font-medium text-slate-500">Complete this before admin can freeze or change card details.</p>
+                    <p className="m-0 text-[12px] font-black text-brand-primary">Support ticket form</p>
+                    <p className="m-0 mt-0.5 text-[10.5px] font-medium text-slate-500">Use your card number so admin can review the correct account.</p>
                   </div>
                   <button type="button" onClick={() => setCardFormOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                     <X size={14} />
                   </button>
                 </div>
+
+                <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-600">Card number</label>
+                <input
+                  value={cardForm.cardNumber}
+                  onChange={(event) => setCardForm((current) => ({ ...current, cardNumber: event.target.value }))}
+                  placeholder="Enter your Premier card number"
+                  className="mb-2 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-semibold text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10"
+                />
+                <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-600">Email address</label>
+                <input
+                  type="email"
+                  value={cardForm.email}
+                  onChange={(event) => setCardForm((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="Where admin can send confirmation"
+                  className="mb-2 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-semibold text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10"
+                />
 
                 <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-600">Request type</label>
                 <select
@@ -221,7 +261,7 @@ const FloatingChatbot = () => {
                     onChange={(event) => setCardForm((current) => ({ ...current, confirmed: event.target.checked }))}
                     className="mt-0.5 h-4 w-4 accent-brand-primary"
                   />
-                  I confirm this request is for the card linked to my own passenger account.
+                  I confirm I know this card number and this request needs admin review.
                 </label>
 
                 {formError && <p className="mt-2 text-[10.5px] font-semibold text-red-600">{formError}</p>}

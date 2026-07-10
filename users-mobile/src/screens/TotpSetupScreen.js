@@ -19,7 +19,7 @@ function secondsUntilAuthenticatorRefresh() {
 }
 
 export default function TotpSetupScreen({ navigation }) {
-  const { login, enableBiometrics } = useAuth();
+  const { login } = useAuth();
   const [setup, setSetup] = useState(null);
   const [totpCode, setTotpCode] = useState('');
   const [loading, setLoading] = useState(true);
@@ -93,24 +93,6 @@ export default function TotpSetupScreen({ navigation }) {
       await login(token, passengerName);
       await SecureStore.deleteItemAsync('tempToken');
       await SecureStore.deleteItemAsync('pendingCardNumber');
-
-      Alert.alert(
-        'Enable biometric login?',
-        'Use fingerprint or Face ID next time instead of entering OTP on this device.',
-        [
-          { text: 'Not now', style: 'cancel' },
-          {
-            text: 'Enable',
-            onPress: async () => {
-              try {
-                await enableBiometrics();
-              } catch (error) {
-                Alert.alert('Biometrics unavailable', error.message || 'You can enable it later in Settings.');
-              }
-            },
-          },
-        ],
-      );
     } catch (error) {
       setTotpCode('');
       Alert.alert('Setup failed', error.message || 'Please try again.');
@@ -292,9 +274,3 @@ const styles = StyleSheet.create({
   verifyButton: { minHeight: 48, borderRadius: 14, ...shadow, shadowColor: colors.maroon, shadowOpacity: 0.22, shadowRadius: 14 },
   errorText: { color: colors.maroon, fontWeight: '800' },
 });
-
-
-
-
-
-

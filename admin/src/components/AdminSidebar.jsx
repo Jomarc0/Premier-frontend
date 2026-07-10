@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import {
     FiFileText,
     FiUsers,
@@ -11,6 +12,7 @@ import {
     FiLogOut,
 } from 'react-icons/fi';
 import { useAdminAuth } from '../context/AdminAuthContext';
+import adminAPI from '../api/adminAxios';
 import logo from '../assets/image/logo-premier.webp';
 
 const AdminSidebar = () => {
@@ -21,9 +23,32 @@ const AdminSidebar = () => {
     const admin        = auth?.admin;
     const logout       = auth?.logout       || (() => {});
     const isSuperAdmin = auth?.isSuperAdmin || (() => false);
+    const [supportBadge, setSupportBadge] = useState(0);
+
+    useEffect(() => {
+        let active = true;
+
+        const fetchSupportBadge = async () => {
+            try {
+                const res = await adminAPI.get('/support-tickets/summary');
+                const data = res.data.data || {};
+                const count = Number(data.pending || 0) + Number(data.inReview || 0);
+                if (active) setSupportBadge(count);
+            } catch {
+                if (active) setSupportBadge(0);
+            }
+        };
+
+        fetchSupportBadge();
+        const interval = setInterval(fetchSupportBadge, 60000);
+        return () => {
+            active = false;
+            clearInterval(interval);
+        };
+    }, []);
 
     const menu = [
-        { label: 'Analytics',     icon: FiActivity,      path: '/admin/reports',       superOnly: false },
+        { label: 'Analytics',     icon: FiActivity,      path: '/admin/analytics',     superOnly: false },
         { label: 'Transactions',  icon: FiFileText,      path: '/admin/transactions',  superOnly: false },
         { label: 'All Users',     icon: FiUsers,         path: '/admin/users',         superOnly: false },
         { label: 'Create Cards',  icon: FiUserPlus,      path: '/admin/create-user',   superOnly: false },
@@ -31,7 +56,7 @@ const AdminSidebar = () => {
         { label: 'Vehicles',      icon: FiTruck,         path: '/admin/vehicles',      superOnly: false },
         { label: 'Bus Monitoring', icon: FiTruck, path: '/admin/vehicle-monitoring', superOnly: false },
         { label: 'Security',      icon: FiShield,        path: '/admin/security',      superOnly: false },
-        { label: 'Card Requests', icon: FiShield,        path: '/admin/card-freeze-requests', superOnly: false },
+        { label: 'Support Tickets', icon: FiShield,      path: '/admin/support-tickets', superOnly: false, badge: supportBadge },
         { label: 'Activity Logs', icon: FiClock,         path: '/admin/logs',          superOnly: true  },
         { label: 'Manage Admins', icon: FiShield,        path: '/admin/manage-admins', superOnly: true  },
     ];
@@ -100,6 +125,16 @@ const AdminSidebar = () => {
                         >
                             <Icon />
                             <span>{item.label}</span>
+                            {item.badge > 0 && (
+                                <span
+                                    className={[
+                                        'grid min-w-5 h-5 place-items-center rounded-full px-1.5 text-[0.68rem] font-black',
+                                        active ? 'bg-maroon text-white' : 'bg-gold text-maroon',
+                                    ].join(' ')}
+                                >
+                                    {item.badge > 99 ? '99+' : item.badge}
+                                </span>
+                            )}
                             {item.superOnly && (
                                 <span
                                     className={[

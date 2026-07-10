@@ -23,7 +23,7 @@ function maskCardNumber(cardNumber) {
 }
 
 export default function TotpVerifyScreen({ navigation }) {
-  const { login, enableBiometrics } = useAuth();
+  const { login } = useAuth();
   const [totpCode, setTotpCode] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [refreshSeconds, setRefreshSeconds] = useState(secondsUntilAuthenticatorRefresh());
@@ -46,26 +46,6 @@ export default function TotpVerifyScreen({ navigation }) {
   }, []);
 
   const maskedCardNumber = useMemo(() => maskCardNumber(pendingCardNumber), [pendingCardNumber]);
-
-  const promptBiometrics = () => {
-    Alert.alert(
-      'Enable biometric login?',
-      'Use fingerprint or Face ID next time instead of entering OTP on this device.',
-      [
-        { text: 'Not now', style: 'cancel' },
-        {
-          text: 'Enable',
-          onPress: async () => {
-            try {
-              await enableBiometrics();
-            } catch (error) {
-              Alert.alert('Biometrics unavailable', error.message || 'You can enable it later in Settings.');
-            }
-          },
-        },
-      ],
-    );
-  };
 
   const handleVerify = async () => {
     if (totpCode.length !== 6) {
@@ -92,7 +72,6 @@ export default function TotpVerifyScreen({ navigation }) {
       await login(token, passengerName);
       await SecureStore.deleteItemAsync('tempToken');
       await SecureStore.deleteItemAsync('pendingCardNumber');
-      promptBiometrics();
     } catch (error) {
       setTotpCode('');
       Alert.alert('Verification failed', error.message || 'Please try again.');
@@ -443,10 +422,3 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 });
-
-
-
-
-
-
-

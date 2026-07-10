@@ -140,6 +140,7 @@ const AllUsersPage = () => {
                                         <td colSpan={6} className={ui.emptyRow}>No users found.</td>
                                     </tr>
                                 ) : filtered.map((u) => {
+                                    const frozen = ['FROZEN', 'BLOCKED', 'INACTIVE'].includes(String(u.status || '').toUpperCase());
 
                                     return (
                                         <tr key={u.id} className={ui.tableRow}>

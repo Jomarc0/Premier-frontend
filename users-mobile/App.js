@@ -5,7 +5,6 @@ import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import BiometricUnlockScreen from './src/screens/BiometricUnlockScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import LandingScreen from './src/screens/LandingScreen';
 import LoginScreen from './src/screens/LoginScreen';
@@ -23,7 +22,7 @@ TextInput.defaultProps.allowFontScaling = false;
 const Stack = createNativeStackNavigator();
 
 function Routes() {
-  const { passenger, loading, needsBiometricUnlock } = useAuth();
+  const { passenger, loading } = useAuth();
 
   if (loading) {
     return (
@@ -41,8 +40,6 @@ function Routes() {
           <Stack.Screen name="MobileNfcPayment" component={MobileNfcPaymentScreen} />
           <Stack.Screen name="QRFarePayment" component={QRFarePaymentScreen} />
         </>
-      ) : needsBiometricUnlock ? (
-        <Stack.Screen name="BiometricUnlock" component={BiometricUnlockScreen} />
       ) : (
         <>
           <Stack.Screen name="Landing" component={LandingScreen} />

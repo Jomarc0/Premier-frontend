@@ -53,7 +53,7 @@ const AdminLoginPage = () => {
         login(token, fullName, username, role);
 
         const needsTotpSetup = role !== 'STAFF' && !is2FaEnabled;
-        navigate(needsTotpSetup ? '/admin/security' : '/admin/reports', { replace: true });
+        navigate(needsTotpSetup ? '/admin/security' : '/admin/analytics', { replace: true });
     };
 
     const handleLogin = async (e) => {

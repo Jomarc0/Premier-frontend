@@ -13,7 +13,7 @@ import ActivityLogsPage  from './pages/ActivityLogsPage';
 import DriversPage       from './pages/DriverPage';
 import VehiclesPage      from './pages/VehiclesPage';
 import AdminSecurityPage from './pages/AdminSecurityPage';
-import CardFreezeRequestsPage from './pages/CardFreezeRequestsPage';
+import SupportTicketsPage from './pages/SupportTicketsPage';
 
 const AdminRoute = ({ children }) => {
     const { admin, loading } = useAdminAuth();
@@ -104,6 +104,9 @@ function App() {
                         <AdminRoute><ReportsPage /></AdminRoute>
                     } />
 
+                    <Route path="/admin/analytics" element={
+                        <AdminRoute><ReportsPage /></AdminRoute>
+                    } />
                     <Route path="/admin/reports" element={
                         <AdminRoute><ReportsPage /></AdminRoute>
                     } />
@@ -128,8 +131,8 @@ function App() {
                     <Route path="/admin/security" element={
                         <AdminRoute><AdminSecurityPage /></AdminRoute>
                     } />
-                    <Route path="/admin/card-freeze-requests" element={
-                        <AdminRoute><CardFreezeRequestsPage /></AdminRoute>
+                    <Route path="/admin/support-tickets" element={
+                        <AdminRoute><SupportTicketsPage /></AdminRoute>
                     } />
 
                     <Route path="/admin/logs" element={
@@ -139,7 +142,7 @@ function App() {
                         <SuperAdminRoute><ManageAdminsPage /></SuperAdminRoute>
                     } />
 
-                    <Route path="*" element={<Navigate to="/admin/reports" replace />} />
+                    <Route path="*" element={<Navigate to="/admin/analytics" replace />} />
                 </Routes>
                 <ToastContainer position="top-right" autoClose={3000} />
             </BrowserRouter>

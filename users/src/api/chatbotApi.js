@@ -1,3 +1,4 @@
+import axios from 'axios';
 import API from './axiosConfig';
 
 export const sendChatMessage = async (message, sessionId) => {
@@ -8,11 +9,17 @@ export const sendChatMessage = async (message, sessionId) => {
 
     return response.data?.data || response.data;
 };
-export const submitCardRequest = async ({ requestType, reason }) => {
-    const response = await API.post('/card-freeze-requests', {
-        requestType,
+
+export const submitPublicSupportTicket = async ({ cardNumber, email, issueType, reason }) => {
+    const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/public/support-tickets`, {
+        cardNumber,
+        email,
+        issueType,
         reason,
     });
 
-    return response.data?.data || response.data;
+    return {
+        ...(response.data?.data || {}),
+        message: response.data?.message,
+    };
 };

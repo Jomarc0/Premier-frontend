@@ -93,7 +93,7 @@ export default function MobileNfcPaymentScreen({ navigation }) {
     if (checking) {
       return {
         icon: null,
-        color: colors.maroon,
+        color: colors.teal,
         label: 'Checking NFC status',
         detail: 'Keep the phone unlocked while preparing to tap.',
       };
@@ -102,7 +102,7 @@ export default function MobileNfcPaymentScreen({ navigation }) {
     if (tokenLoading) {
       return {
         icon: null,
-        color: colors.maroon,
+        color: colors.teal,
         label: 'Preparing payment token',
         detail: 'Keep this screen open while the secure token is saved to your phone.',
       };
@@ -230,7 +230,7 @@ function Step({ icon, title, text }) {
   return (
     <View style={styles.step}>
       <View style={styles.stepIcon}>
-        <Feather name={icon} size={18} color={colors.maroon} />
+        <Feather name={icon} size={18} color={colors.teal} />
       </View>
       <View style={styles.stepCopy}>
         <Text style={styles.stepTitle}>{title}</Text>
@@ -252,11 +252,11 @@ const styles = StyleSheet.create({
   heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   eyebrow: { color: colors.yellow, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   title: { color: '#fff', fontSize: 24, fontWeight: '900', marginTop: 7 },
-  nfcMark: { width: 54, height: 54, borderRadius: 18, backgroundColor: '#0F766E', alignItems: 'center', justifyContent: 'center' },
+  nfcMark: { width: 54, height: 54, borderRadius: 18, backgroundColor: colors.teal, alignItems: 'center', justifyContent: 'center' },
   phoneStage: { alignItems: 'center', justifyContent: 'center', minHeight: 210 },
   waveOuter: { width: 192, height: 192, borderRadius: 96, borderWidth: 1, borderColor: 'rgba(250,204,21,0.34)', alignItems: 'center', justifyContent: 'center' },
   waveMiddle: { width: 148, height: 148, borderRadius: 74, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' },
-  phone: { width: 88, height: 138, borderRadius: 24, backgroundColor: '#1C2A44', borderWidth: 2, borderColor: '#FACC15', alignItems: 'center', justifyContent: 'center' },
+  phone: { width: 88, height: 138, borderRadius: 24, backgroundColor: colors.navy, borderWidth: 2, borderColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
   phoneSpeaker: { position: 'absolute', top: 10, width: 28, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.5)' },
   phoneText: { color: colors.yellow, fontSize: 10, fontWeight: '900', marginTop: 10, textTransform: 'uppercase' },
   instructions: { color: '#F8D7DA', fontSize: 14, lineHeight: 21, textAlign: 'center', fontWeight: '800' },
@@ -267,10 +267,10 @@ const styles = StyleSheet.create({
   statusDetail: { color: '#536987', fontSize: 12, lineHeight: 18, marginTop: 4 },
   steps: { gap: 10, marginTop: 14 },
   step: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E4EBF4' },
-  stepIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: '#FFF1F3', alignItems: 'center', justifyContent: 'center' },
+  stepIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' },
   stepCopy: { flex: 1 },
   stepTitle: { color: '#1C2A44', fontSize: 13, fontWeight: '900' },
   stepText: { color: '#536987', fontSize: 12, lineHeight: 18, marginTop: 3 },
-  refreshButton: { marginTop: 16, backgroundColor: '#0F766E' },
+  refreshButton: { marginTop: 16, backgroundColor: colors.teal },
 });
 

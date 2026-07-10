@@ -4,6 +4,7 @@ const CODE_LENGTH = 6;
 
 export default function TotpInput({ value = '', onChange, onComplete }) {
   const refs = useRef([]);
+  const submittedCodeRef = useRef('');
   const digits = useMemo(() => {
     const clean = String(value).replace(/\D/g, '').slice(0, CODE_LENGTH);
     return Array.from({ length: CODE_LENGTH }, (_, index) => clean[index] || '');
@@ -11,7 +12,13 @@ export default function TotpInput({ value = '', onChange, onComplete }) {
 
   useEffect(() => {
     const code = digits.join('');
-    if (code.length === CODE_LENGTH && !digits.includes('')) {
+    if (code.length !== CODE_LENGTH || digits.includes('')) {
+      submittedCodeRef.current = '';
+      return;
+    }
+
+    if (submittedCodeRef.current !== code) {
+      submittedCodeRef.current = code;
       onComplete?.(code);
     }
   }, [digits, onComplete]);

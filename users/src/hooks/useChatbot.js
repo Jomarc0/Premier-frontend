@@ -45,7 +45,7 @@ const isSensitiveCardRequest = (message) => {
 const getGuestReply = (message) => {
     const text = (message || '').toLowerCase();
     if (isSensitiveCardRequest(text)) {
-        return 'Please log in first so I can verify your account and find the RFID card linked to you. After login, I can submit a card-freeze request for admin review.';
+        return 'This request needs admin review. Please fill out the support form using your card number, email address, and reason. The admin will check your request and send confirmation to your email.';
     }
     if (text.includes('top-up') || text.includes('topup') || text.includes('recharge') || text.includes('load')) {
         return 'For top-up help, log in to your passenger account, open your wallet, and check your pending or completed payment status.';
@@ -62,7 +62,7 @@ const getGuestReply = (message) => {
     if (text.includes('hello') || text.includes('hi') || text.includes('hey')) {
         return 'Hello! I can answer general questions here. For account-specific help like balance, lost card, or transactions, please log in first.';
     }
-    return 'I can help with general Premier Transit questions here. Please log in for account-specific help like card freezing, balance, and transaction history.';
+    return 'I can help with general Premier Transit questions here. For lost cards, login issues, incorrect balance, top-up concerns, or RFID problems, use the support form so an admin can review it.';
 };
 
 export const useChatbot = ({ isAuthenticated = false, storageScope = 'guest' } = {}) => {
