@@ -25,6 +25,7 @@ const TransactionsPage = () => {
     const [totalPages, setTotalPages] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
     const [staffCashTransactions, setStaffCashTransactions] = useState([]);
+    const [activeTab, setActiveTab] = useState('transactions');
 
     useEffect(() => { fetchData(); }, [page]);
 
@@ -96,6 +97,26 @@ const TransactionsPage = () => {
                     </button>
                 </header>
 
+                <nav className="mb-5 flex items-end gap-1 border-b border-border-soft bg-white px-4 pt-2 shadow-[0_8px_22px_rgba(44,36,41,0.06)]" aria-label="Transaction views">
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('transactions')}
+                        className={`inline-flex min-h-12 items-center gap-2 border-b-2 px-4 text-sm font-black transition-colors ${activeTab === 'transactions' ? 'border-maroon text-maroon' : 'border-transparent text-text-muted hover:text-maroon'}`}
+                    >
+                        <FiFileText /> Transactions
+                        <span className={activeTab === 'transactions' ? ui.countPill : 'rounded-full bg-page-bg px-2 py-1 text-[0.68rem] font-black text-text-muted'}>{totalElements}</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('staff-cash')}
+                        className={`inline-flex min-h-12 items-center gap-2 border-b-2 px-4 text-sm font-black transition-colors ${activeTab === 'staff-cash' ? 'border-maroon text-maroon' : 'border-transparent text-text-muted hover:text-maroon'}`}
+                    >
+                        <FiFileText /> Staff Cash Transactions
+                        <span className={activeTab === 'staff-cash' ? ui.countPill : 'rounded-full bg-gold px-2 py-1 text-[0.68rem] font-black text-maroon'}>{staffCashTransactions.length}</span>
+                    </button>
+                </nav>
+
+                {activeTab === 'transactions' && <>
                 {/* Stats Cards */}
                 <section className="grid grid-cols-4 gap-4 mb-5 max-[1060px]:grid-cols-2 max-[560px]:grid-cols-1">
                     {[
@@ -295,7 +316,9 @@ const TransactionsPage = () => {
                     </div>
                 </section>
 
-                <section className={`${ui.dataPanel} mt-5`}>
+                </>}
+
+                {activeTab === 'staff-cash' && <section className={ui.dataPanel}>
                     <div className={ui.dataPanelHeader}>
                         <span className={ui.dataPanelTitle}><FiFileText /> Staff Cash Transactions <span className={ui.countPill}>{staffCashTransactions.length} today</span></span>
                     </div>
@@ -307,7 +330,7 @@ const TransactionsPage = () => {
                             </tr>) : <tr><td colSpan="9" className={ui.emptyRow}>No staff cash transactions today.</td></tr>}</tbody>
                         </table>
                     </div>
-                </section>
+                </section>}
             </main>
         </div>
     );

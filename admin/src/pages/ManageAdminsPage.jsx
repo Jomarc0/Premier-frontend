@@ -580,14 +580,14 @@ const ManageAdminsPage = () => {
                     </div>
                     <div className="mt-4 grid grid-cols-[minmax(260px,1fr)_160px_180px] items-end gap-3 max-[860px]:grid-cols-1">
                         <div>
-                            <label className={ui.fieldLabel}>Blank RFID UID</label>
-                            <div className={ui.fieldInput}>
+                            <label className={ui.fieldLabel}>Staff Cash RFID UID</label>
+                            <div className={`${ui.fieldInput} mb-0`}>
                                 <FiCreditCard />
                                 <input
                                     type="text"
                                     value={cardForm.rfidUid}
                                     onChange={(e) => setCardForm({ ...cardForm, rfidUid: e.target.value.toUpperCase() })}
-                                    placeholder="Tap blank card, read UID, or type UID"
+                                    placeholder="Click Read UID, then tap the staff RFID card"
                                     className={ui.fieldInputEl}
                                     autoComplete="off"
                                 />

@@ -26,6 +26,7 @@ const EMPTY_FORM = {
     plateNumber: '',
     totalCapacity: '',
     status: 'INACTIVE',
+    driverId: '',
 };
 
 const EMPTY_DEVICE_FORM = {
@@ -46,6 +47,8 @@ const VehiclesPage = () => {
     const auth = useAdminAuth();
     const [vehicles, setVehicles] = useState([]);
     const [devices, setDevices] = useState([]);
+    const [drivers, setDrivers] = useState([]);
+    const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [showModal, setShowModal] = useState(false);
@@ -69,12 +72,16 @@ const VehiclesPage = () => {
     const fetchVehicles = async () => {
         setLoading(true);
         try {
-            const [vehiclesRes, devicesRes] = await Promise.all([
+            const [vehiclesRes, devicesRes, driversRes, assignmentsRes] = await Promise.all([
                 adminAPI.get('/vehicles'),
                 adminAPI.get('/devices'),
+                adminAPI.get('/drivers'),
+                adminAPI.get('/fleet-assignments'),
             ]);
             setVehicles(vehiclesRes.data.data || []);
             setDevices(devicesRes.data.data || []);
+            setDrivers(driversRes.data.data || []);
+            setAssignments(assignmentsRes.data.data || []);
         } catch (err) {
             console.error('Vehicles fetch error:', err);
             if (err.response?.status === 401) {
@@ -101,11 +108,13 @@ const VehiclesPage = () => {
     };
 
     const openEditModal = (vehicle) => {
+        const assignment = assignments.find(item => item.vehicleId === vehicle.id);
         setEditingVehicle(vehicle);
         setForm({
             plateNumber: vehicle.plateNumber || '',
             totalCapacity: String(vehicle.totalCapacity || ''),
             status: vehicle.status || 'INACTIVE',
+            driverId: assignment ? String(assignment.driverId) : '',
         });
         const normalizedPlate = String(vehicle.plateNumber || '').trim().toUpperCase();
         setDeviceVehicle(vehicle);
@@ -142,12 +151,25 @@ const VehiclesPage = () => {
                 status: form.status,
             };
 
+            let savedVehicleId;
             if (editingVehicle) {
                 await adminAPI.put(`/vehicles/${editingVehicle.id}`, payload);
+                savedVehicleId = editingVehicle.id;
                 toast.success('Vehicle updated');
             } else {
-                await adminAPI.post('/vehicles', payload);
+                const response = await adminAPI.post('/vehicles', payload);
+                savedVehicleId = response.data?.data?.id;
                 toast.success(`Vehicle ${payload.plateNumber} added`);
+            }
+
+            const currentAssignment = assignments.find(item => item.vehicleId === savedVehicleId);
+            if (form.driverId) {
+                await adminAPI.post('/fleet-assignments', {
+                    driverId: Number(form.driverId),
+                    vehicleId: savedVehicleId,
+                });
+            } else if (currentAssignment) {
+                await adminAPI.delete(`/fleet-assignments/${currentAssignment.id}`);
             }
 
             handleClose();
@@ -398,6 +420,17 @@ const VehiclesPage = () => {
                                 <select className={`${formInputCls(false)} select-arrow cursor-pointer`} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                                     {VEHICLE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
+                            </div>
+
+                            <div className="flex flex-col gap-[0.32rem]">
+                                <label className="text-[0.86rem] font-extrabold text-[#343946]">Assigned Driver</label>
+                                <select className={`${formInputCls(false)} select-arrow cursor-pointer`} value={form.driverId} onChange={e => setForm(f => ({ ...f, driverId: e.target.value }))}>
+                                    <option value="">No driver assigned</option>
+                                    {drivers.map(driver => (
+                                        <option key={driver.id} value={driver.id}>{driver.fullName} ({driver.licenseNumber})</option>
+                                    ))}
+                                </select>
+                                <span className="text-[0.74rem] font-semibold text-text-muted">A driver can have only one active vehicle assignment.</span>
                             </div>
 
                             {editingVehicle && (

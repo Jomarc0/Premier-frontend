@@ -398,31 +398,45 @@ const RecentActivity = ({ loading, recent }) => (
 
 const RecentFareTransactionsTable = ({ loading, rows }) => (
     <ActivityPanel title="Recent Fare Transactions" actionHref="/admin/transactions" loading={loading} empty={rows.length === 0} emptyTitle="No fare transactions" emptyText="No successful fare payments match the selected filters.">
-        <DataTable
-            rows={rows}
-            columns={[
-                ['time', 'Time'],
-                ['maskedCardNumber', 'Masked card number'],
-                ['paymentMethod', 'Payment method'],
-                ['bus', 'Bus'],
-                ['amount', 'Amount', money],
-                ['status', 'Status'],
-            ]}
-        />
+        <div className="divide-y divide-border-soft">
+            {rows.map((row, index) => (
+                <article key={`${row.time}-${index}`} className="py-3 first:pt-0 last:pb-0 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="font-black text-sm text-maroon truncate">{row.maskedCardNumber || 'Card unavailable'}</div>
+                            <div className="mt-1 text-xs text-text-muted">{row.time || 'Time unavailable'}</div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                            <div className="font-black text-sm text-text-main">{money(row.amount)}</div>
+                            <StatusPill status={row.status} />
+                        </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="rounded-full bg-maroon/8 px-2 py-1 font-black text-maroon">{row.paymentMethod || 'Unknown method'}</span>
+                        <span className="text-text-muted">Bus: <strong className="text-text-main">{row.bus || 'Not assigned'}</strong></span>
+                    </div>
+                </article>
+            ))}
+        </div>
     </ActivityPanel>
 );
 
 const RecentSupportTicketsTable = ({ loading, rows }) => (
     <ActivityPanel title="Recent Support Tickets" actionHref="/admin/support-tickets" loading={loading} empty={rows.length === 0} emptyTitle="No support tickets" emptyText="No support tickets are currently available.">
-        <DataTable
-            rows={rows}
-            columns={[
-                ['ticketNumber', 'Ticket number'],
-                ['category', 'Category'],
-                ['status', 'Status'],
-                ['dateSubmitted', 'Date submitted'],
-            ]}
-        />
+        <div className="divide-y divide-border-soft">
+            {rows.map((row, index) => (
+                <article key={`${row.ticketNumber}-${index}`} className="py-3 first:pt-0 last:pb-0 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="font-black text-sm text-maroon truncate">{row.ticketNumber || 'Ticket unavailable'}</div>
+                            <div className="mt-1 text-xs text-text-muted">{row.dateSubmitted || 'Date unavailable'}</div>
+                        </div>
+                        <StatusPill status={row.status} />
+                    </div>
+                    <div className="mt-2 text-xs text-text-main">{row.category || 'Uncategorized'}</div>
+                </article>
+            ))}
+        </div>
     </ActivityPanel>
 );
 

@@ -22,11 +22,14 @@ const EMPTY_FORM = {
     licenseNumber: '',
     phoneNumber: '',
     status: 'INACTIVE',
+    vehicleId: '',
 };
 
 const DriversPage = () => {
     const auth = useAdminAuth();
     const [drivers, setDrivers] = useState([]);
+    const [vehicles, setVehicles] = useState([]);
+    const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [showModal, setShowModal] = useState(false);
@@ -42,8 +45,14 @@ const DriversPage = () => {
 
         setLoading(true);
         try {
-            const res = await adminAPI.get('/drivers?page=0&size=50');
-            setDrivers(res.data.data || []);
+            const [driversRes, vehiclesRes, assignmentsRes] = await Promise.all([
+                adminAPI.get('/drivers?page=0&size=50'),
+                adminAPI.get('/vehicles'),
+                adminAPI.get('/fleet-assignments'),
+            ]);
+            setDrivers(driversRes.data.data || []);
+            setVehicles(vehiclesRes.data.data || []);
+            setAssignments(assignmentsRes.data.data || []);
         } catch (err) {
             console.error('Drivers fetch error:', err);
             if (err.response?.status === 401) {
@@ -70,12 +79,14 @@ const DriversPage = () => {
     };
 
     const openEditModal = (driver) => {
+        const assignment = assignments.find(item => item.driverId === driver.id);
         setEditingDriver(driver);
         setForm({
             fullName: driver.fullName || '',
             licenseNumber: driver.licenseNumber || '',
             phoneNumber: driver.phoneNumber || '',
             status: driver.status || 'INACTIVE',
+            vehicleId: assignment ? String(assignment.vehicleId) : '',
         });
         setFormErrors({});
         setShowModal(true);
@@ -102,12 +113,25 @@ const DriversPage = () => {
                 status: form.status,
             };
 
+            let savedDriverId;
             if (editingDriver) {
                 await adminAPI.put(`/drivers/${editingDriver.id}`, payload);
+                savedDriverId = editingDriver.id;
                 toast.success('Driver updated');
             } else {
-                await adminAPI.post('/drivers', payload);
+                const response = await adminAPI.post('/drivers', payload);
+                savedDriverId = response.data?.data?.id;
                 toast.success(`Driver ${payload.fullName} added`);
+            }
+
+            const currentAssignment = assignments.find(item => item.driverId === savedDriverId);
+            if (form.vehicleId) {
+                await adminAPI.post('/fleet-assignments', {
+                    driverId: savedDriverId,
+                    vehicleId: Number(form.vehicleId),
+                });
+            } else if (currentAssignment) {
+                await adminAPI.delete(`/fleet-assignments/${currentAssignment.id}`);
             }
 
             handleClose();
@@ -309,6 +333,17 @@ const DriversPage = () => {
                                 <select className={`${formInputCls(false)} select-arrow cursor-pointer`} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                                     {DRIVER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
+                            </div>
+
+                            <div className="flex flex-col gap-[0.32rem]">
+                                <label className="text-[0.86rem] font-extrabold text-[#343946]">Assigned Vehicle</label>
+                                <select className={`${formInputCls(false)} select-arrow cursor-pointer`} value={form.vehicleId} onChange={e => setForm(f => ({ ...f, vehicleId: e.target.value }))}>
+                                    <option value="">No vehicle assigned</option>
+                                    {vehicles.map(vehicle => (
+                                        <option key={vehicle.id} value={vehicle.id}>{vehicle.plateNumber}</option>
+                                    ))}
+                                </select>
+                                <span className="text-[0.74rem] font-semibold text-text-muted">A vehicle can have only one active driver assignment.</span>
                             </div>
 
                             <div className="flex justify-end gap-[0.6rem] pt-2 border-t border-border-soft mt-[0.15rem] max-[560px]:flex-col-reverse">
