@@ -24,21 +24,24 @@ const TransactionsPage = () => {
     const [page, setPage] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
+    const [staffCashTransactions, setStaffCashTransactions] = useState([]);
 
     useEffect(() => { fetchData(); }, [page]);
 
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [txRes, statsRes] = await Promise.all([
+            const [txRes, statsRes, staffCashRes] = await Promise.all([
                 adminAPI.get(`/transactions?page=${page}&size=25`),
                 adminAPI.get('/dashboard/stats'),
+                adminAPI.get(`/staff-cash/transactions?date=${new Date().toISOString().slice(0, 10)}`),
             ]);
             const txData = txRes.data.data;
             setTransactions(txData.content || []);
             setTotalPages(txData.totalPages || 0);
             setTotalElements(txData.totalElements || 0);
             setStats(statsRes.data.data || {});
+            setStaffCashTransactions(staffCashRes.data.data || []);
         } catch (err) {
             toast.error('Failed to load transactions');
         } finally {
@@ -289,6 +292,20 @@ const TransactionsPage = () => {
                                 Next
                             </button>
                         </div>
+                    </div>
+                </section>
+
+                <section className={`${ui.dataPanel} mt-5`}>
+                    <div className={ui.dataPanelHeader}>
+                        <span className={ui.dataPanelTitle}><FiFileText /> Staff Cash Transactions <span className={ui.countPill}>{staffCashTransactions.length} today</span></span>
+                    </div>
+                    <div className={ui.tableWrap}>
+                        <table className={ui.adminTable}>
+                            <thead><tr>{['Time','Staff','Vehicle','Device','Shift','Terminal','Category','Amount','Reference'].map(h => <th key={h} className={ui.tableTh}>{h}</th>)}</tr></thead>
+                            <tbody>{loading ? <tr><td colSpan="9" className={ui.loadingRow}>Loading...</td></tr> : staffCashTransactions.length ? staffCashTransactions.map(tx => <tr key={tx.id} className={ui.tableRow}>
+                                <td className={ui.tableTd}>{new Date(tx.createdAt).toLocaleTimeString()}</td><td className={`${ui.tableTd} font-black`}>{tx.staffName}</td><td className={ui.tableTd}>{tx.plateNumber}</td><td className={ui.tableTd}>{tx.deviceId}</td><td className={ui.tableTd}>{tx.driverShiftId}</td><td className={ui.tableTd}>{tx.terminal || '—'}</td><td className={ui.tableTd}>{tx.fareCategory === 'REGULAR_CASH' ? 'Regular Cash' : 'Discounted Cash'}</td><td className={`${ui.tableTd} ${ui.balancePositive}`}>₱{Number(tx.finalFare).toFixed(2)}</td><td className={`${ui.tableTd} ${ui.mono}`}>{tx.referenceNumber}</td>
+                            </tr>) : <tr><td colSpan="9" className={ui.emptyRow}>No staff cash transactions today.</td></tr>}</tbody>
+                        </table>
                     </div>
                 </section>
             </main>

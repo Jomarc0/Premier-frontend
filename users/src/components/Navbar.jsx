@@ -1,11 +1,14 @@
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { FiLogOut, FiUser } from 'react-icons/fi';
+import { useState } from 'react';
+import { FiLogOut, FiShield, FiUser } from 'react-icons/fi';
 import NotificationBell from './NotificationBell';
+import PrivacyNoticeModal from './PrivacyNoticeModal';
 import logo from '../assets/image/logo-premier.webp';
 const Navbar = () => {
   const { logout, passenger } = useAuth();
   const navigate = useNavigate();
+  const [privacyNoticeOpen, setPrivacyNoticeOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -46,6 +49,19 @@ const Navbar = () => {
           </div>
 
           <button
+            type="button"
+            onClick={() => setPrivacyNoticeOpen(true)}
+            title="Open Privacy Notice"
+            aria-label="Open Privacy Notice"
+            className="inline-flex h-8 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/15 px-3 text-white/90 transition-all hover:bg-black/30 hover:text-white md:h-10"
+          >
+            <FiShield className="text-sm md:text-base" />
+            <span className="hidden lg:inline text-[11px] font-black uppercase tracking-wider">
+              Privacy
+            </span>
+          </button>
+
+          <button
             onClick={handleLogout}
             title="Log out of system"
             className="inline-flex items-center justify-center gap-2 h-8 md:h-10 px-3 rounded-xl bg-black/15 hover:bg-black/30 text-white/90 hover:text-white transition-all border border-white/10 cursor-pointer ml-1 shrink-0"
@@ -57,6 +73,11 @@ const Navbar = () => {
           </button>
         </div>
       </div>
+
+      <PrivacyNoticeModal
+        open={privacyNoticeOpen}
+        onClose={() => setPrivacyNoticeOpen(false)}
+      />
     </nav>
   );
 };

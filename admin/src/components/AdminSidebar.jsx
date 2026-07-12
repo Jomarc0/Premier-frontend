@@ -23,6 +23,8 @@ const AdminSidebar = () => {
     const admin        = auth?.admin;
     const logout       = auth?.logout       || (() => {});
     const isSuperAdmin = auth?.isSuperAdmin || (() => false);
+    const twoFactorEnabled = Boolean(auth?.twoFactorEnabled);
+    const setTwoFactorEnabled = auth?.setTwoFactorEnabled || (() => {});
     const [supportBadge, setSupportBadge] = useState(0);
 
     useEffect(() => {
@@ -47,22 +49,37 @@ const AdminSidebar = () => {
         };
     }, []);
 
+    useEffect(() => {
+        if (!admin || admin.role === 'STAFF' || twoFactorEnabled) return;
+        let active = true;
+        adminAPI.get('/auth/totp/setup')
+            .then((res) => {
+                if (!active) return;
+                const data = res.data?.data || {};
+                setTwoFactorEnabled(Boolean(data.is2FaEnabled ?? data.twoFactorEnabled ?? data['2FaEnabled']));
+            })
+            .catch(() => {});
+        return () => { active = false; };
+    }, [admin?.id, admin?.role, twoFactorEnabled]);
+
     const menu = [
         { label: 'Analytics',     icon: FiActivity,      path: '/admin/analytics',     superOnly: false },
         { label: 'Transactions',  icon: FiFileText,      path: '/admin/transactions',  superOnly: false },
+        { label: 'Staff',         icon: FiUsers,         path: '/admin/staff',         superOnly: false },
         { label: 'All Users',     icon: FiUsers,         path: '/admin/users',         superOnly: false },
         { label: 'Create Cards',  icon: FiUserPlus,      path: '/admin/create-user',   superOnly: false },
         { label: 'Drivers',       icon: FiUsers,         path: '/admin/drivers',       superOnly: false },
         { label: 'Vehicles',      icon: FiTruck,         path: '/admin/vehicles',      superOnly: false },
         { label: 'Bus Monitoring', icon: FiTruck, path: '/admin/vehicle-monitoring', superOnly: false },
-        { label: 'Security',      icon: FiShield,        path: '/admin/security',      superOnly: false },
+        { label: 'Security',      icon: FiShield,        path: '/admin/security',      superOnly: false, setupOnly: true },
         { label: 'Support Tickets', icon: FiShield,      path: '/admin/support-tickets', superOnly: false, badge: supportBadge },
         { label: 'Activity Logs', icon: FiClock,         path: '/admin/logs',          superOnly: true  },
         { label: 'Manage Admins', icon: FiShield,        path: '/admin/manage-admins', superOnly: true  },
     ];
 
     const visibleMenu = menu.filter(
-        item => !item.superOnly || isSuperAdmin()
+        item => (!item.superOnly || isSuperAdmin())
+            && (!item.setupOnly || (admin?.role !== 'STAFF' && !twoFactorEnabled))
     );
 
     return (

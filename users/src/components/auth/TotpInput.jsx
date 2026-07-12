@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 
 const CODE_LENGTH = 6;
 
-export default function TotpInput({ value = '', onChange, onComplete }) {
+export default function TotpInput({ value = '', onChange, onComplete, disabled = false }) {
   const refs = useRef([]);
   const submittedCodeRef = useRef('');
   const digits = useMemo(() => {
@@ -12,7 +12,7 @@ export default function TotpInput({ value = '', onChange, onComplete }) {
 
   useEffect(() => {
     const code = digits.join('');
-    if (code.length !== CODE_LENGTH || digits.includes('')) {
+    if (disabled || code.length !== CODE_LENGTH || digits.includes('')) {
       submittedCodeRef.current = '';
       return;
     }
@@ -21,7 +21,7 @@ export default function TotpInput({ value = '', onChange, onComplete }) {
       submittedCodeRef.current = code;
       onComplete?.(code);
     }
-  }, [digits, onComplete]);
+  }, [digits, disabled, onComplete]);
 
   const updateCode = (nextDigits) => {
     onChange?.(nextDigits.join('').replace(/\D/g, '').slice(0, CODE_LENGTH));
@@ -74,9 +74,10 @@ export default function TotpInput({ value = '', onChange, onComplete }) {
           autoComplete={index === 0 ? 'one-time-code' : 'off'}
           maxLength={1}
           value={digit}
+          disabled={disabled}
           onChange={(event) => handleChange(index, event)}
           onKeyDown={(event) => handleKeyDown(index, event)}
-          className="h-14 w-12 rounded-lg border border-border-input text-center text-lg font-semibold text-text-heading outline-none transition focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+          className="h-14 w-12 rounded-lg border border-border-input text-center text-lg font-semibold text-text-heading outline-none transition focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
           aria-label={`Digit ${index + 1}`}
         />
       ))}

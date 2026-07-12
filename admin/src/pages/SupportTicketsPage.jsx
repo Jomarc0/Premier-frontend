@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
+import { captureEvent } from '../lib/posthog';
 
 const filters = [
     ['ALL', 'All'],
@@ -70,6 +71,11 @@ const SupportTicketsPage = () => {
         setNotes(ticket.adminNotes || '');
         setNewRfidUid('');
         setReadingUid(false);
+        captureEvent('admin_support_ticket_opened', {
+            issue_type: ticket.issueType,
+            status: ticket.status,
+            priority: ticket.priority,
+        });
     };
 
     const refreshSelected = (updated) => {
@@ -78,23 +84,34 @@ const SupportTicketsPage = () => {
         setNotes(updated.adminNotes || '');
     };
 
-    const runAction = async (label, action) => {
+    const runAction = async (label, action, analyticsAction = 'update') => {
         if (!selected) return;
         setBusy(true);
         try {
             const res = await action();
             refreshSelected(res.data.data);
             toast.success(label);
+            captureEvent('admin_support_ticket_action', {
+                action: analyticsAction,
+                issue_type: selected.issueType,
+                previous_status: selected.status,
+                next_status: res.data.data?.status,
+            });
         } catch (err) {
+            captureEvent('admin_support_ticket_action_failed', {
+                action: analyticsAction,
+                issue_type: selected.issueType,
+                status: selected.status,
+            });
             toast.error(err.response?.data?.message || 'Action failed');
         } finally {
             setBusy(false);
         }
     };
 
-    const runConfirmedAction = async (confirmMessage, label, action) => {
+    const runConfirmedAction = async (confirmMessage, label, action, analyticsAction = 'update') => {
         if (!window.confirm(confirmMessage)) return;
-        await runAction(label, action);
+        await runAction(label, action, analyticsAction);
     };
 
     const handleReadReplacementUid = async () => {
@@ -151,6 +168,21 @@ const SupportTicketsPage = () => {
                 newRfidUid: normalizedUid,
                 adminNotes: notes,
             }),
+            'replace_rfid_uid',
+        );
+    };
+
+    const handleReject = async () => {
+        const rejectionNotes = notes.trim();
+        if (!rejectionNotes) {
+            toast.warning('Enter admin notes explaining why the ticket is being rejected.');
+            return;
+        }
+        await runConfirmedAction(
+            `Reject ${selected.ticketNumber}? This sends the update email to the passenger.`,
+            'Ticket rejected',
+            () => adminAPI.post(`/support-tickets/${selected.id}/reject`, { adminNotes: rejectionNotes }),
+            'reject',
         );
     };
 
@@ -249,9 +281,9 @@ const SupportTicketsPage = () => {
                                 <p><strong>Reason:</strong> {selected.reason}</p>
                             </div>
                             <div className="space-y-3">
-                                <label className={ui.fieldLabel}>Admin notes</label>
-                                <textarea className="w-full min-h-[7rem] rounded-lg border-2 border-[#d9dce2] p-3 outline-none focus:border-maroon" value={notes} onChange={(e) => setNotes(e.target.value)} />
-                                <button className={ui.adminActionPrimary} disabled={busy} onClick={() => runAction('Notes saved', () => adminAPI.put(`/support-tickets/${selected.id}/notes`, { adminNotes: notes }))}><FiEdit3 /> Save Notes</button>
+                                <label className={ui.fieldLabel}>Admin notes <span className="text-danger-muted">(required to reject)</span></label>
+                                <textarea className="w-full min-h-[7rem] rounded-lg border-2 border-[#d9dce2] p-3 outline-none focus:border-maroon" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Enter the resolution or rejection reason for the passenger" />
+                                <button className={ui.adminActionPrimary} disabled={busy} onClick={() => runAction('Notes saved', () => adminAPI.put(`/support-tickets/${selected.id}/notes`, { adminNotes: notes }), 'save_notes')}><FiEdit3 /> Save Notes</button>
 
                                 <label className={ui.fieldLabel}>Replacement RFID UID</label>
                                 <div className="grid grid-cols-[1fr_8.5rem] gap-2 max-[620px]:grid-cols-1">
@@ -277,10 +309,10 @@ const SupportTicketsPage = () => {
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2 border-t border-slate-100 p-5">
-                            <button className={ui.adminAction} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Mark ${selected.ticketNumber} as in review?`, 'Marked in review', () => adminAPI.put(`/support-tickets/${selected.id}/status`, { status: 'IN_REVIEW' }))}><FiEye /> Mark In Review</button>
-                            <button className={ui.adminAction} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Freeze the passenger card for ${selected.ticketNumber}?`, 'Card frozen', () => adminAPI.post(`/support-tickets/${selected.id}/freeze-card`, { adminNotes: notes }))}><FiShield /> Freeze Card</button>
-                            <button className={ui.adminActionPrimary} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Resolve ${selected.ticketNumber}? This sends the confirmation email to the passenger.`, 'Ticket resolved', () => adminAPI.post(`/support-tickets/${selected.id}/resolve`, { adminNotes: notes }))}><FiCheck /> Resolve</button>
-                            <button className="inline-flex items-center gap-[0.45rem] min-h-[2.45rem] px-[0.95rem] rounded-lg bg-white text-danger-muted border border-danger-muted/30 text-[0.86rem] font-black cursor-pointer hover:bg-danger-muted hover:text-white" disabled={busy || readingUid} onClick={() => runConfirmedAction(`Reject ${selected.ticketNumber}? This sends the update email to the passenger.`, 'Ticket rejected', () => adminAPI.post(`/support-tickets/${selected.id}/reject`, { adminNotes: notes }))}><FiX /> Reject</button>
+                            <button className={ui.adminAction} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Mark ${selected.ticketNumber} as in review?`, 'Marked in review', () => adminAPI.put(`/support-tickets/${selected.id}/status`, { status: 'IN_REVIEW' }), 'mark_in_review')}><FiEye /> Mark In Review</button>
+                            <button className={ui.adminAction} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Freeze the passenger card for ${selected.ticketNumber}?`, 'Card frozen', () => adminAPI.post(`/support-tickets/${selected.id}/freeze-card`, { adminNotes: notes }), 'freeze_card')}><FiShield /> Freeze Card</button>
+                            <button className={ui.adminActionPrimary} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Resolve ${selected.ticketNumber}? This sends the confirmation email to the passenger.`, 'Ticket resolved', () => adminAPI.post(`/support-tickets/${selected.id}/resolve`, { adminNotes: notes }), 'resolve')}><FiCheck /> Resolve</button>
+                            <button className="inline-flex items-center gap-[0.45rem] min-h-[2.45rem] px-[0.95rem] rounded-lg bg-white text-danger-muted border border-danger-muted/30 text-[0.86rem] font-black cursor-pointer hover:bg-danger-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={busy || readingUid} onClick={handleReject}><FiX /> Reject</button>
                         </div>
                     </div>
                 </div>

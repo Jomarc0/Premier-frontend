@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   Animated,
   InteractionManager,
   Modal,
@@ -9,483 +10,288 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
 
 import { colors, shadow } from '../theme';
 import handTapAnimation from '../../assets/animations/hand-tap.json';
 
-const OVERLAY_COLOR = 'rgba(8, 13, 26, 0.72)';
-const SPOTLIGHT_PADDING = 8;
-const GUIDE_Y_OFFSET = 40;
+const OVERLAY_COLOR = 'rgba(8, 13, 26, 0.76)';
+const EDGE_GAP = 16;
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+export function calculateGuidePlacement({ target, cardHeight, screen, insets, preferred }) {
+  const safeTop = insets.top + 12;
+  const safeBottom = screen.height - insets.bottom - 12;
+  const gap = 16;
+  const below = safeBottom - (target.y + target.height);
+  const above = target.y - safeTop;
+  const useBelow = preferred === 'below'
+    ? below >= cardHeight + gap || below >= above
+    : preferred === 'above'
+      ? !(above >= cardHeight + gap || above >= below)
+      : below >= cardHeight + gap || below >= above;
+
+  return clamp(
+    useBelow ? target.y + target.height + gap : target.y - cardHeight - gap,
+    safeTop,
+    Math.max(safeTop, safeBottom - cardHeight),
+  );
 }
 
-export default function AppGuideOverlay({
-  visible,
-  steps,
-  onBeforeMeasure,
-  onBack,
-  onNext,
-  onSkip,
-  onFinish,
-  currentIndex,
-}) {
-  const [targetRect, setTargetRect] = useState(null);
-  const [handAnimationAvailable, setHandAnimationAvailable] = useState(true);
+function GuideProgress({ count, current }) {
+  return (
+    <View style={styles.progress} accessibilityLabel={`Step ${current + 1} of ${count}`}>
+      {Array.from({ length: count }, (_, index) => (
+        <View key={index} style={[styles.dot, index === current && styles.activeDot]} />
+      ))}
+    </View>
+  );
+}
 
-  const bounce = useRef(new Animated.Value(0)).current;
+function SpotlightMask({ rect, screen }) {
+  return (
+    <>
+      <View style={[styles.dim, { left: 0, right: 0, top: 0, height: rect.y }]} />
+      <View style={[styles.dim, { left: 0, right: 0, top: rect.y + rect.height, bottom: 0 }]} />
+      <View style={[styles.dim, { left: 0, top: rect.y, width: rect.x, height: rect.height }]} />
+      <View style={[styles.dim, { left: rect.x + rect.width, right: 0, top: rect.y, height: rect.height }]} />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.spotlight,
+          {
+            left: rect.x,
+            top: rect.y,
+            width: rect.width,
+            height: rect.height,
+            borderRadius: rect.radius,
+            maxWidth: screen.width,
+          },
+        ]}
+      />
+    </>
+  );
+}
+
+function GesturePointer({ rect, screen, insets, reduceMotion, animationAvailable, onAnimationFailure }) {
+  const size = 58;
+
+  const tapAnchorX = 32 / 64;
+  const tapAnchorY = 22 / 64;
+
+  const verticalOffset = 25; 
+
+  const minTop = insets.top + 4;
+  const maxTop = screen.height - insets.bottom - size - 4;
+
+  const position = {
+    left: clamp(
+      rect.x + rect.width / 2 - size * tapAnchorX,
+      8,
+      screen.width - size - 8,
+    ),
+    top: clamp(
+      rect.y + rect.height / 2 - size * tapAnchorY + verticalOffset,
+      minTop,
+      maxTop,
+    ),
+  };
+
+  return (
+    <View pointerEvents="none" style={[styles.hand, { ...position, width: size, height: size }]}>
+      {animationAvailable ? (
+        <LottieView
+          source={handTapAnimation}
+          autoPlay={!reduceMotion}
+          loop={!reduceMotion}
+          progress={reduceMotion ? 0.45 : undefined}
+          onAnimationFailure={onAnimationFailure}
+          resizeMode="contain"
+          style={StyleSheet.absoluteFill}
+        />
+      ) : (
+        <MaterialCommunityIcons name="gesture-tap" size={42} color="#FFFFFF" />
+      )}
+    </View>
+  );
+}
+
+function ArrowPointer({ rect, screen, insets, bounce }) {
+  const size = 44;
+  const canFitAbove = rect.y - size > insets.top;
+  const top = canFitAbove ? rect.y - size : rect.y + rect.height;
+  const icon = canFitAbove ? 'arrow-down' : 'arrow-up';
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.arrow,
+        {
+          left: clamp(rect.x + rect.width / 2 - size / 2, 8, screen.width - size - 8),
+          top: clamp(top, insets.top + 4, screen.height - insets.bottom - size - 4),
+          transform: [{ translateY: bounce }],
+        },
+      ]}
+    >
+      <Feather name={icon} size={23} color="#FFFFFF" />
+    </Animated.View>
+  );
+}
+
+function GuideCard({ step, index, total, isFirst, isLast, onBack, onNext, onSkip, onLayout, style }) {
+  return (
+    <View style={[styles.card, style]} onLayout={onLayout}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.stepText}>{index + 1} OF {total}</Text>
+        <GuideProgress count={total} current={index} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Skip tour" hitSlop={10} onPress={onSkip}>
+          <Text style={styles.skip}>Skip tour</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.title} maxFontSizeMultiplier={1.35}>{step.title}</Text>
+      <Text style={styles.description} maxFontSizeMultiplier={1.3}>{step.description || step.message}</Text>
+      <View style={styles.actions}>
+        {!isFirst && (
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" style={styles.backButton} onPress={onBack}>
+            <Text style={styles.backText}>Back</Text>
+          </Pressable>
+        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isLast ? 'Finish tour' : 'Next guide step'}
+          style={[styles.nextButton, isFirst && styles.fullButton]}
+          onPress={onNext}
+        >
+          <Text style={styles.nextText}>{isLast ? 'Finish' : 'Next'}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+export default function AppGuideOverlay({ visible, steps, onBeforeMeasure, onBack, onNext, onSkip, onFinish, currentIndex }) {
   const screen = useWindowDimensions();
-
+  const insets = useSafeAreaInsets();
   const step = steps[currentIndex];
-  const isFirst = currentIndex === 0;
-  const isLast = currentIndex === steps.length - 1;
+  const [targetRect, setTargetRect] = useState(null);
+  const [cardHeight, setCardHeight] = useState(210);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const [animationAvailable, setAnimationAvailable] = useState(true);
+  const bounceValue = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!visible) return undefined;
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => subscription?.remove?.();
+  }, []);
 
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(bounce, {
-          toValue: 1,
-          duration: 650,
-          useNativeDriver: true,
-        }),
-        Animated.timing(bounce, {
-          toValue: 0,
-          duration: 650,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    animation.start();
-
-    return () => animation.stop();
-  }, [bounce, visible]);
+  useEffect(() => {
+    if (!visible || reduceMotion) return undefined;
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(bounceValue, { toValue: 6, duration: 600, useNativeDriver: true }),
+      Animated.timing(bounceValue, { toValue: 0, duration: 600, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [bounceValue, reduceMotion, visible]);
 
   useEffect(() => {
     setTargetRect(null);
-
-    if (!visible || !step?.targetRef?.current) {
-      return undefined;
-    }
-
+    if (!visible || !step) return undefined;
     let cancelled = false;
-    let frameId = null;
-    let retryTimer = null;
-    let refreshTimer = null;
+    let timer;
     let attempts = 0;
-
-    const measureExactTarget = () => {
-      const target = step?.targetRef?.current;
-
-      if (cancelled || !target) return;
-
+    const measure = () => {
+      const target = step.targetRef?.current;
+      if (cancelled || !target) {
+        if (!cancelled && attempts++ < 12) timer = setTimeout(measure, 80);
+        return;
+      }
       target.measureInWindow((x, y, width, height) => {
         if (cancelled) return;
-
-        if ((width <= 0 || height <= 0) && attempts < 10) {
-          attempts += 1;
-
-          retryTimer = setTimeout(() => {
-            frameId = requestAnimationFrame(measureExactTarget);
-          }, 80);
-
+        if (width <= 0 || height <= 0) {
+          if (attempts++ < 12) timer = setTimeout(measure, 80);
           return;
         }
+      const visualYOffset = 40; 
+      const padding = clamp(step.spotlightPadding ?? 8, 6, 12);
 
-        if (width > 0 && height > 0) {
-          const adjustedY = y + GUIDE_Y_OFFSET;
-
-          setTargetRect({
-            x,
-            y: adjustedY,
-            width,
-            height,
-            padding: clamp(step.padding ?? SPOTLIGHT_PADDING, 6, 10),
-            centerX: x + width / 2,
-            centerY: adjustedY + height / 2,
-          });
-        }
+      const left = clamp(x - padding, 0, screen.width);
+      const top = clamp(
+        y - padding + visualYOffset,
+        insets.top,
+        screen.height - insets.bottom,
+      );
+      const right = clamp(x + width + padding, 0, screen.width);
+      const bottom = clamp(
+        y + height + padding + visualYOffset,
+        insets.top,
+        screen.height - insets.bottom,
+      );
+        setTargetRect({
+          x: left,
+          y: top,
+          width: Math.max(1, right - left),
+          height: Math.max(1, bottom - top),
+          radius: step.spotlightRadius ?? (height > 90 ? 24 : 18),
+        });
       });
     };
-
     const interaction = InteractionManager.runAfterInteractions(async () => {
       await onBeforeMeasure?.(step);
-
-      if (cancelled) return;
-
-      frameId = requestAnimationFrame(() => {
-        requestAnimationFrame(measureExactTarget);
-      });
-
-      refreshTimer = setTimeout(() => {
-        frameId = requestAnimationFrame(measureExactTarget);
-      }, 520);
+      if (!cancelled) requestAnimationFrame(() => requestAnimationFrame(measure));
     });
-
     return () => {
       cancelled = true;
-
       interaction.cancel?.();
-
-      if (frameId) cancelAnimationFrame(frameId);
-      if (retryTimer) clearTimeout(retryTimer);
-      if (refreshTimer) clearTimeout(refreshTimer);
+      clearTimeout(timer);
     };
-  }, [
-    currentIndex,
-    onBeforeMeasure,
-    screen.height,
-    screen.width,
-    step,
-    visible,
-  ]);
+  }, [currentIndex, insets.bottom, insets.top, onBeforeMeasure, screen.height, screen.width, step, visible]);
 
-  const spotlightRect = useMemo(() => {
-    if (!targetRect) return null;
-
-    const padding = targetRect.padding ?? SPOTLIGHT_PADDING;
-
-    return {
-      x: targetRect.x - padding,
-      y: targetRect.y - padding,
-      width: targetRect.width + padding * 2,
-      height: targetRect.height + padding * 2,
-    };
-  }, [targetRect]);
-
-  const tooltipPlacement = useMemo(() => {
-    if (!targetRect || !spotlightRect) return null;
-
-    const tooltipWidth = Math.min(screen.width - 32, 330);
-    const estimatedTooltipHeight =
-      step?.message?.length > 130 ? 236 : 206;
-
-    const clearance = 16;
-    const spaceBelow =
-      screen.height - (spotlightRect.y + spotlightRect.height);
-
-    const spaceAbove = spotlightRect.y;
-
-    const placeBelow =
-      spaceBelow >= estimatedTooltipHeight + clearance ||
-      spaceBelow >= spaceAbove;
-
-    const top = placeBelow
-      ? clamp(
-          spotlightRect.y + spotlightRect.height + clearance,
-          24,
-          screen.height - estimatedTooltipHeight - 20,
-        )
-      : clamp(
-          spotlightRect.y - estimatedTooltipHeight - clearance,
-          24,
-          screen.height - estimatedTooltipHeight - 20,
-        );
-
-    const left = clamp(
-      targetRect.centerX - tooltipWidth / 2,
-      16,
-      screen.width - tooltipWidth - 16,
-    );
-
-    return {
-      top,
-      left,
-      width: tooltipWidth,
-      placeBelow,
-    };
-  }, [
-    screen.height,
-    screen.width,
-    spotlightRect,
-    step?.message,
-    targetRect,
-  ]);
-
-  const tooltipStyle = useMemo(() => {
-    if (!targetRect || !tooltipPlacement) return null;
-
-    return [
-      styles.tooltip,
-      {
-        width: tooltipPlacement.width,
-        left: tooltipPlacement.left,
-        top: tooltipPlacement.top,
-      },
-    ];
-  }, [targetRect, tooltipPlacement]);
-
-  const spotlightStyle = useMemo(() => {
-    if (!spotlightRect) return null;
-
-    const radius = spotlightRect.height > 120 ? 24 : 18;
-
-    return {
-      left: spotlightRect.x,
-      top: spotlightRect.y,
-      width: spotlightRect.width,
-      height: spotlightRect.height,
-      borderRadius: radius,
-    };
-  }, [spotlightRect]);
-
-  const arrowStyle = useMemo(() => {
-    if (!targetRect || !spotlightRect) return null;
-
-    const translate = bounce.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0, 8],
-    });
-
-    const spaceAbove = spotlightRect.y;
-    const spaceBelow =
-      screen.height - (spotlightRect.y + spotlightRect.height);
-
-    const spaceLeft = spotlightRect.x;
-    const spaceRight =
-      screen.width - (spotlightRect.x + spotlightRect.width);
-
-    const centerX = targetRect.centerX;
-    const centerY = targetRect.centerY;
-
-    if (spaceAbove >= 54) {
-      return {
-        icon: 'arrow-down',
-        style: [
-          styles.pointer,
-          {
-            left: clamp(centerX - 21, 12, screen.width - 54),
-            top: spotlightRect.y - 52,
-            transform: [{ translateY: translate }],
-          },
-        ],
-      };
-    }
-
-    if (spaceBelow >= 54) {
-      return {
-        icon: 'arrow-up',
-        style: [
-          styles.pointer,
-          {
-            left: clamp(centerX - 21, 12, screen.width - 54),
-            top: spotlightRect.y + spotlightRect.height + 10,
-            transform: [{ translateY: Animated.multiply(translate, -1) }],
-          },
-        ],
-      };
-    }
-
-    if (spaceLeft > spaceRight) {
-      return {
-        icon: 'arrow-right',
-        style: [
-          styles.pointer,
-          {
-            left: spotlightRect.x - 52,
-            top: clamp(centerY - 21, 18, screen.height - 60),
-            transform: [{ translateX: translate }],
-          },
-        ],
-      };
-    }
-
-    return {
-      icon: 'arrow-left',
-      style: [
-        styles.pointer,
-        {
-          left: spotlightRect.x + spotlightRect.width + 10,
-          top: clamp(centerY - 21, 18, screen.height - 60),
-          transform: [{ translateX: Animated.multiply(translate, -1) }],
-        },
-      ],
-    };
-  }, [
-    bounce,
-    screen.height,
-    screen.width,
-    spotlightRect,
-    targetRect,
-  ]);
-
-  const handStyle = useMemo(() => {
-  if (!targetRect || !spotlightRect || !arrowStyle) return null;
-
-  const size = 52;
-  const centerX = targetRect.centerX;s
-
-  const horizontalOffset = -20;
-  const spaceBelow =
-    screen.height - (spotlightRect.y + spotlightRect.height);
-
-  const targetIsNearBottom = spotlightRect.y > screen.height * 0.62;
-
-  const handTopBelow = spotlightRect.y + spotlightRect.height + 28;
-  const handTopAbove = spotlightRect.y - size + 70;
-
-  return {
-    left: clamp(centerX + horizontalOffset, 12, screen.width - size - 12),
-    top: targetIsNearBottom || spaceBelow < 130
-      ? clamp(handTopAbove, 12, screen.height - size - 12)
-      : clamp(handTopBelow, 12, screen.height - size - 12),
-    width: size,
-    height: size,
-  };
-}, [
-  arrowStyle,
-  screen.height,
-  screen.width,
-  spotlightRect,
-  targetRect,
-]);
+  const cardWidth = Math.min(360, screen.width - EDGE_GAP * 2);
+  const cardTop = targetRect
+    ? calculateGuidePlacement({ target: targetRect, cardHeight, screen, insets, preferred: step.preferredCardPlacement })
+    : insets.top + 24;
+  const cardLeft = targetRect
+    ? clamp(targetRect.x + targetRect.width / 2 - cardWidth / 2, EDGE_GAP, screen.width - cardWidth - EDGE_GAP)
+    : EDGE_GAP;
 
   if (!step) return null;
+  const isLast = currentIndex === steps.length - 1;
 
   return (
-    <Modal
-      transparent
-      visible={visible}
-      animationType="fade"
-      statusBarTranslucent
-      onRequestClose={onSkip}
-    >
+    <Modal transparent visible={visible} animationType="fade" statusBarTranslucent onRequestClose={onSkip}>
       <View style={styles.root} pointerEvents="box-none">
-        {targetRect ? (
-          <>
-            <View
-              style={[
-                styles.dim,
-                {
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: Math.max(0, spotlightRect.y),
-                },
-              ]}
-            />
-
-            <View
-              style={[
-                styles.dim,
-                {
-                  top: Math.max(
-                    0,
-                    spotlightRect.y + spotlightRect.height,
-                  ),
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                },
-              ]}
-            />
-
-            <View
-              style={[
-                styles.dim,
-                {
-                  top: Math.max(0, spotlightRect.y),
-                  left: 0,
-                  width: Math.max(0, spotlightRect.x),
-                  height: spotlightRect.height,
-                },
-              ]}
-            />
-
-            <View
-              style={[
-                styles.dim,
-                {
-                  top: Math.max(0, spotlightRect.y),
-                  left: spotlightRect.x + spotlightRect.width,
-                  right: 0,
-                  height: spotlightRect.height,
-                },
-              ]}
-            />
-
-            <View
-              pointerEvents="none"
-              style={[styles.spotlight, spotlightStyle]}
-            />
-
-            {arrowStyle && (
-              <Animated.View style={arrowStyle.style}>
-                <Feather
-                  name={arrowStyle.icon}
-                  size={22}
-                  color="#fff"
-                />
-              </Animated.View>
-            )}
-
-            {handStyle && handAnimationAvailable && (
-              <View pointerEvents="none" style={[styles.handHint, handStyle]}>
-                <LottieView
-                  source={handTapAnimation}
-                  autoPlay
-                  loop
-                  onAnimationFailure={() => setHandAnimationAvailable(false)}
-                  resizeMode="contain"
-                  style={styles.guideHandAnimation}
-                />
-              </View>
-            )}
-          </>
-        ) : (
-          <View style={styles.fullDim} />
+        {targetRect ? <SpotlightMask rect={targetRect} screen={screen} /> : <View style={styles.fullDim} />}
+        {targetRect && step.pointerType === 'arrow' && (
+          <ArrowPointer rect={targetRect} screen={screen} insets={insets} bounce={reduceMotion ? 0 : bounceValue} />
         )}
-
-        {targetRect && tooltipStyle && (
-          <View style={tooltipStyle}>
-            <View style={styles.tooltipHeader}>
-              <Text style={styles.stepCounter}>
-                {currentIndex + 1} of {steps.length}
-              </Text>
-
-              <Pressable onPress={onSkip} hitSlop={10}>
-                <Text style={styles.skipText}>Skip</Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.title}>{step.title}</Text>
-
-            <Text style={styles.message}>{step.message}</Text>
-
-            <View style={styles.actions}>
-              <Pressable
-                onPress={onBack}
-                disabled={isFirst}
-                style={[
-                  styles.secondaryButton,
-                  isFirst && styles.disabledButton,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.secondaryText,
-                    isFirst && styles.disabledText,
-                  ]}
-                >
-                  Back
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={isLast ? onFinish : onNext}
-                style={styles.primaryButton}
-              >
-                <Text style={styles.primaryText}>
-                  {isLast ? 'Finish' : 'Next'}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
+        {targetRect && step.pointerType === 'hand' && (
+          <GesturePointer
+            rect={targetRect}
+            screen={screen}
+            insets={insets}
+            reduceMotion={reduceMotion}
+            animationAvailable={animationAvailable}
+            onAnimationFailure={() => setAnimationAvailable(false)}
+          />
+        )}
+        {targetRect && (
+          <GuideCard
+            step={step}
+            index={currentIndex}
+            total={steps.length}
+            isFirst={currentIndex === 0}
+            isLast={isLast}
+            onBack={onBack}
+            onNext={isLast ? onFinish : onNext}
+            onSkip={onSkip}
+            onLayout={(event) => setCardHeight(event.nativeEvent.layout.height)}
+            style={{ width: cardWidth, left: cardLeft, top: cardTop }}
+          />
         )}
       </View>
     </Modal>
@@ -493,136 +299,45 @@ export default function AppGuideOverlay({
 }
 
 const styles = StyleSheet.create({
-  root: {
-    ...StyleSheet.absoluteFillObject,
-  },
-
-  fullDim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: OVERLAY_COLOR,
-  },
-
-  dim: {
+  root: { ...StyleSheet.absoluteFillObject },
+  fullDim: { ...StyleSheet.absoluteFillObject, backgroundColor: OVERLAY_COLOR },
+  dim: { position: 'absolute', backgroundColor: OVERLAY_COLOR },
+  spotlight: {
     position: 'absolute',
-    backgroundColor: OVERLAY_COLOR,
-  },
-
-spotlight: {
-  position: 'absolute',
-  borderRadius: 22,
-  borderWidth: 2,
-  borderColor: '#fff',
-  backgroundColor: 'transparent',
-},
-
-  handHint: {
-    position: 'absolute',
-    opacity: 0.92,
-  },
-
-  guideHandAnimation: {
-    width: '100%',
-    height: '100%',
-  },
-
-  pointer: {
-    position: 'absolute',
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.maroon,
     borderWidth: 2,
-    borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: '#FFFFFF',
+    backgroundColor: 'transparent',
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.65,
+    shadowRadius: 9,
+    elevation: 8,
   },
-
-  tooltip: {
-    position: 'absolute',
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 16,
-    ...shadow,
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
+  arrow: {
+    position: 'absolute', width: 44, height: 44, borderRadius: 22,
+    backgroundColor: colors.maroon, borderWidth: 1.5, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
   },
-
-  tooltipHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+  hand: { position: 'absolute', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  card: {
+    position: 'absolute', backgroundColor: '#FFFFFF', borderRadius: 24,
+    paddingHorizontal: 22, paddingVertical: 20, ...shadow,
+    shadowOpacity: 0.2, shadowRadius: 18, elevation: 16,
   },
-
-  stepCounter: {
-    color: colors.maroon,
-    fontSize: 11,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  stepText: { color: colors.maroon, fontSize: 11, fontWeight: '900' },
+  progress: { flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 4, paddingHorizontal: 8 },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#D5DCE6' },
+  activeDot: { width: 8, backgroundColor: colors.maroon },
+  skip: { color: '#667B98', fontSize: 12, fontWeight: '700' },
+  title: { color: '#111A2C', fontSize: 19, lineHeight: 24, fontWeight: '900' },
+  description: { color: '#536987', fontSize: 13.5, lineHeight: 20, marginTop: 7 },
+  actions: { flexDirection: 'row', gap: 12, marginTop: 17 },
+  backButton: {
+    flex: 1, minHeight: 50, borderRadius: 14, borderWidth: 1.5,
+    borderColor: colors.maroon, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center',
   },
-
-  skipText: {
-    color: '#7186A5',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-
-  title: {
-    color: '#101827',
-    fontSize: 17,
-    fontWeight: '900',
-  },
-
-  message: {
-    color: '#536987',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 7,
-  },
-
-  actions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 15,
-  },
-
-  secondaryButton: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: '#DDE5EF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-  },
-
-  primaryButton: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.maroon,
-  },
-
-  secondaryText: {
-    color: colors.maroon,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-
-  primaryText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '900',
-  },
-
-  disabledButton: {
-    opacity: 0.45,
-  },
-
-  disabledText: {
-    color: '#8AA0BF',
-  },
+  nextButton: { flex: 1, minHeight: 50, borderRadius: 14, backgroundColor: colors.maroon, alignItems: 'center', justifyContent: 'center' },
+  fullButton: { flex: 1 },
+  backText: { color: colors.maroon, fontSize: 14, fontWeight: '900' },
+  nextText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
 });

@@ -3,9 +3,11 @@ import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleShee
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import Button from '../components/Button';
 import { useAuth } from '../context/AuthContext';
+import { captureMobileEvent } from '../analytics/posthog';
 import { API_PASSENGER_BASE } from '../config';
 import { colors, shadow } from '../theme';
 
@@ -23,11 +25,13 @@ function maskCardNumber(cardNumber) {
 }
 
 export default function TotpVerifyScreen({ navigation }) {
+  const posthog = usePostHog();
   const { login } = useAuth();
   const [totpCode, setTotpCode] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [refreshSeconds, setRefreshSeconds] = useState(secondsUntilAuthenticatorRefresh());
   const [pendingCardNumber, setPendingCardNumber] = useState(null);
+  const [lockSeconds, setLockSeconds] = useState(0);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -45,9 +49,18 @@ export default function TotpVerifyScreen({ navigation }) {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLockSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
   const maskedCardNumber = useMemo(() => maskCardNumber(pendingCardNumber), [pendingCardNumber]);
 
   const handleVerify = async () => {
+    if (lockSeconds > 0) return;
     if (totpCode.length !== 6) {
       Alert.alert('Invalid code', 'Enter the 6-digit code from your Google Authenticator app.');
       return;
@@ -65,15 +78,24 @@ export default function TotpVerifyScreen({ navigation }) {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || 'Invalid code');
+        const error = new Error(data.message || 'Invalid code');
+        error.retryAfterSeconds = Number(data.data?.retryAfterSeconds || 0);
+        throw error;
       }
 
       const { token, passengerName } = data.data || {};
       await login(token, passengerName);
       await SecureStore.deleteItemAsync('tempToken');
       await SecureStore.deleteItemAsync('pendingCardNumber');
+      captureMobileEvent(posthog, 'mobile_login_success', {
+        method: 'totp',
+      });
     } catch (error) {
       setTotpCode('');
+      if (error.retryAfterSeconds > 0) {
+        setLockSeconds(error.retryAfterSeconds);
+      }
+      captureMobileEvent(posthog, 'mobile_login_totp_failed');
       Alert.alert('Verification failed', error.message || 'Please try again.');
     } finally {
       setVerifying(false);
@@ -116,7 +138,7 @@ export default function TotpVerifyScreen({ navigation }) {
             </View>
           </View>
 
-          <Pressable style={styles.codeRow} onPress={() => inputRef.current?.focus()}>
+          <Pressable style={[styles.codeRow, lockSeconds > 0 && styles.codeRowLocked]} onPress={() => lockSeconds <= 0 && inputRef.current?.focus()}>
             {[0, 1, 2, 3, 4, 5].map((index) => {
               const value = totpCode[index];
               const active = index === totpCode.length;
@@ -133,6 +155,7 @@ export default function TotpVerifyScreen({ navigation }) {
               onChangeText={(value) => setTotpCode(value.replace(/\D/g, '').slice(0, 6))}
               maxLength={6}
               keyboardType="number-pad"
+              editable={lockSeconds <= 0}
               style={styles.hiddenInput}
               autoFocus
             />
@@ -143,8 +166,17 @@ export default function TotpVerifyScreen({ navigation }) {
             <Text style={styles.refreshText}>Authenticator code refreshes in <Text style={styles.refreshStrong}>00:{String(refreshSeconds).padStart(2, '0')}</Text></Text>
           </View>
 
-          <Button loading={verifying} disabled={totpCode.length !== 6} onPress={handleVerify} style={styles.verifyButton} icon={<Feather name="lock" size={21} color="#fff" />}>
-            Verify & Continue
+          {lockSeconds > 0 && (
+            <View style={styles.lockoutNotice}>
+              <MaterialCommunityIcons name="timer-lock-outline" size={20} color="#B4232D" />
+              <Text style={styles.lockoutText}>
+                Too many incorrect codes. Try again in {Math.floor(lockSeconds / 60)}:{String(lockSeconds % 60).padStart(2, '0')}.
+              </Text>
+            </View>
+          )}
+
+          <Button loading={verifying} disabled={totpCode.length !== 6 || lockSeconds > 0} onPress={handleVerify} style={styles.verifyButton} icon={<Feather name="lock" size={21} color="#fff" />}>
+            {lockSeconds > 0 ? 'Temporarily Locked' : 'Verify & Continue'}
           </Button>
 
           <View style={styles.infoRow}>
@@ -315,6 +347,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginBottom: 22,
   },
+  codeRowLocked: {
+    opacity: 0.55,
+  },
   codeBox: {
     flex: 1,
     height: 58,
@@ -369,6 +404,25 @@ const styles = StyleSheet.create({
   refreshStrong: {
     color: colors.maroon,
     fontWeight: '900',
+  },
+  lockoutNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F1BFC5',
+    backgroundColor: '#FDECEC',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 14,
+  },
+  lockoutText: {
+    flex: 1,
+    color: '#B4232D',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   verifyButton: {
     borderRadius: 15,

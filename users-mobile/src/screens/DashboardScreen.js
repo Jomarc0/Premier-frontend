@@ -22,10 +22,13 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import api from '../api/api';
+import { captureMobileEvent } from '../analytics/posthog';
 import AppGuideOverlay from '../components/AppGuideOverlay';
 import Button from '../components/Button';
+import PrivacyNoticeModal from '../components/PrivacyNoticeModal';
 import { useAuth } from '../context/AuthContext';
 import { colors, shadow } from '../theme';
 
@@ -40,7 +43,7 @@ const loadNfcManager = () => {
 const QUICK_AMOUNTS = [20, 40, 50, 100, 200, 500];
 const QUICK_REPLIES = ['Top-up issue', 'Fare deduction', 'Payment failed', 'Lost RFID card', 'Check balance'];
 const LEGACY_APP_GUIDE_STORAGE_KEY = 'premierPassengerAppGuideCompleted';
-const APP_GUIDE_STORAGE_KEY = 'premier_app_guide_completed';
+const APP_GUIDE_STORAGE_KEY = 'premier_dashboard_guide_completed';
 const APP_GUIDE_REPLAYED_KEY = 'premier_app_guide_replayed';
 const FINGERPRINT_PROMPT_SHOWN_KEY = 'premier_fingerprint_prompt_shown';
 const FINGERPRINT_ENABLED_KEY = 'premier_fingerprint_enabled';
@@ -82,6 +85,8 @@ const csvEscape = (value) => {
 const transactionId = (tx) => tx?.referenceNumber || `TX-${tx?.id}`;
 
 const TRANSACTION_FILTERS = ['All', 'RFID', 'QR', 'NFC', 'Top Up', 'Failed'];
+const NOTIFICATION_FILTERS = ['All', 'Top-Ups', 'Fares', 'Alerts'];
+const READ_NOTIFICATIONS_STORAGE_KEY = 'premier_read_notification_ids';
 
 function formatCurrency(value) {
   return Number(value || 0).toLocaleString('en-PH', {
@@ -209,6 +214,91 @@ function isMoneyIn(tx) {
   return method === 'TOP_UP' || method === 'REFUND';
 }
 
+function notificationFromTransaction(tx) {
+  const method = txMethod(tx);
+  const failed = txStatus(tx) === 'FAILED';
+  const amount = `PHP ${formatCurrency(tx?.amount)}`;
+  const base = {
+    id: `transaction-${transactionId(tx)}`,
+    createdAt: tx?.createdAt,
+    category: failed ? 'Alerts' : method === 'TOP_UP' ? 'Top-Ups' : 'Fares',
+  };
+
+  if (failed) {
+    return {
+      ...base,
+      title: 'Payment Failed',
+      message: 'This transaction was not completed. Please try again.',
+      icon: 'alert-circle-outline',
+      color: '#B4232D',
+      backgroundColor: '#FDECEC',
+    };
+  }
+  if (method === 'TOP_UP') {
+    return {
+      ...base,
+      title: 'Top-Up Successful',
+      message: `${amount} was added to your RFID card.`,
+      icon: 'wallet-plus-outline',
+      color: colors.green,
+      backgroundColor: '#EAF7EE',
+    };
+  }
+  if (method === 'QR') {
+    return {
+      ...base,
+      title: 'QR Payment Successful',
+      message: `${amount} QR fare payment was completed.`,
+      icon: 'qrcode-scan',
+      color: colors.green,
+      backgroundColor: '#EAF7EE',
+    };
+  }
+  if (method === 'NFC') {
+    return {
+      ...base,
+      title: 'NFC Payment Successful',
+      message: `${amount} NFC fare payment was completed.`,
+      icon: 'nfc',
+      color: colors.teal,
+      backgroundColor: '#E8F5F3',
+    };
+  }
+
+  return {
+    ...base,
+    title: 'Fare Payment Successful',
+    message: `${amount} fare was deducted successfully.`,
+    icon: method === 'RFID' ? 'card-account-details-outline' : 'bus',
+    color: colors.maroon,
+    backgroundColor: '#FFF1F3',
+  };
+}
+
+function getNotificationTime(item) {
+  if (!item?.createdAt) return 'Now';
+
+  return new Date(item.createdAt).toLocaleTimeString('en-PH', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function groupNotificationsByDate(items) {
+  return items.reduce((groups, item) => {
+    const label = groupDateLabel(item.createdAt);
+    const existing = groups.find((group) => group.label === label);
+
+    if (existing) {
+      existing.items.push(item);
+    } else {
+      groups.push({ label, items: [item] });
+    }
+
+    return groups;
+  }, []);
+}
+
 function txSearchText(tx) {
   return [
     tx?.id,
@@ -276,6 +366,7 @@ export default function DashboardScreen({ navigation }) {
     disableBiometrics,
     syncPushNotifications,
   } = useAuth();
+  const posthog = usePostHog();
 
   const screen = useWindowDimensions();
 
@@ -288,6 +379,8 @@ export default function DashboardScreen({ navigation }) {
   const [transactionError, setTransactionError] = useState(null);
   const [transactionSearch, setTransactionSearch] = useState('');
   const [transactionFilter, setTransactionFilter] = useState('All');
+  const [notificationFilter, setNotificationFilter] = useState('All');
+  const [readNotificationIds, setReadNotificationIds] = useState([]);
   const [exportingTransactions, setExportingTransactions] = useState(false);
   const [dashboardError, setDashboardError] = useState(null);
 
@@ -319,6 +412,7 @@ export default function DashboardScreen({ navigation }) {
   const [isCheckingStartupFlow, setIsCheckingStartupFlow] = useState(true);
   const [showChatbotIntro, setShowChatbotIntro] = useState(false);
   const [showOtherModal, setShowOtherModal] = useState(false);
+  const [privacyNoticeOpen, setPrivacyNoticeOpen] = useState(false);
 
   const [helpContent, setHelpContent] = useState(null);
   const [chatInput, setChatInput] = useState('');
@@ -342,6 +436,11 @@ export default function DashboardScreen({ navigation }) {
   const nfcGuideRef = useRef(null);
   const transactionGuideRef = useRef(null);
   const chatGuideRef = useRef(null);
+  const notificationGuideRef = useRef(null);
+  const bottomNavGuideRef = useRef(null);
+  const homeNavGuideRef = useRef(null);
+  const activityNavGuideRef = useRef(null);
+  const profileNavGuideRef = useRef(null);
   const scanGuideRef = useRef(null);
 
   const walletCardGuideRef = useRef(null);
@@ -393,6 +492,11 @@ export default function DashboardScreen({ navigation }) {
   const passengerName =
     String(rawPassengerName).replace(/\s*#\d+$/, '').trim() || 'Passenger';
 
+  const profileCardStatus = String(
+    balance?.cardStatus || balance?.status || 'Active',
+  ).replace(/_/g, ' ');
+  const profileCardActive = profileCardStatus.toUpperCase() === 'ACTIVE';
+
   const spent = transactions
     .filter((tx) => tx.type !== 'TOPUP')
     .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
@@ -440,6 +544,74 @@ export default function DashboardScreen({ navigation }) {
 
     return groups;
   }, [filteredTransactions]);
+
+  const notificationItems = useMemo(() => {
+    const transactionNotifications = transactionSource.map(notificationFromTransaction);
+    const balanceNotifications =
+      currentBalance > 0 && currentBalance < 100
+        ? [
+            {
+              id: 'low-balance',
+              createdAt: new Date().toISOString(),
+              category: 'Alerts',
+              title: 'Low Balance Alert',
+              message: 'Your RFID card balance is low. Please top up before travelling.',
+              icon: 'alert-outline',
+              color: colors.gold,
+              backgroundColor: '#FFF6E5',
+            },
+          ]
+        : [];
+
+    return [...balanceNotifications, ...transactionNotifications];
+  }, [currentBalance, transactionSource]);
+
+  const filteredNotifications = useMemo(
+    () =>
+      notificationItems.filter(
+        (item) => notificationFilter === 'All' || item.category === notificationFilter,
+      ),
+    [notificationFilter, notificationItems],
+  );
+
+  const groupedNotifications = useMemo(
+    () => groupNotificationsByDate(filteredNotifications),
+    [filteredNotifications],
+  );
+
+  const unreadNotificationCount = useMemo(
+    () => notificationItems.filter((item) => !readNotificationIds.includes(item.id)).length,
+    [notificationItems, readNotificationIds],
+  );
+
+  useEffect(() => {
+    AsyncStorage.getItem(READ_NOTIFICATIONS_STORAGE_KEY)
+      .then((value) => {
+        const storedIds = JSON.parse(value || '[]');
+        if (Array.isArray(storedIds)) setReadNotificationIds(storedIds);
+      })
+      .catch(() => setReadNotificationIds([]));
+  }, []);
+
+  const saveReadNotificationIds = useCallback((ids) => {
+    setReadNotificationIds(ids);
+    // TODO: Replace local persistence when a backend notification read/unread API is available.
+    AsyncStorage.setItem(READ_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(ids)).catch(() => {});
+  }, []);
+
+  const markNotificationAsRead = useCallback(
+    (id) => {
+      if (readNotificationIds.includes(id)) return;
+      saveReadNotificationIds([...readNotificationIds, id]);
+    },
+    [readNotificationIds, saveReadNotificationIds],
+  );
+
+  const markAllNotificationsAsRead = useCallback(() => {
+    saveReadNotificationIds([
+      ...new Set([...readNotificationIds, ...notificationItems.map((item) => item.id)]),
+    ]);
+  }, [notificationItems, readNotificationIds, saveReadNotificationIds]);
 
   const transactionTotals = useMemo(
     () =>
@@ -534,103 +706,119 @@ export default function DashboardScreen({ navigation }) {
     [screen.height],
   );
 
-  const guideSteps = useMemo(
-    () => [
-      {
-        key: 'balance',
-        targetRef: balanceGuideRef,
-        scrollRef: homeScrollRef,
-        scrollOffsetRef: homeScrollOffsetRef,
-        title: 'Available Balance',
-        message: 'Check your available RFID card balance before travelling.',
-      },
-      {
-        key: 'wallet',
-        targetRef: myCardGuideRef,
-        title: 'Wallet',
-        message: 'Open your wallet to view your RFID card, balance, and payment options.',
-      },
-      {
-        key: 'topup',
-        targetRef: topUpGuideRef,
-        scrollRef: homeScrollRef,
-        scrollOffsetRef: homeScrollOffsetRef,
-        title: 'Add Balance',
-        message: 'Add funds to your RFID card using supported payment methods.',
-      },
-      {
-        key: 'qr',
-        targetRef: qrGuideRef,
-        title: 'QR Payment',
-        message: 'Tap Pay QR to show your payment QR code to the fare reader.',
-      },
-      {
-        key: 'nfc',
-        targetRef: nfcGuideRef,
-        scrollRef: homeScrollRef,
-        scrollOffsetRef: homeScrollOffsetRef,
-        title: 'NFC Payment',
-        message: 'Use this when you need to pay by tapping your phone on the fare reader.',
-      },
-      {
-        key: 'transactions',
-        targetRef: transactionGuideRef,
-        scrollRef: homeScrollRef,
-        scrollOffsetRef: homeScrollOffsetRef,
-        title: 'Transaction History',
-        message: 'Review fare payments, top-ups, and completed transactions.',
-      },
-      {
-        key: 'chat',
-        targetRef: chatGuideRef,
-        title: 'Need Help?',
-        message: 'Get support for card balance, top-ups, QR payments, lost cards, and account concerns.',
-      },
-    ],
-    [],
-  );
+  const guideSteps = useMemo(() => [
+    {
+      id: 'balance', targetRef: balanceGuideRef, scrollRef: homeScrollRef,
+      scrollOffsetRef: homeScrollOffsetRef, title: 'Available Balance',
+      description: 'View your current RFID card balance, card status, and masked card number before making a fare payment.',
+      targetType: 'card', pointerType: 'arrow', preferredCardPlacement: 'below', spotlightPadding: 10, spotlightRadius: 24,
+    },
+    {
+      id: 'topup', targetRef: topUpGuideRef, scrollRef: homeScrollRef,
+      scrollOffsetRef: homeScrollOffsetRef, title: 'Top Up',
+      description: 'Add money to your RFID card using the available online top-up options.',
+      targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'below', spotlightRadius: 18,
+    },
+    {
+      id: 'qr', targetRef: qrGuideRef, title: 'Pay with QR',
+      description: 'Generate or scan a QR code to make a quick and secure fare payment.',
+      targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'below', spotlightRadius: 18,
+    },
+    {
+      id: 'nfc', targetRef: nfcGuideRef, scrollRef: homeScrollRef,
+      scrollOffsetRef: homeScrollOffsetRef, title: 'NFC Pay',
+      description: 'Use your supported Android phone or registered card for contactless fare payment.',
+      targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'below', spotlightRadius: 18,
+    },
+    {
+      id: 'recent-activity', targetRef: recentActivityRef, scrollRef: homeScrollRef,
+      scrollOffsetRef: homeScrollOffsetRef, title: 'Recent Activity',
+      description: 'Review your recent fare payments, top-ups, transaction status, and payment history.',
+      targetType: 'section', pointerType: 'arrow', preferredCardPlacement: 'above', spotlightRadius: 16,
+    },
+    {
+      id: 'notifications', targetRef: notificationGuideRef, title: 'Notifications',
+      description: 'Stay updated with payment confirmations, account alerts, announcements, and important system messages.',
+      targetType: 'headerButton', pointerType: 'hand', preferredCardPlacement: 'below', spotlightRadius: 18,
+    },
+    {
+      id: 'chat', targetRef: chatGuideRef, title: 'Need Help?',
+      description: 'Get support for card balance, top-ups, QR payments, lost cards, and account concerns.',
+      targetType: 'floatingButton', pointerType: 'hand', preferredCardPlacement: 'above', spotlightRadius: 24,
+    },
+    {
+      id: 'bottom-navigation', targetRef: bottomNavGuideRef, title: 'Bottom Navigation',
+      description: 'Use the bottom menu to move between the main sections of the app.',
+      targetType: 'fullBottomNavigation', pointerType: 'arrow', preferredCardPlacement: 'above', spotlightPadding: 6, spotlightRadius: 22,
+    },
+    {
+      id: 'nav-home', targetRef: homeNavGuideRef, title: 'Home',
+      description: 'Return to your dashboard to view your balance, quick actions, and recent activity.',
+      targetType: 'bottomNavigationItem', pointerType: 'hand', preferredCardPlacement: 'above', spotlightRadius: 18,
+    },
+    {
+      id: 'nav-wallet', targetRef: walletGuideRef, title: 'Wallet',
+      description: 'Manage your card balance, card details, top-up options, and wallet information.',
+      targetType: 'bottomNavigationItem', pointerType: 'hand', preferredCardPlacement: 'above', spotlightRadius: 18,
+    },
+    {
+      id: 'nav-activity', targetRef: activityNavGuideRef, title: 'Activity',
+      description: 'View your complete transaction history, fare payments, and top-up records.',
+      targetType: 'bottomNavigationItem', pointerType: 'hand', preferredCardPlacement: 'above', spotlightRadius: 18,
+    },
+    {
+      id: 'nav-profile', targetRef: profileNavGuideRef, title: 'Profile',
+      description: 'Manage your account information, security settings, preferences, and saved session options.',
+      targetType: 'bottomNavigationItem', pointerType: 'hand', preferredCardPlacement: 'above', spotlightRadius: 18,
+    },
+  ], []);
 
   const walletGuideSteps = useMemo(
     () => [
       {
-        key: 'wallet-card',
+        id: 'wallet-card',
         targetRef: walletCardGuideRef,
         scrollRef: walletScrollRef,
         scrollOffsetRef: walletScrollOffsetRef,
         title: 'RFID Card',
-        message: 'View your active transit card, masked card number, status, and balance.',
+        description: 'View your active transit card, masked card number, status, and balance.',
+        targetType: 'card', pointerType: 'arrow', preferredCardPlacement: 'below', spotlightPadding: 10, spotlightRadius: 24,
       },
       {
-        key: 'wallet-topup',
+        id: 'wallet-topup',
         targetRef: walletTopUpGuideRef,
         scrollRef: walletScrollRef,
         scrollOffsetRef: walletScrollOffsetRef,
         title: 'Top Up',
-        message: 'Add balance to your RFID card.',
+        description: 'Add balance to your RFID card using the available online payment options.',
+        targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'below', spotlightRadius: 18,
       },
       {
-        key: 'wallet-pay',
+        id: 'wallet-pay',
         targetRef: walletPayGuideRef,
         scrollRef: walletScrollRef,
         scrollOffsetRef: walletScrollOffsetRef,
         title: 'QR Payment',
-        message: 'Open your QR code when you need to pay through the fare scanner.',
+        description: 'Open your QR code when you need to pay through the fare scanner.',
+        targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'below', spotlightRadius: 18,
       },
       {
-        key: 'wallet-stats',
+        id: 'wallet-stats',
         targetRef: walletStatsGuideRef,
         scrollRef: walletScrollRef,
         scrollOffsetRef: walletScrollOffsetRef,
         title: 'Monthly Summary',
-        message: 'Review your fare spending and top-up amount for this month.',
+        description: 'Review your fare spending and top-up amount for this month.',
+        targetType: 'section', pointerType: 'arrow', preferredCardPlacement: 'above', spotlightRadius: 20,
       },
       {
-        key: 'wallet-ledger',
+        id: 'wallet-ledger',
         targetRef: walletLedgerGuideRef,
         scrollRef: walletScrollRef,
         scrollOffsetRef: walletScrollOffsetRef,
         title: 'Card Details',
-        message: 'View your assigned RFID card number and current ledger balance.',
+        description: 'View your assigned RFID card number and current ledger balance.',
+        targetType: 'section', pointerType: 'arrow', preferredCardPlacement: 'above', spotlightRadius: 20,
       },
     ],
     [],
@@ -639,44 +827,49 @@ export default function DashboardScreen({ navigation }) {
   const topUpGuideSteps = useMemo(
     () => [
       {
-        key: 'topup-card',
+        id: 'topup-card',
         targetRef: topUpCardGuideRef,
         scrollRef: topUpScrollRef,
         scrollOffsetRef: topUpScrollOffsetRef,
         title: 'Card Balance',
-        message: 'Check your RFID card and current balance here before adding load.',
+        description: 'Check your RFID card and current balance here before adding load.',
+        targetType: 'card', pointerType: 'arrow', preferredCardPlacement: 'below', spotlightPadding: 10, spotlightRadius: 24,
       },
       {
-        key: 'topup-presets',
+        id: 'topup-presets',
         targetRef: topUpPresetGuideRef,
         scrollRef: topUpScrollRef,
         scrollOffsetRef: topUpScrollOffsetRef,
         title: 'Choose Amount',
-        message: 'Pick a preset load amount for a faster top-up.',
+        description: 'Pick a preset load amount for a faster top-up.',
+        targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'below', spotlightRadius: 16,
       },
       {
-        key: 'topup-custom',
+        id: 'topup-custom',
         targetRef: topUpCustomGuideRef,
         scrollRef: topUpScrollRef,
         scrollOffsetRef: topUpScrollOffsetRef,
         title: 'Custom Amount',
-        message: 'Enter your own amount here if the preset options do not match what you need.',
+        description: 'Enter your own amount here if the preset options do not match what you need.',
+        targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'below', spotlightRadius: 16,
       },
       {
-        key: 'topup-payment',
+        id: 'topup-payment',
         targetRef: topUpPaymentGuideRef,
         scrollRef: topUpScrollRef,
         scrollOffsetRef: topUpScrollOffsetRef,
         title: 'Payment Method',
-        message: 'Choose where you want to pay from, such as GCash or Maya.',
+        description: 'Choose where you want to pay from, such as GCash or Maya.',
+        targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'above', spotlightRadius: 18,
       },
       {
-        key: 'topup-load',
+        id: 'topup-load',
         targetRef: topUpLoadGuideRef,
         scrollRef: topUpScrollRef,
         scrollOffsetRef: topUpScrollOffsetRef,
         title: 'Load Amount',
-        message: 'Tap this button to start checkout. After payment, the app will verify and update your RFID balance.',
+        description: 'Tap this button to start checkout. After payment, the app verifies and updates your RFID balance.',
+        targetType: 'button', pointerType: 'hand', preferredCardPlacement: 'above', spotlightRadius: 16,
       },
     ],
     [],
@@ -1276,6 +1469,9 @@ export default function DashboardScreen({ navigation }) {
       }
       setQrData(data);
       setQrSeconds(Number(data.expiresInSeconds || 45));
+      captureMobileEvent(posthog, 'mobile_qr_generated', {
+        refreshed: refreshing,
+      });
     } catch (error) {
       const message =
         error.response?.data?.message ||
@@ -1293,7 +1489,7 @@ export default function DashboardScreen({ navigation }) {
       qrRefreshingRef.current = false;
       setQrLoading(false);
     }
-  }, []);
+  }, [posthog]);
 
   const checkFareQrStatus = useCallback(async () => {
     if (!qrOpen || !qrData?.payload || qrLoading || qrPayment) return;
@@ -1307,6 +1503,7 @@ export default function DashboardScreen({ navigation }) {
       if (status?.status === 'USED' && status.payment) {
         setQrPayment(status.payment);
         setQrSeconds(0);
+        captureMobileEvent(posthog, 'mobile_qr_completed');
         fetchData({ silent: true });
         return;
       }
@@ -1325,7 +1522,7 @@ export default function DashboardScreen({ navigation }) {
           'Reader connection issue. Please try again.',
       );
     }
-  }, [fetchData, generateFareQr, qrData?.payload, qrLoading, qrOpen, qrPayment]);
+  }, [fetchData, generateFareQr, posthog, qrData?.payload, qrLoading, qrOpen, qrPayment]);
 
   useEffect(() => {
     if (!qrOpen || !qrData?.payload || qrLoading || qrPayment) return undefined;
@@ -1391,6 +1588,7 @@ export default function DashboardScreen({ navigation }) {
       }
 
       navigation.navigate('MobileNfcPayment');
+      captureMobileEvent(posthog, 'mobile_nfc_opened');
     } catch (error) {
       const message =
         error.response?.data?.message ||
@@ -1438,17 +1636,32 @@ export default function DashboardScreen({ navigation }) {
     }
 
     if (completedMode === 'home' && !wasReplay) {
+      captureMobileEvent(posthog, 'mobile_onboarding_completed', {
+        guide_mode: completedMode,
+      });
       setTimeout(() => {
         checkPostGuidePrompts();
       }, 350);
     }
   };
 
-  const replayGuide = async () => {
+  const replayGuide = async (mode = 'home') => {
     guideReplayRef.current = true;
-    await AsyncStorage.setItem(APP_GUIDE_REPLAYED_KEY, 'true');
+    if (mode === 'home') {
+      await AsyncStorage.setItem(APP_GUIDE_REPLAYED_KEY, 'true');
+    }
     closeAllAutomaticModals();
-    startGuide('home');
+    setActiveTab(mode === 'wallet' ? 'Wallet' : mode === 'topup' ? 'TopUp' : 'Home');
+    startGuide(mode);
+  };
+
+  const showReplayGuideMenu = () => {
+    Alert.alert('Replay App Guide', 'Choose the guide you want to review.', [
+      { text: 'Main App Guide', onPress: () => replayGuide('home') },
+      { text: 'Wallet Guide', onPress: () => replayGuide('wallet') },
+      { text: 'Top Up Guide', onPress: () => replayGuide('topup') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const showHelp = (title, message) => {
@@ -1464,6 +1677,7 @@ export default function DashboardScreen({ navigation }) {
     const trimmed = text.trim();
 
     if (!trimmed || chatLoading) return;
+    captureMobileEvent(posthog, 'mobile_chatbot_message_sent');
 
     setChatInput('');
 
@@ -1557,6 +1771,8 @@ export default function DashboardScreen({ navigation }) {
 
         <View style={styles.headerActions}>
           <Pressable
+            ref={notificationGuideRef}
+            collapsable={false}
             style={styles.headerButton}
             onPress={() => setActiveTab('Notifications')}
           >
@@ -2189,56 +2405,69 @@ export default function DashboardScreen({ navigation }) {
   };
 
   const renderNotifications = () => {
-    const transactionAlerts = transactions.slice(0, 6).map((tx) => ({
-      id: tx.id,
-      icon: tx.type === 'TOPUP' ? 'cellphone' : 'map-marker-outline',
-      title: tx.type === 'TOPUP' ? 'Top-up completed' : 'Fare deducted',
-      body: `Transaction ${transactionId(tx)} for PHP ${formatCurrency(tx.amount)} is ${String(tx.status || 'completed').toLowerCase()}.`,
-      time: formatDate(tx.createdAt),
-      green: tx.type === 'TOPUP',
-    }));
-
-    const balanceAlert =
-      currentBalance > 0 && currentBalance < 100
-        ? [
-            {
-              id: 'low-balance',
-              icon: 'lightning-bolt',
-              title: 'Low balance reminder',
-              body: `Your current balance is PHP ${formatCurrency(currentBalance)}.`,
-              time: 'Now',
-              gold: true,
-            },
-          ]
-        : [];
-
-    const alerts = [...balanceAlert, ...transactionAlerts];
-
     return (
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={styles.notificationContent}
       >
         <BackTitle
           title="Notifications"
-          subtitle={`${alerts.length} alerts`}
+          subtitle={`${notificationItems.length} ${notificationItems.length === 1 ? 'alert' : 'alerts'}`}
           onBack={() => setActiveTab('Home')}
+          rightText={unreadNotificationCount ? 'Mark all as read' : undefined}
+          onRightPress={markAllNotificationsAsRead}
         />
 
-        {alerts.map((item) => (
-          <NotificationCard
-            key={item.id}
-            icon={item.icon}
-            title={item.title}
-            body={item.body}
-            time={item.time}
-            green={item.green}
-            gold={item.gold}
-          />
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.notificationFilterRow}
+        >
+          {NOTIFICATION_FILTERS.map((filter) => {
+            const active = notificationFilter === filter;
+
+            return (
+              <Pressable
+                key={filter}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                onPress={() => setNotificationFilter(filter)}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {filter}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {groupedNotifications.map((group) => (
+          <View key={group.label} style={styles.notificationDateGroup}>
+            <Text style={styles.transactionDateTitle}>{group.label}</Text>
+            {group.items.map((item) => (
+              <NotificationCard
+                key={item.id}
+                item={item}
+                unread={!readNotificationIds.includes(item.id)}
+                onPress={() => markNotificationAsRead(item.id)}
+              />
+            ))}
+          </View>
         ))}
 
-        {!alerts.length && (
-          <Text style={styles.empty}>No notifications yet.</Text>
+        {!filteredNotifications.length && (
+          <View style={styles.notificationEmptyState}>
+            <MaterialCommunityIcons name="bell-outline" size={32} color={colors.navy} />
+            <Text style={styles.notificationEmptyTitle}>
+              {notificationItems.length ? 'No notifications in this category yet' : 'No notifications yet'}
+            </Text>
+            <Text style={styles.notificationEmptyText}>
+              {notificationItems.length
+                ? 'Try another filter to view other alerts.'
+                : 'Your fare payments, top-ups, and account alerts will appear here.'}
+            </Text>
+          </View>
         )}
       </ScrollView>
     );
@@ -2362,33 +2591,107 @@ export default function DashboardScreen({ navigation }) {
   );
 
   const renderProfile = () => (
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.profileContent}
+    >
       <Text style={styles.pageTitle}>Profile</Text>
       <Text style={styles.pageSub}>Passenger account settings</Text>
 
-      <View style={styles.infoCard}>
-        <InfoRow
-          label="Card Number"
-          value={balance?.cardNumber || '-'}
-        />
-        <InfoRow
-          label="Biometric Login"
-          value={biometricEnabled ? 'Enabled' : 'Disabled'}
-          green={biometricEnabled}
-        />
+      <View style={styles.profileSummaryCard}>
+        <View style={styles.profileAvatar}>
+          <Text style={styles.profileAvatarText}>
+            {passengerName
+              .split(/\s+/)
+              .slice(0, 2)
+              .map((part) => part.charAt(0))
+              .join('')
+              .toUpperCase() || 'P'}
+          </Text>
+        </View>
+
+        <View style={styles.profileSummaryText}>
+          <Text numberOfLines={1} style={styles.profileName}>{passengerName}</Text>
+          <Text style={styles.profileCardNumber}>
+            {maskCardNumber(balance?.cardNumber || passenger?.cardNumber)}
+          </Text>
+        </View>
+
+        <View style={[styles.profileActiveBadge, !profileCardActive && styles.profileInactiveBadge]}>
+          <View style={[styles.profileActiveDot, !profileCardActive && styles.profileInactiveDot]} />
+          <Text style={[styles.profileActiveText, !profileCardActive && styles.profileInactiveText]}>
+            {profileCardStatus}
+          </Text>
+        </View>
       </View>
 
-      <Button onPress={toggleBiometrics}>
-        {biometricEnabled ? 'Disable Biometrics' : 'Enable Biometrics'}
-      </Button>
+      <ProfileSection title="Account">
+        <ProfileSettingRow
+          icon="card-account-details-outline"
+          title="Card Information"
+          subtitle={`${maskCardNumber(balance?.cardNumber || passenger?.cardNumber)} • ${profileCardStatus}${balance?.cardType ? ` • ${balance.cardType}` : ''}`}
+          onPress={() => setActiveTab('Wallet')}
+        />
+      </ProfileSection>
 
-      <Button variant="secondary" onPress={replayGuide}>
-        Replay App Guide
-      </Button>
+      <ProfileSection title="Security">
+        <ProfileSettingRow
+          icon="fingerprint"
+          title="Fingerprint / Phone Unlock"
+          subtitle="Use device security for faster login"
+          onPress={toggleBiometrics}
+          right={(
+            <View style={[styles.profileStatePill, biometricEnabled && styles.profileStatePillEnabled]}>
+              <Text style={[styles.profileStateText, biometricEnabled && styles.profileStateTextEnabled]}>
+                {biometricEnabled ? 'Enabled' : 'Disabled'}
+              </Text>
+            </View>
+          )}
+        />
+      </ProfileSection>
 
-      <Button variant="ghost" onPress={confirmLogout}>
-        Logout
-      </Button>
+      <ProfileSection title="Support & Privacy">
+        <ProfileSettingRow
+          icon="map-marker-path"
+          title="Replay App Guide"
+          subtitle="Review how to use Premier features"
+          onPress={showReplayGuideMenu}
+        />
+        <View style={styles.profileRowDivider} />
+        <ProfileSettingRow
+          icon="shield-lock-outline"
+          title="Privacy Notice"
+          subtitle="See how your account information is used"
+          onPress={() => setPrivacyNoticeOpen(true)}
+        />
+        <View style={styles.profileRowDivider} />
+        <ProfileSettingRow
+          icon="lifebuoy"
+          title="Help and Support"
+          subtitle="Get help with fares, cards, and top-ups"
+          onPress={() => setActiveTab('Chat')}
+        />
+      </ProfileSection>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={confirmLogout}
+        style={({ pressed }) => [styles.profileLogoutRow, pressed && styles.profileRowPressed]}
+      >
+        <View style={styles.profileLogoutIcon}>
+          <MaterialCommunityIcons name="logout" size={20} color="#B4232D" />
+        </View>
+        <View style={styles.profileRowText}>
+          <Text style={styles.profileLogoutTitle}>Log Out</Text>
+          <Text style={styles.profileRowSubtitle}>Sign out from this device</Text>
+        </View>
+        <Feather name="chevron-right" size={20} color="#B4232D" />
+      </Pressable>
+
+      <View style={styles.profileFooter}>
+        <Text style={styles.profileFooterText}>Premier Transport Corporation</Text>
+        <Text style={styles.profileFooterVersion}>App version 1.0.0</Text>
+      </View>
     </ScrollView>
   );
 
@@ -2407,14 +2710,12 @@ export default function DashboardScreen({ navigation }) {
     <SafeAreaView style={styles.outer}>
       {renderScreen()}
 
-      {!['Chat', 'TopUp', 'Transactions', 'Notifications'].includes(
-        activeTab,
-      ) && (
+      {activeTab !== 'Chat' && (
         <>
           <Pressable
             ref={chatGuideRef}
             collapsable={false}
-            style={styles.chatFloat}
+            style={[styles.chatFloat, activeTab === 'Profile' && styles.profileChatFloat]}
             onPress={() => setActiveTab('Chat')}
           >
             <MaterialCommunityIcons
@@ -2424,8 +2725,9 @@ export default function DashboardScreen({ navigation }) {
             />
           </Pressable>
 
-          <View style={styles.bottomNav}>
+          <View ref={bottomNavGuideRef} collapsable={false} style={styles.bottomNav}>
             <NavItem
+              ref={homeNavGuideRef}
               icon="home-outline"
               label="Home"
               active={activeTab === 'Home'}
@@ -2456,6 +2758,7 @@ export default function DashboardScreen({ navigation }) {
             <Text style={styles.scanNavLabel}>Scan</Text>
 
             <NavItem
+              ref={activityNavGuideRef}
               icon="history"
               label="Activity"
               active={activeTab === 'Transactions'}
@@ -2463,6 +2766,7 @@ export default function DashboardScreen({ navigation }) {
             />
 
             <NavItem
+              ref={profileNavGuideRef}
               icon="account-outline"
               label="Profile"
               active={activeTab === 'Profile'}
@@ -2471,6 +2775,11 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </>
       )}
+
+      <PrivacyNoticeModal
+        visible={privacyNoticeOpen}
+        onClose={() => setPrivacyNoticeOpen(false)}
+      />
 
       <Modal
         visible={!!selectedReceipt}
@@ -2874,34 +3183,66 @@ function InfoRow({ label, value, green }) {
   );
 }
 
-function NotificationCard({ icon, title, body, time, unread, green, gold, blue }) {
-  const color = green
-    ? colors.green
-    : gold
-      ? colors.gold
-      : blue
-        ? colors.navy
-        : colors.maroon;
-
+function ProfileSection({ title, children }) {
   return (
-    <View style={[styles.notificationCard, unread && styles.notificationUnread]}>
+    <View style={styles.profileSection}>
+      <Text style={styles.profileSectionTitle}>{title}</Text>
+      <View style={styles.profileSectionCard}>{children}</View>
+    </View>
+  );
+}
+
+function ProfileSettingRow({ icon, title, subtitle, onPress, right }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.profileSettingRow, pressed && styles.profileRowPressed]}
+    >
+      <View style={styles.profileSettingIcon}>
+        <MaterialCommunityIcons name={icon} size={20} color={colors.maroon} />
+      </View>
+      <View style={styles.profileRowText}>
+        <Text style={styles.profileRowTitle}>{title}</Text>
+        {!!subtitle && <Text style={styles.profileRowSubtitle}>{subtitle}</Text>}
+      </View>
+      {right || <Feather name="chevron-right" size={20} color="#94A3B8" />}
+    </Pressable>
+  );
+}
+
+function NotificationCard({ item, unread, onPress }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${item.title}. ${unread ? 'Unread notification.' : 'Read notification.'}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.notificationCard,
+        unread && styles.notificationUnread,
+        pressed && styles.notificationCardPressed,
+      ]}
+    >
       <View
         style={[
           styles.notificationIcon,
-          { backgroundColor: `${color}12` },
+          { backgroundColor: item.backgroundColor },
         ]}
       >
-        <MaterialCommunityIcons name={icon} size={22} color={color} />
+        <MaterialCommunityIcons name={item.icon} size={22} color={item.color} />
       </View>
 
-      <View style={{ flex: 1 }}>
-        <Text style={styles.notificationTitle}>{title}</Text>
-        <Text style={styles.notificationBody}>{body}</Text>
-        <Text style={styles.notificationTime}>{time}</Text>
+      <View style={styles.notificationDetails}>
+        <Text style={styles.notificationTitle}>{item.title}</Text>
+        <Text style={styles.notificationBody}>{item.message}</Text>
+        <Text style={styles.notificationTime}>{getNotificationTime(item)}</Text>
       </View>
 
-      {unread && <View style={styles.unreadDot} />}
-    </View>
+      <View style={styles.notificationRight}>
+        {unread && <View style={styles.unreadDot} />}
+        <Feather name="chevron-right" size={18} color="#94A3B8" />
+      </View>
+    </Pressable>
   );
 }
 
@@ -3216,6 +3557,7 @@ const styles = StyleSheet.create({
   receiptCard: {
     width: '90%',
     maxWidth: 380,
+    alignSelf: 'center',
     backgroundColor: '#fff',
     borderRadius: 22,
     overflow: 'hidden',
@@ -3568,6 +3910,237 @@ const styles = StyleSheet.create({
 
   infoGreen: {
     color: colors.green,
+  },
+
+  profileContent: {
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 176,
+  },
+
+  profileSummaryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E8EDF3',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    marginBottom: 22,
+    ...shadow,
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+  },
+
+  profileAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.maroon,
+  },
+
+  profileAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  profileSummaryText: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  profileName: {
+    color: colors.navy,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+
+  profileCardNumber: {
+    color: '#7186A5',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 5,
+  },
+
+  profileActiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 999,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+
+  profileActiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.green,
+  },
+
+  profileActiveText: {
+    color: colors.greenDark,
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+
+  profileInactiveBadge: {
+    backgroundColor: '#F1F5F9',
+  },
+
+  profileInactiveDot: {
+    backgroundColor: '#64748B',
+  },
+
+  profileInactiveText: {
+    color: '#475569',
+  },
+
+  profileSection: {
+    marginBottom: 20,
+  },
+
+  profileSectionTitle: {
+    color: colors.navy,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    marginLeft: 2,
+  },
+
+  profileSectionCard: {
+    overflow: 'hidden',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E8EDF3',
+    backgroundColor: '#FFFFFF',
+    ...shadow,
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+  },
+
+  profileSettingRow: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+
+  profileRowPressed: {
+    backgroundColor: '#F8FAFC',
+  },
+
+  profileSettingIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF1F3',
+  },
+
+  profileRowText: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  profileRowTitle: {
+    color: colors.navy,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  profileRowSubtitle: {
+    color: '#7186A5',
+    fontSize: 10,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+
+  profileRowDivider: {
+    height: 1,
+    marginLeft: 67,
+    backgroundColor: '#EDF1F6',
+  },
+
+  profileStatePill: {
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+
+  profileStatePillEnabled: {
+    backgroundColor: '#DCFCE7',
+  },
+
+  profileStateText: {
+    color: '#64748B',
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+
+  profileStateTextEnabled: {
+    color: colors.greenDark,
+  },
+
+  profileLogoutRow: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#F1BFC5',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+  },
+
+  profileLogoutIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FDECEC',
+  },
+
+  profileLogoutTitle: {
+    color: '#B4232D',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  profileFooter: {
+    alignItems: 'center',
+    marginTop: 24,
+  },
+
+  profileFooterText: {
+    color: '#7186A5',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+
+  profileFooterVersion: {
+    color: '#94A3B8',
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 4,
   },
 
   backTitle: {
@@ -3999,6 +4572,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
   },
 
+  notificationContent: {
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 165,
+  },
+
+  notificationFilterRow: {
+    gap: 9,
+    paddingBottom: 18,
+  },
+
+  notificationDateGroup: {
+    marginTop: 6,
+  },
+
+  notificationCardPressed: {
+    opacity: 0.82,
+  },
+
   notificationUnread: {
     borderWidth: 1,
     borderColor: '#F3D3D7',
@@ -4010,6 +4602,17 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  notificationDetails: {
+    flex: 1,
+  },
+
+  notificationRight: {
+    minWidth: 20,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
   },
 
   notificationTitle: {
@@ -4037,6 +4640,36 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: colors.maroon,
+  },
+
+  notificationEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#EDF1F6',
+    padding: 24,
+    marginTop: 8,
+    ...shadow,
+    shadowOpacity: 0.05,
+  },
+
+  notificationEmptyTitle: {
+    color: colors.navy,
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginTop: 11,
+  },
+
+  notificationEmptyText: {
+    color: '#7186A5',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 6,
   },
 
   chatScreen: {
@@ -4248,6 +4881,14 @@ const styles = StyleSheet.create({
     ...shadow,
     shadowColor: colors.maroon,
     shadowOpacity: 0.28,
+  },
+
+  profileChatFloat: {
+    right: 22,
+    bottom: 106,
+    width: 50,
+    height: 50,
+    borderRadius: 16,
   },
 
   bottomNav: {
@@ -4508,5 +5149,29 @@ const styles = StyleSheet.create({
 
   retryButton: {
     minWidth: 72,
+  },
+
+  privacyNoticeRow: {
+    minHeight: 54,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E7CCD1',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  privacyNoticeLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  privacyNoticeText: {
+    color: colors.maroon,
+    fontSize: 13,
+    fontWeight: '900',
   },
 });

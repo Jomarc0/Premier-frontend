@@ -29,18 +29,18 @@ export const statIconVariant = {
     danger: `${statIconBase} bg-danger-muted/10 text-danger-muted`,
 };
 
-export const dataPanel = 'rounded-lg bg-white shadow-[0_10px_26px_rgba(44,36,41,0.08)] overflow-hidden';
-export const dataPanelHeader = 'flex items-center justify-between gap-4 px-5 py-[0.95rem] bg-maroon text-white max-[860px]:flex-col max-[860px]:items-stretch';
-export const dataPanelTitle = 'inline-flex items-center gap-[0.55rem] font-black text-[0.95rem]';
-export const countPill = 'px-[0.6rem] py-[0.2rem] rounded-full bg-gold text-maroon text-[0.72rem] font-black';
-export const searchControl = 'inline-flex items-center gap-2 text-white/85 text-[0.82rem]';
-export const searchControlInput = 'min-h-[2.2rem] w-56 px-3 rounded-md border border-transparent outline-none bg-white text-text-main focus:border-gold focus:shadow-[0_0_0_3px_rgba(232,189,71,0.25)] max-[860px]:w-full';
+export const dataPanel = 'rounded-lg border border-border-soft bg-white shadow-[0_6px_20px_rgba(44,36,41,0.06)] overflow-hidden';
+export const dataPanelHeader = 'flex items-center justify-between gap-4 px-5 py-[0.95rem] bg-white text-text-main border-b border-border-soft max-[860px]:flex-col max-[860px]:items-stretch';
+export const dataPanelTitle = 'inline-flex items-center gap-[0.55rem] font-black text-[0.95rem] text-text-main';
+export const countPill = 'px-[0.6rem] py-[0.2rem] rounded-full bg-[#f4f1f2] text-text-muted text-[0.72rem] font-black';
+export const searchControl = 'inline-flex items-center gap-2 text-text-muted text-[0.82rem]';
+export const searchControlInput = 'min-h-[2.2rem] w-56 px-3 rounded-md border border-border-soft outline-none bg-white text-text-main focus:border-maroon/50 focus:shadow-[0_0_0_3px_rgba(111,47,60,0.08)] max-[860px]:w-full';
 
 export const tableWrap = 'overflow-x-auto';
 export const adminTable = 'w-full min-w-[720px] border-collapse text-text-main';
-export const tableTh = 'px-[0.95rem] py-[0.8rem] bg-[#f8f5f6] text-maroon text-[0.76rem] font-black uppercase tracking-[0.04em] text-left border-b-2 border-border-soft whitespace-nowrap';
+export const tableTh = 'px-[0.95rem] py-[0.8rem] bg-[#fafbfc] text-[#4b5563] text-[0.74rem] font-black uppercase tracking-[0.04em] text-left border-b border-border-soft whitespace-nowrap';
 export const tableTd = 'px-[0.95rem] py-[0.8rem] border-b border-[#f0f0f3] text-[0.85rem] align-middle';
-export const tableRow = 'even:bg-[#fafbfc] hover:bg-[#fff7ea]';
+export const tableRow = 'even:bg-[#fcfcfd] hover:bg-[#f7f8fa]';
 export const emptyRow = 'text-center !p-10 text-text-muted italic';
 export const loadingRow = 'text-center !p-10 text-text-muted italic';
 export const mono = "[font-family:ui-monospace,SFMono-Regular,Menlo,monospace]";

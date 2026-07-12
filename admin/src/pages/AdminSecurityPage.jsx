@@ -5,8 +5,10 @@ import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import TotpInput from '../components/auth/TotpInput';
 import * as ui from '../components/adminUI';
+import { useAdminAuth } from '../context/AdminAuthContext';
 
 const AdminSecurityPage = () => {
+    const { setTwoFactorEnabled } = useAdminAuth();
     const [setup, setSetup] = useState(null);
     const [code, setCode] = useState('');
     const [loading, setLoading] = useState(true);
@@ -24,6 +26,8 @@ const AdminSecurityPage = () => {
         try {
             const res = await adminAPI.get('/auth/totp/setup');
             setSetup(res.data.data);
+            const enabled = Boolean(res.data.data?.is2FaEnabled ?? res.data.data?.twoFactorEnabled ?? res.data.data?.['2FaEnabled']);
+            setTwoFactorEnabled(enabled);
         } catch (err) {
             toast.error(err.response?.data?.message || 'Failed to load Google Authenticator setup');
         } finally {
@@ -51,6 +55,7 @@ const AdminSecurityPage = () => {
         try {
             await adminAPI.post('/auth/totp/verify', { totpCode: code.trim() });
             toast.success('Google Authenticator enabled');
+            setTwoFactorEnabled(true);
             setCode('');
             loadSetup();
         } catch (err) {

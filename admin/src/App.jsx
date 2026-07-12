@@ -1,7 +1,9 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
+import { captureEvent } from './lib/posthog';
 import AdminLoginPage    from './pages/AdminLoginPage';
 import TransactionsPage  from './pages/TransactionsPage';
 import ReportsPage       from './pages/ReportsPage';
@@ -14,6 +16,7 @@ import DriversPage       from './pages/DriverPage';
 import VehiclesPage      from './pages/VehiclesPage';
 import AdminSecurityPage from './pages/AdminSecurityPage';
 import SupportTicketsPage from './pages/SupportTicketsPage';
+import StaffPage from './pages/StaffPage';
 
 const AdminRoute = ({ children }) => {
     const { admin, loading } = useAdminAuth();
@@ -94,10 +97,23 @@ const SuperAdminRoute = ({ children }) => {
     return children;
 };
 
+function RouteAnalytics() {
+    const location = useLocation();
+
+    useEffect(() => {
+        captureEvent('admin_page_viewed', {
+            path: location.pathname,
+        });
+    }, [location.pathname]);
+
+    return null;
+}
+
 function App() {
     return (
         <AdminAuthProvider>
             <BrowserRouter>
+                <RouteAnalytics />
                 <Routes>
                     <Route path="/admin/login" element={<AdminLoginPage />} />
                     <Route path="/admin" element={
@@ -112,6 +128,9 @@ function App() {
                     } />
                     <Route path="/admin/transactions" element={
                         <AdminRoute><TransactionsPage /></AdminRoute>
+                    } />
+                    <Route path="/admin/staff" element={
+                        <AdminRoute><StaffPage /></AdminRoute>
                     } />
                     <Route path="/admin/users" element={
                         <AdminRoute><AllUsersPage /></AdminRoute>

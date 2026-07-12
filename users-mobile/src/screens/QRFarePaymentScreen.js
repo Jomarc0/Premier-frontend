@@ -3,9 +3,11 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, useW
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import Button from '../components/Button';
 import { getQrFareStatus, requestQrFareToken } from '../api/qrPaymentService';
+import { captureMobileEvent } from '../analytics/posthog';
 import { colors, shadow } from '../theme';
 
 const REFRESH_BUFFER_SECONDS = 8;
@@ -26,6 +28,7 @@ function formatCountdown(seconds) {
 }
 
 export default function QRFarePaymentScreen({ navigation }) {
+  const posthog = usePostHog();
   const { width } = useWindowDimensions();
   const modalQrSize = Math.min(330, Math.max(260, width - 72));
   const [qrData, setQrData] = useState(null);
@@ -54,16 +57,24 @@ export default function QRFarePaymentScreen({ navigation }) {
       setQrData(data);
       setRemainingSeconds(Number(data.expiresInSeconds || 45));
       setScreenState('ready');
+      captureMobileEvent(posthog, 'mobile_qr_generated', {
+        source: 'qr_payment_screen',
+        refreshed: refreshing,
+      });
     } catch (error) {
       if (!mountedRef.current) return;
       setQrData(null);
       setRemainingSeconds(0);
       setFailureMessage(error.response?.data?.message || error.message || 'Unable to refresh secure QR.');
       setScreenState('failed');
+      captureMobileEvent(posthog, 'mobile_qr_generation_failed', {
+        source: 'qr_payment_screen',
+        refreshed: refreshing,
+      });
     } finally {
       refreshingRef.current = false;
     }
-  }, []);
+  }, [posthog]);
 
   const checkPaymentStatus = useCallback(async () => {
     if (!qrData?.payload || screenState !== 'ready') return;
@@ -75,6 +86,9 @@ export default function QRFarePaymentScreen({ navigation }) {
       if (status?.status === 'USED' && status.payment) {
         setPayment(status.payment);
         setScreenState('success');
+        captureMobileEvent(posthog, 'mobile_qr_completed', {
+          source: 'qr_payment_screen',
+        });
         return;
       }
 
@@ -90,8 +104,11 @@ export default function QRFarePaymentScreen({ navigation }) {
       if (!mountedRef.current) return;
       setFailureMessage(error.response?.data?.message || 'Reader connection issue. Please try again.');
       setScreenState('failed');
+      captureMobileEvent(posthog, 'mobile_qr_status_failed', {
+        source: 'qr_payment_screen',
+      });
     }
-  }, [loadQrToken, qrData?.payload, screenState]);
+  }, [loadQrToken, posthog, qrData?.payload, screenState]);
 
   useEffect(() => {
     mountedRef.current = true;

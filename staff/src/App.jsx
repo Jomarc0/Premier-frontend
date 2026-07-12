@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ListChecks, BusFront } from "lucide-react";
 import logo from "./assets/image/logo-premier.webp";
 import { BRAND_NAME } from "./constants/brand";
+import { captureEvent } from "./lib/posthog";
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ||
@@ -185,6 +186,7 @@ function LoginPage({ onLogin }) {
     event.preventDefault();
     setError("");
     setSubmitting(true);
+    captureEvent("staff_login_started");
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/admin/auth/login`, {
@@ -213,8 +215,10 @@ function LoginPage({ onLogin }) {
         loggedInAt: Date.now(),
       };
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      captureEvent("staff_login_success");
       onLogin(session);
     } catch (loginError) {
+      captureEvent("staff_login_failed");
       setError(loginError.message || "Invalid staff username or password.");
     } finally {
       setSubmitting(false);
@@ -360,6 +364,61 @@ function QueueSection({ title, buses }) {
   );
 }
 
+function peso(value) {
+  return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(value || 0));
+}
+
+function CashTransactions({ data, loading, error, onRefresh }) {
+  const rows = data?.transactions || [];
+  return (
+    <section>
+      <div className="mb-4 rounded-2xl border border-[#e6e8ee] bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#6f2f3c]">Today&apos;s Transactions</p>
+            <h2 className="mt-1 text-2xl font-black text-[#352f33]">Staff-Assisted Cash Fares</h2>
+            <p className="mt-1 text-xs font-semibold text-[#717680]">Read-only records created by your regular and discounted RFID cash cards.</p>
+          </div>
+          <button type="button" onClick={onRefresh} className="min-h-11 rounded-xl bg-brand-primary px-4 text-sm font-black text-white">Refresh</button>
+        </div>
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <StatTile label="Regular" value={data?.regularCount || 0} />
+        <StatTile label="Discounted" value={data?.discountedCount || 0} />
+        <StatTile label="Passengers" value={data?.totalPassengers || 0} />
+        <StatTile label="Expected Cash" value={peso(data?.expectedCash)} />
+      </div>
+
+      {loading ? <p className="rounded-lg border border-[#e6e8ee] bg-white p-4 text-sm font-bold text-[#717680]">Loading cash transactions...</p> : null}
+      {error ? <p className="rounded-lg border border-[#e8bd47] bg-[#fff7df] p-4 text-sm font-bold text-[#8a5a00]">{error}</p> : null}
+      {!loading && !error ? (
+        <div className="overflow-hidden rounded-2xl border border-[#e6e8ee] bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="bg-[#f2e8ea] text-[#6f2f3c]">
+                <tr>{["Time", "Vehicle", "Category", "Amount", "Reference"].map((label) => <th key={label} className="px-4 py-3 text-xs font-black uppercase tracking-wide">{label}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id} className="border-t border-[#eceef2]">
+                    <td className="px-4 py-3 font-semibold">{new Date(row.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
+                    <td className="px-4 py-3 font-black">{row.plateNumber}</td>
+                    <td className="px-4 py-3"><span className="rounded-full bg-[#f2e8ea] px-2 py-1 text-xs font-black text-[#6f2f3c]">{row.fareCategory === "REGULAR_CASH" ? "Regular" : "Discounted"}</span></td>
+                    <td className="px-4 py-3 font-black">{peso(row.finalFare)}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-[#717680]">{row.referenceNumber}</td>
+                  </tr>
+                ))}
+                {!rows.length ? <tr><td colSpan="5" className="px-4 py-8 text-center font-bold text-[#717680]">No cash fares recorded today.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function Dashboard({ username, onLogout }) {
   const [queue, setQueue] = useState(emptyQueue);
   const [loading, setLoading] = useState(true);
@@ -367,12 +426,20 @@ function Dashboard({ username, onLogout }) {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [activeTerminal, setActiveTerminal] = useState("grand");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeView, setActiveView] = useState("queue");
+  const [cashData, setCashData] = useState(null);
+  const [cashLoading, setCashLoading] = useState(false);
+  const [cashError, setCashError] = useState("");
 
   async function loadQueue({ silent = false } = {}) {
     if (!silent) setLoading(true);
 
     try {
       const savedSession = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      if (!savedSession?.token) {
+        localStorage.removeItem(SESSION_KEY);
+        throw new Error("STAFF_SESSION_EXPIRED");
+      }
       const response = await fetch(`${API_BASE_URL}/api/staff/bus-queue`, {
         headers: {
           Accept: "application/json",
@@ -385,18 +452,55 @@ function Dashboard({ username, onLogout }) {
       }
       if (!response.ok) throw new Error(`API returned ${response.status}`);
       const payload = await response.json();
-      setQueue(normalizeQueuePayload(payload));
+      const nextQueue = normalizeQueuePayload(payload);
+      setQueue(nextQueue);
       setError("");
       setLastUpdated(new Date());
+      if (!silent) {
+        captureEvent("staff_bus_queue_loaded", {
+          incoming_sm_count: nextQueue.incomingToSmTerminal.length,
+          incoming_grand_count: nextQueue.incomingToGrandTerminal.length,
+        });
+      }
     } catch (requestError) {
       if (requestError.message === "STAFF_SESSION_EXPIRED") {
+        captureEvent("staff_session_expired");
         setError("Staff session expired. Please sign in again.");
         onLogout();
         return;
       }
+      if (!silent) captureEvent("staff_bus_queue_load_failed");
       setError("Live bus queue is unavailable. Check if the Spring Boot backend is running.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadCashTransactions({ silent = false } = {}) {
+    if (!silent) setCashLoading(true);
+    try {
+      const savedSession = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      if (!savedSession?.token) {
+        localStorage.removeItem(SESSION_KEY);
+        onLogout();
+        return;
+      }
+      const response = await fetch(`${API_BASE_URL}/api/staff/cash-transactions/today`, {
+        headers: { Accept: "application/json", Authorization: `Bearer ${savedSession?.token || ""}` },
+      });
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem(SESSION_KEY);
+        onLogout();
+        return;
+      }
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.success === false) throw new Error(payload?.message || `API returned ${response.status}`);
+      setCashData(payload?.data || payload);
+      setCashError("");
+    } catch (requestError) {
+      setCashError(requestError.message || "Cash transactions are unavailable.");
+    } finally {
+      setCashLoading(false);
     }
   }
 
@@ -405,6 +509,13 @@ function Dashboard({ username, onLogout }) {
     const timer = window.setInterval(() => loadQueue({ silent: true }), 5000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (activeView !== "transactions") return undefined;
+    loadCashTransactions();
+    const timer = window.setInterval(() => loadCashTransactions({ silent: true }), 5000);
+    return () => window.clearInterval(timer);
+  }, [activeView]);
 
   const updatedLabel = useMemo(() => {
     if (!lastUpdated) return "Waiting for live update";
@@ -454,6 +565,19 @@ function Dashboard({ username, onLogout }) {
       </header>
 
       <section className="mx-auto w-full max-w-3xl px-4 py-4">
+        <nav className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#e6e8ee] bg-white p-2 shadow-sm" aria-label="Staff pages">
+          <button type="button" onClick={() => setActiveView("queue")} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-black ${activeView === "queue" ? "bg-brand-primary text-white" : "text-[#6f2f3c]"}`}>
+            <BusFront size={18} /> Queue
+          </button>
+          <button type="button" onClick={() => setActiveView("transactions")} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-black ${activeView === "transactions" ? "bg-brand-primary text-white" : "text-[#6f2f3c]"}`}>
+            <ListChecks size={18} /> Transactions
+          </button>
+        </nav>
+
+        {activeView === "transactions" ? (
+          <CashTransactions data={cashData} loading={cashLoading} error={cashError} onRefresh={() => loadCashTransactions()} />
+        ) : (
+        <>
         <div className="mb-4 rounded-2xl border border-[#e6e8ee] bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -488,7 +612,12 @@ function Dashboard({ username, onLogout }) {
         <div className="mb-4 grid grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={() => setActiveTerminal("sm")}
+            onClick={() => {
+              setActiveTerminal("sm");
+              captureEvent("staff_terminal_tab_selected", {
+                terminal: "sm",
+              });
+            }}
             className={[
               "min-h-20 rounded-2xl border-2 bg-white p-3 text-left transition shadow-sm",
               activeTerminal === "sm" ? "border-blue-500 bg-blue-50" : "border-[#e6e8ee] hover:border-blue-200",
@@ -508,7 +637,12 @@ function Dashboard({ username, onLogout }) {
 
           <button
             type="button"
-            onClick={() => setActiveTerminal("grand")}
+            onClick={() => {
+              setActiveTerminal("grand");
+              captureEvent("staff_terminal_tab_selected", {
+                terminal: "grand",
+              });
+            }}
             className={[
               "min-h-20 rounded-2xl border-2 bg-white p-3 text-left transition shadow-sm",
               activeTerminal === "grand" ? "border-green-500 bg-green-50" : "border-[#e6e8ee] hover:border-green-200",
@@ -528,6 +662,8 @@ function Dashboard({ username, onLogout }) {
         </div>
 
         <QueueSection title={activeTitle} buses={activeQueue} />
+        </>
+        )}
       </section>
     </main>
   );
@@ -536,14 +672,20 @@ export default function App() {
   const [session, setSession] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
-      return saved?.role === "STAFF" ? saved : null;
+      if (saved?.role === "STAFF" && typeof saved?.token === "string" && saved.token.length > 20) {
+        return saved;
+      }
+      localStorage.removeItem(SESSION_KEY);
+      return null;
     } catch {
+      localStorage.removeItem(SESSION_KEY);
       return null;
     }
   });
 
   function handleLogout() {
     localStorage.removeItem(SESSION_KEY);
+    captureEvent("staff_logout");
     setSession(null);
   }
 

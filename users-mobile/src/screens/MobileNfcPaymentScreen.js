@@ -2,10 +2,12 @@
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import Button from '../components/Button';
 import api from '../api/api';
 import { clearHceToken, saveHceToken } from '../api/hceTokenStore';
+import { captureMobileEvent } from '../analytics/posthog';
 import { colors, shadow } from '../theme';
 
 const loadNfcManager = () => {
@@ -17,6 +19,7 @@ const loadNfcManager = () => {
 };
 
 export default function MobileNfcPaymentScreen({ navigation }) {
+  const posthog = usePostHog();
   const [checking, setChecking] = useState(true);
   const [nfcSupported, setNfcSupported] = useState(null);
   const [nfcEnabled, setNfcEnabled] = useState(null);
@@ -47,13 +50,18 @@ export default function MobileNfcPaymentScreen({ navigation }) {
 
       setNfcSupported(supported);
       setNfcEnabled(enabled);
+      captureMobileEvent(posthog, 'mobile_nfc_status_checked', {
+        supported,
+        enabled,
+      });
     } catch {
       setNfcSupported(false);
       setNfcEnabled(false);
+      captureMobileEvent(posthog, 'mobile_nfc_status_failed');
     } finally {
       setChecking(false);
     }
-  }, []);
+  }, [posthog]);
 
   const prepareMobileToken = useCallback(async () => {
     setTokenLoading(true);
@@ -71,15 +79,17 @@ export default function MobileNfcPaymentScreen({ navigation }) {
       await saveHceToken(token);
       setMobileToken(token);
       setTokenExpiresAt(data.expiresAt || null);
+      captureMobileEvent(posthog, 'mobile_nfc_token_ready');
     } catch (error) {
       await clearHceToken();
       setMobileToken(null);
       setTokenExpiresAt(null);
       setTokenError(error.response?.data?.message || error.message || 'Unable to prepare mobile NFC token.');
+      captureMobileEvent(posthog, 'mobile_nfc_token_failed');
     } finally {
       setTokenLoading(false);
     }
-  }, []);
+  }, [posthog]);
 
   const refreshNfcPayment = useCallback(async () => {
     await Promise.all([checkNfc(), prepareMobileToken()]);

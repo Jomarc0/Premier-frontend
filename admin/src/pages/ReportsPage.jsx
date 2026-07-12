@@ -29,6 +29,7 @@ import {
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
+import { captureEvent } from '../lib/posthog';
 
 const COLORS = ['#6f2f3c', '#e8bd47', '#2f6b3d', '#b24a52', '#58606f', '#9a7b21'];
 const TIMEZONE = 'Asia/Manila';
@@ -184,6 +185,14 @@ const ReportsPage = () => {
             } else {
                 printPdfReport(analytics, exportRows);
             }
+            captureEvent('admin_analytics_exported', {
+                export_type: type,
+                range: appliedFilters.range,
+                has_custom_dates: Boolean(appliedFilters.startDate || appliedFilters.endDate),
+                has_bus_filter: Boolean(appliedFilters.busId),
+                has_route_filter: Boolean(appliedFilters.routeId),
+                has_payment_filter: Boolean(appliedFilters.paymentMethod),
+            });
         } catch (err) {
             console.error('Analytics export failed', err);
         } finally {

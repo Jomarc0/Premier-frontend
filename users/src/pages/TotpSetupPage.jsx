@@ -7,6 +7,7 @@ import TotpInput from '@/components/auth/TotpInput';
 import PrimaryButton from '@/components/auth/PrimaryButton';
 import BrandLogo from '@/components/auth/BrandLogo';
 import { BRAND_NAME, FOOTER_TEXT } from '@/constants/brand';
+import { captureEvent } from '../lib/posthog';
 
 const TotpSetupPage = ({ accountType = 'passenger' }) => {
   const navigate = useNavigate();
@@ -78,10 +79,14 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
       localStorage.setItem('token', token);
       localStorage.setItem('passengerName', passengerName);
       localStorage.removeItem('tempToken');
+      captureEvent('passenger_web_login_success', {
+        method: 'totp_setup',
+      });
 
       toast.success(`2FA setup complete! Welcome Passenger #${passengerId}`);
       navigate('/dashboard');
     } catch (error) {
+      captureEvent('passenger_web_totp_setup_failed');
       toast.error(error.message || 'Setup failed');
       setCode('');
     } finally {

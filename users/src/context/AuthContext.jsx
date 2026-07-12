@@ -1,7 +1,16 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { jwtDecode } from 'jwt-decode';
+import { PRIVACY_NOTICE_ACCEPTED_KEY } from '../constants/privacy';
 
 const AuthContext = createContext();
+
+const clearAuthStorage = () => {
+    const privacyAccepted = localStorage.getItem(PRIVACY_NOTICE_ACCEPTED_KEY);
+    localStorage.clear();
+    if (privacyAccepted === 'true') {
+        localStorage.setItem(PRIVACY_NOTICE_ACCEPTED_KEY, 'true');
+    }
+};
 
 export const AuthProvider = ({ children }) => {
     const [passenger, setPassenger] = useState(null);
@@ -24,10 +33,10 @@ export const AuthProvider = ({ children }) => {
                         });
                         //console.log('Passenger set from token');
                     } else {
-                        localStorage.clear();
+                        clearAuthStorage();
                     }
                 } catch (error) {
-                    localStorage.clear();
+                    clearAuthStorage();
                 }
             }
             
@@ -53,13 +62,13 @@ export const AuthProvider = ({ children }) => {
            // console.log('login set passenger:', decoded.sub);
         } catch (error) {
             //console.error('login JWT error:', error);
-            localStorage.clear();
+            clearAuthStorage();
             setPassenger(null);
         }
     };
 
     const logout = () => {
-        localStorage.clear();
+        clearAuthStorage();
         setPassenger(null);
         window.location.href = '/login';
     };

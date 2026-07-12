@@ -5,16 +5,32 @@ import { FiCreditCard, FiLogIn } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { BRAND_NAME, FOOTER_TEXT } from '../constants/brand';
 import BrandLogo from '../components/auth/BrandLogo';
+import PrivacyNoticeModal from '../components/PrivacyNoticeModal';
+import { PRIVACY_NOTICE_ACCEPTED_KEY } from '../constants/privacy';
+import { captureEvent } from '../lib/posthog';
 
 const LoginPage = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [cardNumber, setCardNumber] = useState('');
   const [loading, setLoading] = useState(false);
+  const [privacyNoticeOpen, setPrivacyNoticeOpen] = useState(
+    () => localStorage.getItem(PRIVACY_NOTICE_ACCEPTED_KEY) !== 'true',
+  );
+  const [privacyAcceptanceRequired, setPrivacyAcceptanceRequired] = useState(
+    () => localStorage.getItem(PRIVACY_NOTICE_ACCEPTED_KEY) !== 'true',
+  );
+
+  const acceptPrivacyNotice = () => {
+    localStorage.setItem(PRIVACY_NOTICE_ACCEPTED_KEY, 'true');
+    setPrivacyAcceptanceRequired(false);
+    setPrivacyNoticeOpen(false);
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
+    captureEvent('passenger_web_login_started');
 
     try {
       let res;
@@ -50,13 +66,16 @@ const LoginPage = () => {
       localStorage.setItem('tempToken', tempToken);
 
       if (requireSetup) {
+        captureEvent('passenger_web_login_totp_setup_required');
         toast.info('Please set up Google Authenticator');
         navigate('/totp-setup');
       } else {
+        captureEvent('passenger_web_login_totp_required');
         toast.info('Enter your Google Authenticator code');
         navigate('/verify-totp');
       }
     } catch (err) {
+      captureEvent('passenger_web_login_failed');
       toast.error(err.message || 'Login failed');
     } finally {
       setLoading(false);
@@ -116,6 +135,18 @@ const LoginPage = () => {
             <FiLogIn size={16} />
             {loading ? 'Signing in...' : 'Log In'}
           </button>
+
+          <p className="text-center text-[11px] leading-relaxed text-text-body">
+            By continuing, you acknowledge the{' '}
+            <button
+              type="button"
+              onClick={() => setPrivacyNoticeOpen(true)}
+              className="font-black text-brand-primary underline underline-offset-2 hover:text-brand-primary-dark"
+            >
+              Privacy Notice
+            </button>
+            .
+          </p>
         </form>
 
         <div className="mt-8 space-y-1 border-t border-slate-100 pt-5 text-xs text-text-body">
@@ -129,6 +160,13 @@ const LoginPage = () => {
           {FOOTER_TEXT}
         </footer>
       </section>
+
+      <PrivacyNoticeModal
+        open={privacyNoticeOpen}
+        required={privacyAcceptanceRequired}
+        onClose={() => setPrivacyNoticeOpen(false)}
+        onAccept={privacyAcceptanceRequired ? acceptPrivacyNotice : undefined}
+      />
     </main>
   );
 };

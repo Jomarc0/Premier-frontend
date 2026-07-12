@@ -3,6 +3,7 @@ import { Bot, CheckCircle2, RotateCcw, Send, Wifi, X } from 'lucide-react';
 import { useChatbot } from '../hooks/useChatbot';
 import { useAuth } from '../context/AuthContext';
 import { submitPublicSupportTicket } from '../api/chatbotApi';
+import { captureEvent } from '../lib/posthog';
 
 const STATIC_QUICK_REPLIES = [
   'Contact support',
@@ -78,6 +79,9 @@ const FloatingChatbot = () => {
     setCardForm({ cardNumber: '', email: '', requestType: resolveRequestType(text), details: text, confirmed: false });
     setCardFormOpen(true);
     setOpen(true);
+    captureEvent('passenger_web_support_ticket_form_opened', {
+      request_type: resolveRequestType(text),
+    });
   };
 
   const handleSend = (value) => {
@@ -124,9 +128,15 @@ const FloatingChatbot = () => {
           issueType: cardForm.requestType,
           reason,
         });
+      captureEvent('passenger_web_support_ticket_submitted', {
+        request_type: cardForm.requestType,
+      });
       setFormSuccess(result.message || `Your ticket has been submitted successfully. Your ticket number is ${result.ticketNumber}. Please wait for admin confirmation through your email.`);
       setCardFormOpen(false);
     } catch (error) {
+      captureEvent('passenger_web_support_ticket_failed', {
+        request_type: cardForm.requestType,
+      });
       setFormError(error.response?.data?.message || 'Failed to submit card request. Please try again.');
     } finally {
       setSubmittingCardRequest(false);
@@ -324,7 +334,11 @@ const FloatingChatbot = () => {
         </div>
       )}
 
-      <button type="button" onClick={() => setOpen((current) => !current)} title="Chat with Premier Bot" className="relative grid h-14 w-14 place-items-center rounded-2xl border-0 bg-brand-primary text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-brand-primary-dark hover:shadow-2xl active:scale-95">
+      <button type="button" onClick={() => setOpen((current) => {
+        const next = !current;
+        if (next) captureEvent('passenger_web_chatbot_opened');
+        return next;
+      })} title="Chat with Premier Bot" className="relative grid h-14 w-14 place-items-center rounded-2xl border-0 bg-brand-primary text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-brand-primary-dark hover:shadow-2xl active:scale-95">
         {open ? <X size={21} strokeWidth={2.5} /> : <Bot size={23} strokeWidth={2} />}
         {!open && <span className="absolute -right-1 -top-1 h-4 w-4 animate-pulse rounded-full border-2 border-white bg-brand-accent" />}
       </button>

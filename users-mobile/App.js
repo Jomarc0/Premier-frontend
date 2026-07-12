@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { PostHogProvider } from 'posthog-react-native';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import DashboardScreen from './src/screens/DashboardScreen';
@@ -12,6 +13,7 @@ import MobileNfcPaymentScreen from './src/screens/MobileNfcPaymentScreen';
 import QRFarePaymentScreen from './src/screens/QRFarePaymentScreen';
 import TotpSetupScreen from './src/screens/TotpSetupScreen';
 import TotpVerifyScreen from './src/screens/TotpVerifyScreen';
+import { POSTHOG_HOST, POSTHOG_KEY } from './src/analytics/posthog';
 import { colors } from './src/theme';
 
 
@@ -55,12 +57,14 @@ function Routes() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <NavigationContainer>
-          <StatusBar style="light" />
-          <Routes />
-        </NavigationContainer>
-      </AuthProvider>
+      <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
+        <AuthProvider>
+          <NavigationContainer>
+            <StatusBar style="light" />
+            <Routes />
+          </NavigationContainer>
+        </AuthProvider>
+      </PostHogProvider>
     </SafeAreaProvider>
   );
 }

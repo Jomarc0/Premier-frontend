@@ -8,6 +8,7 @@ import { toast } from 'react-toastify';
 import BrandLogo from '../components/auth/BrandLogo';
 import PasswordInput from '../components/auth/PasswordInput';
 import { BRAND_NAME } from '../constants/brand';
+import { captureEvent } from '../lib/posthog';
 
 const TotpNotice = ({ message, onClose }) => {
     useEffect(() => {
@@ -50,15 +51,20 @@ const AdminLoginPage = () => {
             return;
         }
 
-        login(token, fullName, username, role);
-
         const needsTotpSetup = role !== 'STAFF' && !is2FaEnabled;
+        login(token, fullName, username, role, is2FaEnabled);
+        captureEvent('admin_login_success', {
+            role,
+            totp_setup_required: needsTotpSetup,
+        });
+
         navigate(needsTotpSetup ? '/admin/security' : '/admin/analytics', { replace: true });
     };
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setLoading(true);
+        captureEvent('admin_login_started');
 
         try {
             const res = await adminAPI.post('/auth/login', form);
@@ -68,11 +74,13 @@ const AdminLoginPage = () => {
                 setTotpRequired(true);
                 setChallengeName(loginData.fullName || loginData.username || form.username);
                 setShowTotpNotice(true);
+                captureEvent('admin_login_totp_required');
                 return;
             }
 
             finishLogin(loginData);
         } catch (err) {
+            captureEvent('admin_login_failed');
             console.error('LOGIN ERROR:', {
                 status: err.response?.status,
                 message: err.response?.data?.message || err.message
@@ -85,6 +93,7 @@ const AdminLoginPage = () => {
 
     const handleVerify = async (code) => {
         try {
+            captureEvent('admin_login_totp_submitted');
             const res = await adminAPI.post('/auth/login', {
                 username: form.username,
                 password: form.password,
@@ -92,6 +101,7 @@ const AdminLoginPage = () => {
             });
             finishLogin(res.data?.data || {});
         } catch (err) {
+            captureEvent('admin_login_totp_failed');
             console.error('TOTP VERIFY ERROR:', {
                 status: err.response?.status,
                 message: err.response?.data?.message || err.message

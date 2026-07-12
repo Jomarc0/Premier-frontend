@@ -5,9 +5,11 @@ import QRCode from 'react-native-qrcode-svg';
 import * as SecureStore from 'expo-secure-store';
 import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import Button from '../components/Button';
 import { useAuth } from '../context/AuthContext';
+import { captureMobileEvent } from '../analytics/posthog';
 import { API_PASSENGER_BASE } from '../config';
 import { colors, shadow } from '../theme';
 
@@ -19,6 +21,7 @@ function secondsUntilAuthenticatorRefresh() {
 }
 
 export default function TotpSetupScreen({ navigation }) {
+  const posthog = usePostHog();
   const { login } = useAuth();
   const [setup, setSetup] = useState(null);
   const [totpCode, setTotpCode] = useState('');
@@ -93,8 +96,12 @@ export default function TotpSetupScreen({ navigation }) {
       await login(token, passengerName);
       await SecureStore.deleteItemAsync('tempToken');
       await SecureStore.deleteItemAsync('pendingCardNumber');
+      captureMobileEvent(posthog, 'mobile_login_success', {
+        method: 'totp_setup',
+      });
     } catch (error) {
       setTotpCode('');
+      captureMobileEvent(posthog, 'mobile_totp_setup_failed');
       Alert.alert('Setup failed', error.message || 'Please try again.');
     } finally {
       setVerifying(false);

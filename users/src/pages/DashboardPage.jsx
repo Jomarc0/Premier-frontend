@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import gcash from '../assets/image/gcash.png';
 import maya from '../assets/image/maya.png';
+import { captureEvent } from '../lib/posthog';
 
 const QUICK_AMOUNTS    = [20, 40, 50, 100];
 const PAYMENT_METHODS  = ['Gcash', 'Maya'];
@@ -84,6 +85,9 @@ const DashboardPage = () => {
             setQrSeconds(Number(data.expiresInSeconds || 45));
             setQrState('ready');
             if (!showQrModal) setShowQrModal(true);
+            captureEvent('passenger_web_qr_generated', {
+                refreshed: refreshing,
+            });
         } catch (err) {
             setQrData(null);
             setQrSeconds(0);
@@ -103,6 +107,7 @@ const DashboardPage = () => {
             if (status?.status === 'USED' && status.payment) {
                 setQrPayment(status.payment);
                 setQrState('success');
+                captureEvent('passenger_web_qr_completed');
                 fetchData();
                 return;
             }
@@ -167,6 +172,7 @@ const DashboardPage = () => {
         const res = await API.get('/transactions?page=0&size=50');
         setAllTransactions(res.data.data?.content || []);
         setShowModal(true);
+        captureEvent('passenger_web_transactions_opened');
         } catch (err) {
         toast.error('Failed to load transactions');
         }
@@ -222,6 +228,7 @@ const DashboardPage = () => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
         toast.success('Transactions downloaded.');
+        captureEvent('passenger_web_transactions_downloaded');
         } catch (err) {
         toast.error('Failed to download transactions.');
         }
@@ -261,6 +268,10 @@ const DashboardPage = () => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
         toast.success('Receipt downloaded.');
+        captureEvent('passenger_web_receipt_downloaded', {
+            type: tx.type,
+            status: tx.status,
+        });
     };
 
     const handleTopUp = async () => {
@@ -278,6 +289,9 @@ const DashboardPage = () => {
         return;
         }
         try {
+        captureEvent('passenger_web_topup_started', {
+            payment_method: selectedPayment,
+        });
         const res = await API.post('/topup/initiate', { amount });
         const { checkoutUrl, referenceNumber, topUpId } = res.data.data;
         setPendingPayment({ referenceNumber, amount, topUpId });
@@ -305,6 +319,7 @@ const DashboardPage = () => {
         setCustomAmount('');
         setSelectedPayment(null);
         fetchData();
+        captureEvent('passenger_web_topup_verified');
         } catch (err) {
         toast.error(err.response?.data?.message || 'Payment not yet completed. Please try again.');
         } finally {

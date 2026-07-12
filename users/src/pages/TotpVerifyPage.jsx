@@ -7,6 +7,7 @@ import PrimaryButton from '@/components/auth/PrimaryButton';
 import BrandLogo from '@/components/auth/BrandLogo';
 import { BRAND_NAME, FOOTER_TEXT } from '@/constants/brand';
 import { useAuth } from '../context/AuthContext';
+import { captureEvent } from '../lib/posthog';
 
 const CountdownBadge = ({ timerLabel }) => (
   <div className="inline-flex items-center gap-2 rounded-full bg-brand-primary/5 px-4 py-2 text-sm text-text-body shadow-[0_8px_18px_rgba(31,36,48,0.08)]">
@@ -21,6 +22,7 @@ const TotpVerifyPage = () => {
   const [secondsLeft, setSecondsLeft] = useState(30);
   const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [lockSeconds, setLockSeconds] = useState(0);
   const verifyingRef = useRef(false);
   const loginCompletedRef = useRef(false);
 
@@ -44,9 +46,16 @@ const TotpVerifyPage = () => {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setLockSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const handleVerify = async (nextCode = code) => {
     const cleanCode = String(nextCode).replace(/\D/g, '').slice(0, 6);
-    if (verifyingRef.current || loginCompletedRef.current) return;
+    if (verifyingRef.current || loginCompletedRef.current || lockSeconds > 0) return;
     if (cleanCode.length !== 6) {
       toast.warning('Enter your 6-digit code');
       return;
@@ -70,6 +79,8 @@ const TotpVerifyPage = () => {
 
       const data = await res.json();
       if (!res.ok) {
+        const retryAfterSeconds = Number(data.data?.retryAfterSeconds || 0);
+        if (retryAfterSeconds > 0) setLockSeconds(retryAfterSeconds);
         if (res.status === 401) {
           throw new Error(data.message || 'Code rejected. Please login again and enter the current authenticator code.');
         }
@@ -80,10 +91,14 @@ const TotpVerifyPage = () => {
       login(token, passengerName);
       loginCompletedRef.current = true;
       localStorage.removeItem('tempToken');
+      captureEvent('passenger_web_login_success', {
+        method: 'totp',
+      });
 
       toast.success('Welcome back!');
       navigate('/dashboard');
     } catch (err) {
+      captureEvent('passenger_web_login_totp_failed');
       toast.error(err.message || 'Wrong code. Please try again.');
       setCode('');
     } finally {
@@ -128,11 +143,17 @@ const TotpVerifyPage = () => {
 
         <div className="rounded-xl border border-border-input bg-white p-4">
           <p className="mb-3 text-left text-sm font-black text-text-heading">Authentication code</p>
-          <TotpInput value={code} onChange={setCode} onComplete={handleVerify} />
+          <TotpInput value={code} onChange={setCode} onComplete={handleVerify} disabled={lockSeconds > 0} />
+
+          {lockSeconds > 0 && (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+              Too many incorrect codes. Try again in {Math.floor(lockSeconds / 60)}:{String(lockSeconds % 60).padStart(2, '0')}.
+            </div>
+          )}
 
           <div className="mt-5 grid">
-            <PrimaryButton disabled={verifying || code.length < 6} onClick={() => handleVerify()}>
-              {verifying ? 'Verifying...' : 'Verify & Login'}
+            <PrimaryButton disabled={verifying || code.length < 6 || lockSeconds > 0} onClick={() => handleVerify()}>
+              {lockSeconds > 0 ? 'Temporarily Locked' : verifying ? 'Verifying...' : 'Verify & Login'}
             </PrimaryButton>
           </div>
         </div>
