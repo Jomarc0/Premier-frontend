@@ -43,6 +43,7 @@ const SupportTicketsPage = () => {
     const [newRfidUid, setNewRfidUid] = useState('');
     const [busy, setBusy] = useState(false);
     const [readingUid, setReadingUid] = useState(false);
+    const [confirmation, setConfirmation] = useState(null);
 
     useEffect(() => { fetchTickets(); }, []);
 
@@ -65,6 +66,7 @@ const SupportTicketsPage = () => {
 
     const pendingCount = tickets.filter((ticket) => ticket.status === 'PENDING').length;
     const inReviewCount = tickets.filter((ticket) => ticket.status === 'IN_REVIEW').length;
+    const isClosed = selected?.status === 'RESOLVED' || selected?.status === 'REJECTED';
 
     const openTicket = (ticket) => {
         setSelected(ticket);
@@ -90,7 +92,7 @@ const SupportTicketsPage = () => {
         try {
             const res = await action();
             refreshSelected(res.data.data);
-            toast.success(label);
+            toast.success(res.data?.message || label);
             captureEvent('admin_support_ticket_action', {
                 action: analyticsAction,
                 issue_type: selected.issueType,
@@ -110,8 +112,17 @@ const SupportTicketsPage = () => {
     };
 
     const runConfirmedAction = async (confirmMessage, label, action, analyticsAction = 'update') => {
-        if (!window.confirm(confirmMessage)) return;
-        await runAction(label, action, analyticsAction);
+        if (!selected) return;
+        setConfirmation({ confirmMessage, label, action, analyticsAction });
+    };
+
+    const confirmAction = async () => {
+        if (!confirmation) return;
+        try {
+            await runAction(confirmation.label, confirmation.action, confirmation.analyticsAction);
+        } finally {
+            setConfirmation(null);
+        }
     };
 
     const handleReadReplacementUid = async () => {
@@ -281,9 +292,14 @@ const SupportTicketsPage = () => {
                                 <p><strong>Reason:</strong> {selected.reason}</p>
                             </div>
                             <div className="space-y-3">
+                                {isClosed && (
+                                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+                                        This ticket is closed. No further card changes or notification emails can be sent.
+                                    </p>
+                                )}
                                 <label className={ui.fieldLabel}>Admin notes <span className="text-danger-muted">(required to reject)</span></label>
                                 <textarea className="w-full min-h-[7rem] rounded-lg border-2 border-[#d9dce2] p-3 outline-none focus:border-maroon" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Enter the resolution or rejection reason for the passenger" />
-                                <button className={ui.adminActionPrimary} disabled={busy} onClick={() => runAction('Notes saved', () => adminAPI.put(`/support-tickets/${selected.id}/notes`, { adminNotes: notes }), 'save_notes')}><FiEdit3 /> Save Notes</button>
+                                <button className={ui.adminActionPrimary} disabled={busy || isClosed} onClick={() => runAction('Notes saved', () => adminAPI.put(`/support-tickets/${selected.id}/notes`, { adminNotes: notes }), 'save_notes')}><FiEdit3 /> Save Notes</button>
 
                                 <label className={ui.fieldLabel}>Replacement RFID UID</label>
                                 <div className="grid grid-cols-[1fr_8.5rem] gap-2 max-[620px]:grid-cols-1">
@@ -296,7 +312,7 @@ const SupportTicketsPage = () => {
                                     <button
                                         type="button"
                                         className={ui.adminAction}
-                                        disabled={busy || readingUid}
+                                        disabled={busy || readingUid || isClosed}
                                         onClick={handleReadReplacementUid}
                                     >
                                         <FiCreditCard /> {readingUid ? 'Waiting...' : 'Read UID'}
@@ -305,16 +321,56 @@ const SupportTicketsPage = () => {
                                 <p className="text-[0.74rem] text-text-muted">
                                     Same as Create Cards: click Read UID, then tap the replacement RFID card on the PN532 hardware.
                                 </p>
-                                <button className={ui.adminActionPrimary} disabled={busy || readingUid || cleanUid(newRfidUid).length < 4} onClick={handleReplaceRfidUid}><FiEdit3 /> Change RFID UID</button>
+                                <button className={ui.adminActionPrimary} disabled={busy || readingUid || isClosed || cleanUid(newRfidUid).length < 4} onClick={handleReplaceRfidUid}><FiEdit3 /> Change RFID UID</button>
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2 border-t border-slate-100 p-5">
-                            <button className={ui.adminAction} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Mark ${selected.ticketNumber} as in review?`, 'Marked in review', () => adminAPI.put(`/support-tickets/${selected.id}/status`, { status: 'IN_REVIEW' }), 'mark_in_review')}><FiEye /> Mark In Review</button>
-                            <button className={ui.adminAction} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Freeze the passenger card for ${selected.ticketNumber}?`, 'Card frozen', () => adminAPI.post(`/support-tickets/${selected.id}/freeze-card`, { adminNotes: notes }), 'freeze_card')}><FiShield /> Freeze Card</button>
-                            <button className={ui.adminActionPrimary} disabled={busy || readingUid} onClick={() => runConfirmedAction(`Resolve ${selected.ticketNumber}? This sends the confirmation email to the passenger.`, 'Ticket resolved', () => adminAPI.post(`/support-tickets/${selected.id}/resolve`, { adminNotes: notes }), 'resolve')}><FiCheck /> Resolve</button>
-                            <button className="inline-flex items-center gap-[0.45rem] min-h-[2.45rem] px-[0.95rem] rounded-lg bg-white text-danger-muted border border-danger-muted/30 text-[0.86rem] font-black cursor-pointer hover:bg-danger-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={busy || readingUid} onClick={handleReject}><FiX /> Reject</button>
+                            <button className={ui.adminAction} disabled={busy || readingUid || isClosed} onClick={() => runConfirmedAction(`Mark ${selected.ticketNumber} as in review?`, 'Marked in review', () => adminAPI.put(`/support-tickets/${selected.id}/status`, { status: 'IN_REVIEW' }), 'mark_in_review')}><FiEye /> Mark In Review</button>
+                            <button className={ui.adminAction} disabled={busy || readingUid || isClosed} onClick={() => runConfirmedAction(`Freeze the passenger card for ${selected.ticketNumber}?`, 'Card frozen', () => adminAPI.post(`/support-tickets/${selected.id}/freeze-card`, { adminNotes: notes }), 'freeze_card')}><FiShield /> Freeze Card</button>
+                            <button className={ui.adminActionPrimary} disabled={busy || readingUid || isClosed} onClick={() => runConfirmedAction(`Resolve ${selected.ticketNumber}? This sends the confirmation email to the passenger.`, 'Ticket resolved', () => adminAPI.post(`/support-tickets/${selected.id}/resolve`, { adminNotes: notes }), 'resolve')}><FiCheck /> Resolve</button>
+                            <button className="inline-flex items-center gap-[0.45rem] min-h-[2.45rem] px-[0.95rem] rounded-lg bg-white text-danger-muted border border-danger-muted/30 text-[0.86rem] font-black cursor-pointer hover:bg-danger-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={busy || readingUid || isClosed} onClick={handleReject}><FiX /> Reject</button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {confirmation && (
+                <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4" role="presentation">
+                    <section
+                        className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="ticket-confirmation-title"
+                    >
+                        <div className="h-1.5 bg-gold" />
+                        <div className="p-6">
+                            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-maroon/10 text-maroon">
+                                <FiShield size={21} />
+                            </div>
+                            <p className="mt-5 text-xs font-black uppercase tracking-[0.12em] text-[#b78a0e]">Premier Transport</p>
+                            <h2 id="ticket-confirmation-title" className="mt-1 text-xl font-black text-text-main">Confirm ticket action</h2>
+                            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-text-muted">{confirmation.confirmMessage}</p>
+                            <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">Please verify the ticket details before continuing. This action will be recorded in the support ticket history.</p>
+                        </div>
+                        <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4 sm:flex-row sm:justify-end">
+                            <button
+                                type="button"
+                                className={ui.adminAction}
+                                disabled={busy}
+                                onClick={() => setConfirmation(null)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className={ui.adminActionPrimary}
+                                disabled={busy}
+                                onClick={confirmAction}
+                            >
+                                <FiCheck /> {busy ? 'Processing...' : 'Confirm action'}
+                            </button>
+                        </div>
+                    </section>
                 </div>
             )}
         </div>

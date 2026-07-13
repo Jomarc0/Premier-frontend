@@ -18,10 +18,6 @@ if exist "%ROOT%driver\package.json" (
     start "Premier Driver" cmd /k "cd /d ""%ROOT%driver"" && npm run dev -- --host 0.0.0.0"
 )
 
-if exist "%ROOT%rfid\package.json" (
-    start "Premier RFID" cmd /k "cd /d ""%ROOT%rfid"" && npm run dev -- --host 0.0.0.0"
-)
-
 if exist "%ROOT%staff\package.json" (
     start "Premier Staff Queue" cmd /k "cd /d ""%ROOT%staff"" && npm run dev -- --host 0.0.0.0 --port 5177"
 )
