@@ -2,9 +2,6 @@ import { useEffect, useState } from 'react';
 import {
     FiUsers,
     FiRefreshCw,
-    FiPlus,
-    FiCheck,
-    FiX,
     FiCreditCard,
     FiDollarSign,
     FiActivity,
@@ -20,8 +17,6 @@ const AllUsersPage = () => {
     const [stats, setStats] = useState({});
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [showAddBalance, setShowAddBalance] = useState(null);
-    const [addAmount, setAddAmount] = useState('');
     const [page, setPage] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
 
@@ -45,24 +40,6 @@ const AllUsersPage = () => {
         }
     };
 
-    const handleAddBalance = async (userId) => {
-        if (!addAmount || parseFloat(addAmount) <= 0) {
-            toast.warning('Enter a valid amount');
-            return;
-        }
-        try {
-            await adminAPI.post(`/users/${userId}/add-balance`, {
-                amount: parseFloat(addAmount),
-                note: 'Admin top-up',
-            });
-            toast.success('Balance added!');
-            setShowAddBalance(null);
-            setAddAmount('');
-            fetchData();
-        } catch (err) {
-            toast.error('Failed to add balance');
-        }
-    };
 
 
     const filtered = users.filter(u =>
@@ -125,7 +102,7 @@ const AllUsersPage = () => {
                         <table className={ui.adminTable}>
                             <thead>
                                 <tr>
-                                    {['ID', 'Card Number', 'Balance', 'Status', 'Created', 'Actions'].map(h => (
+                                    {['ID', 'Card Number', 'Balance', 'Status', 'Created'].map(h => (
                                         <th key={h} className={ui.tableTh}>{h}</th>
                                     ))}
                                 </tr>
@@ -133,11 +110,11 @@ const AllUsersPage = () => {
                             <tbody>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={6} className={ui.loadingRow}>Loading...</td>
+                                        <td colSpan={5} className={ui.loadingRow}>Loading...</td>
                                     </tr>
                                 ) : filtered.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className={ui.emptyRow}>No users found.</td>
+                                        <td colSpan={5} className={ui.emptyRow}>No users found.</td>
                                     </tr>
                                 ) : filtered.map((u) => {
                                     const frozen = ['FROZEN', 'BLOCKED', 'INACTIVE'].includes(String(u.status || '').toUpperCase());
@@ -163,49 +140,6 @@ const AllUsersPage = () => {
                                                 {u.createdAt
                                                     ? new Date(u.createdAt).toLocaleDateString('en-PH')
                                                     : '-'}
-                                            </td>
-                                            <td className={ui.tableTd}>
-                                                {showAddBalance === u.id ? (
-                                                    <div className="inline-flex gap-[0.35rem] items-center">
-                                                        <input
-                                                            type="number"
-                                                            placeholder="Amount"
-                                                            value={addAmount}
-                                                            onChange={(e) => setAddAmount(e.target.value)}
-                                                            className="w-24 min-h-8 px-2 border border-border-soft rounded-md outline-none text-[0.8rem] focus:border-gold"
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            className="inline-grid place-items-center min-w-8 min-h-8 px-[0.55rem] rounded-md text-[0.85rem] font-black cursor-pointer bg-green-brand text-white"
-                                                            onClick={() => handleAddBalance(u.id)}
-                                                            aria-label="Confirm add balance"
-                                                        >
-                                                            <FiCheck />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            className="inline-grid place-items-center min-w-8 min-h-8 px-[0.55rem] rounded-md text-[0.85rem] font-black cursor-pointer bg-danger-muted text-white"
-                                                            onClick={() => {
-                                                                setShowAddBalance(null);
-                                                                setAddAmount('');
-                                                            }}
-                                                            aria-label="Cancel"
-                                                        >
-                                                            <FiX />
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="inline-flex flex-wrap gap-2">
-                                                        <button
-                                                            type="button"
-                                                            className="inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md bg-green-brand text-white text-[0.78rem] font-black cursor-pointer hover:bg-[#245a30]"
-                                                            onClick={() => setShowAddBalance(u.id)}
-                                                        >
-                                                            <FiPlus />
-                                                            Add Balance
-                                                        </button>
-                                                    </div>
-                                                )}
                                             </td>
                                         </tr>
                                     );
