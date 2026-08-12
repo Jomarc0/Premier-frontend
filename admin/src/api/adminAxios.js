@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+const apiOrigin = import.meta.env.DEV ? '' : import.meta.env.VITE_API_URL;
+
 const adminAPI = axios.create({
-    baseURL: `${import.meta.env.VITE_API_URL}/api/admin`,
+    // Use Vite's local /api proxy in development; deployed builds retain the
+    // configured backend URL.
+    baseURL: `${apiOrigin}/api/admin`,
     timeout: 10000,
 });
 

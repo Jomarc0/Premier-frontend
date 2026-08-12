@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { jwtDecode } from 'jwt-decode';
 import { PRIVACY_NOTICE_ACCEPTED_KEY } from '../constants/privacy';
+import { identifyUser, resetAnalytics } from '../lib/posthog';
 
 const AuthContext = createContext();
 
@@ -31,6 +32,7 @@ export const AuthProvider = ({ children }) => {
                             name: localStorage.getItem('passengerName'),
                             token: token
                         });
+                        identifyUser(decoded.sub, { role: 'passenger' });
                         //console.log('Passenger set from token');
                     } else {
                         clearAuthStorage();
@@ -59,6 +61,7 @@ export const AuthProvider = ({ children }) => {
                 name: name,
                 token: token
             });
+            identifyUser(decoded.sub, { role: 'passenger' });
            // console.log('login set passenger:', decoded.sub);
         } catch (error) {
             //console.error('login JWT error:', error);
@@ -68,6 +71,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = () => {
+        resetAnalytics();
         clearAuthStorage();
         setPassenger(null);
         window.location.href = '/login';

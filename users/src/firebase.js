@@ -21,8 +21,10 @@ export const requestNotificationPermission = async () => {
     try {
         const permission = await Notification.requestPermission();
         if (permission === 'granted') {
+            const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
             const token = await getToken(messaging, {
-                vapidKey: VAPID_KEY
+                vapidKey: VAPID_KEY,
+                serviceWorkerRegistration
             });
             return token;
         } else {

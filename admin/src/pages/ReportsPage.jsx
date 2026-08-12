@@ -30,6 +30,8 @@ import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
 import { captureEvent } from '../lib/posthog';
+import { useRealtime } from '../context/RealtimeContext';
+import { phtDateKey } from '../lib/time';
 
 const COLORS = ['#6f2f3c', '#e8bd47', '#2f6b3d', '#b24a52', '#58606f', '#9a7b21'];
 const TIMEZONE = 'Asia/Manila';
@@ -89,6 +91,7 @@ const readFiltersFromUrl = () => {
 };
 
 const ReportsPage = () => {
+    const { subscribe } = useRealtime();
     const [analytics, setAnalytics] = useState(null);
     const [filters, setFilters] = useState(readFiltersFromUrl);
     const [appliedFilters, setAppliedFilters] = useState(readFiltersFromUrl);
@@ -140,6 +143,12 @@ const ReportsPage = () => {
         Promise.resolve().then(() => fetchAnalytics(readFiltersFromUrl(), 'load'));
     }, [fetchAnalytics]);
 
+    useEffect(() => subscribe((event) => {
+        if (['TRANSACTION', 'TOPUP', 'SUPPORT_TICKET', 'PASSENGER', 'VEHICLE'].includes(event.entity)) {
+            fetchAnalytics(appliedFilters, 'refresh');
+        }
+    }), [appliedFilters, fetchAnalytics, subscribe]);
+
     const updateFilter = (key, value) => {
         setFilters(prev => ({ ...prev, [key]: value }));
         setFilterError('');
@@ -155,7 +164,7 @@ const ReportsPage = () => {
                 setFilterError('Start date cannot be after end date.');
                 return;
             }
-            const today = new Date().toISOString().slice(0, 10);
+            const today = phtDateKey();
             if (filters.startDate > today || filters.endDate > today) {
                 setFilterError('Future date ranges are not supported.');
                 return;
@@ -175,7 +184,7 @@ const ReportsPage = () => {
         if (!analytics) return;
         setExporting(type);
         try {
-            const stamp = new Date().toISOString().slice(0, 10);
+            const stamp = phtDateKey();
             if (type === 'csv') {
                 const body = exportRows.map(row => row.map(cell => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
                 download(`admin-analytics-${stamp}.csv`, body, 'text/csv');

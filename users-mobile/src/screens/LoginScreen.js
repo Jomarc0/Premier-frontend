@@ -168,69 +168,23 @@ export default function LoginScreen({ navigation }) {
   };
 
   const openSupport = (issueType = 'LOST_CARD', reason = '') => {
-    setSupportForm({
-      cardNumber: cardNumber.trim().replace(/\s/g, ''),
-      email: '',
-      issueType,
-      reason,
-    });
-    setIssueDropdownOpen(false);
-    setSupportOpen(true);
-    captureMobileEvent(posthog, 'mobile_support_ticket_form_opened', {
-      request_type: issueType,
-    });
+    Alert.alert(
+      'Login required',
+      'Please log in first. Support tickets are securely attached to your account after authentication.',
+    );
   };
 
   const submitSupportTicket = async () => {
-    const normalizedCardNumber = supportForm.cardNumber.trim().replace(/\s/g, '');
-    const email = supportForm.email.trim();
-    const reason = supportForm.reason.trim();
+    setSupportOpen(false);
+    Alert.alert('Login required', 'Please log in first to create a support ticket securely.');
+  };
 
-    if (!normalizedCardNumber) {
-      Alert.alert('Card number required', 'You must know your card number before submitting a support ticket.');
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      Alert.alert('Valid email required', 'Enter an email address where admin can send confirmation.');
-      return;
-    }
-    if (!reason) {
-      Alert.alert('Description required', 'Tell admin what happened so they can review the ticket.');
-      return;
-    }
-
-    setSupportLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/public/support-tickets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cardNumber: normalizedCardNumber,
-          email,
-          issueType: supportForm.issueType,
-          reason,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || 'Unable to submit support ticket.');
-      }
-      setSupportOpen(false);
-      captureMobileEvent(posthog, 'mobile_support_ticket_submitted', {
-        request_type: supportForm.issueType,
-      });
-      Alert.alert(
-        'Ticket submitted',
-        data.message || `Your ticket has been submitted successfully. Your ticket number is ${data.data?.ticketNumber}. Please wait for admin confirmation through your email.`,
-      );
-    } catch (error) {
-      captureMobileEvent(posthog, 'mobile_support_ticket_failed', {
-        request_type: supportForm.issueType,
-      });
-      Alert.alert('Support ticket failed', error.message || 'Please try again.');
-    } finally {
-      setSupportLoading(false);
-    }
+  const beginLostCardReport = async () => {
+    await SecureStore.setItemAsync('postLoginAction', 'REPORT_LOST_CARD');
+    Alert.alert(
+      'Secure verification required',
+      'Log in with your card number and Google Authenticator code. You can then freeze the card and provide an email for support updates.',
+    );
   };
 
   return (
@@ -296,9 +250,9 @@ export default function LoginScreen({ navigation }) {
           .
         </Text>
 
-        <Pressable style={styles.supportButton} onPress={() => openSupport('LOGIN_PROBLEM', 'I need help with my Premier card or login.')}>
-          <MaterialCommunityIcons name="chat-question-outline" size={20} color={colors.maroon} />
-          <Text style={styles.supportButtonText}>Need help? Chat with support</Text>
+        <Pressable style={styles.supportButton} onPress={beginLostCardReport}>
+          <MaterialCommunityIcons name="shield-alert-outline" size={20} color={colors.maroon} />
+          <Text style={styles.supportButtonText}>Lost your card? Freeze it</Text>
         </Pressable>
 
         <View style={styles.secureRow}>

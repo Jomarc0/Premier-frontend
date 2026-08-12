@@ -8,6 +8,7 @@ import BrandLogo from '@/components/auth/BrandLogo';
 import { BRAND_NAME, FOOTER_TEXT } from '@/constants/brand';
 import { useAuth } from '../context/AuthContext';
 import { captureEvent } from '../lib/posthog';
+import { apiOrigin } from '../api/apiOrigin';
 
 const CountdownBadge = ({ timerLabel }) => (
   <div className="inline-flex items-center gap-2 rounded-full bg-brand-primary/5 px-4 py-2 text-sm text-text-body shadow-[0_8px_18px_rgba(31,36,48,0.08)]">
@@ -71,7 +72,7 @@ const TotpVerifyPage = () => {
         return;
       }
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/verify-totp`, {
+      const res = await fetch(`${apiOrigin}/api/passenger/auth/verify-totp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tempToken, totpCode: cleanCode }),
@@ -95,8 +96,14 @@ const TotpVerifyPage = () => {
         method: 'totp',
       });
 
-      toast.success('Welcome back!');
-      navigate('/dashboard');
+      const nextAction = localStorage.getItem('postLoginAction');
+      localStorage.removeItem('postLoginAction');
+      if (nextAction === 'REPORT_LOST_CARD') {
+        navigate('/report-lost-card');
+      } else {
+        toast.success('Welcome back!');
+        navigate('/dashboard');
+      }
     } catch (err) {
       captureEvent('passenger_web_login_totp_failed');
       toast.error(err.message || 'Wrong code. Please try again.');

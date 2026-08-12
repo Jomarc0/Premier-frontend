@@ -30,6 +30,14 @@ export const statIconVariant = {
 };
 
 export const dataPanel = 'rounded-lg border border-border-soft bg-white shadow-[0_6px_20px_rgba(44,36,41,0.06)] overflow-hidden';
+export const filterPanel = 'mb-5 rounded-lg border border-border-soft bg-white px-5 py-[1.1rem] shadow-[0_6px_20px_rgba(44,36,41,0.06)]';
+export const filterPanelTitle = 'm-0 mb-[0.8rem] text-[0.95rem] font-black text-maroon';
+export const filterBar = 'flex flex-wrap items-end gap-3';
+export const filterGroup = 'flex min-w-40 flex-col';
+export const filterLabel = 'mb-[0.3rem] text-[0.74rem] font-extrabold text-text-muted';
+export const filterField = 'min-h-[2.55rem] rounded-lg border-[1.5px] border-border-soft bg-white px-[0.85rem] text-[0.86rem] text-text-main outline-none focus:border-gold focus:shadow-[0_0_0_3px_rgba(232,189,71,0.18)]';
+export const filterSearch = 'min-h-[2.55rem] min-w-60 flex-1 rounded-lg border-[1.5px] border-border-soft bg-white px-[0.85rem] text-[0.86rem] text-text-main outline-none focus:border-gold focus:shadow-[0_0_0_3px_rgba(232,189,71,0.18)]';
+export const filterReset = 'inline-flex min-h-[2.55rem] items-center gap-[0.4rem] rounded-lg border border-border-soft bg-white px-[1.05rem] text-[0.84rem] font-black text-maroon transition-colors hover:border-maroon hover:bg-maroon/5';
 export const dataPanelHeader = 'flex items-center justify-between gap-4 px-5 py-[0.95rem] bg-white text-text-main border-b border-border-soft max-[860px]:flex-col max-[860px]:items-stretch';
 export const dataPanelTitle = 'inline-flex items-center gap-[0.55rem] font-black text-[0.95rem] text-text-main';
 export const countPill = 'px-[0.6rem] py-[0.2rem] rounded-full bg-[#f4f1f2] text-text-muted text-[0.72rem] font-black';

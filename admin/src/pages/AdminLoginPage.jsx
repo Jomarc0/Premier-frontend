@@ -81,11 +81,12 @@ const AdminLoginPage = () => {
             finishLogin(loginData);
         } catch (err) {
             captureEvent('admin_login_failed');
-            console.error('LOGIN ERROR:', {
+            const message = err.response?.data?.message || err.message || 'Login failed';
+            console.warn('Admin login was rejected:', {
                 status: err.response?.status,
-                message: err.response?.data?.message || err.message
+                message,
             });
-            toast.error(err.response?.data?.message || 'Login failed');
+            toast.error(message);
         } finally {
             setLoading(false);
         }

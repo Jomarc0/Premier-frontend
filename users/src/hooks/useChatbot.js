@@ -9,7 +9,7 @@ const RETRY_DELAY_MS = 1500;
 
 const INITIAL_MESSAGE = {
     from: 'bot',
-    text: "Hi! I'm Premier Bot, here to help you with top-up, fare, RFID card, and payment concerns. How can I assist you today?",
+    text: "Hi! I'm Premier Bot, your passenger support assistant. I can help with general assistance, top-ups, lost-card procedures, and support tickets. How can I help?",
     timestamp: new Date().toISOString(),
     quickReplies: null,
 };
@@ -33,39 +33,7 @@ const readSessionId = (key) => {
     return fresh;
 };
 
-const isSensitiveCardRequest = (message) => {
-    const text = (message || '').toLowerCase();
-    return text.includes('lost') ||
-        text.includes('stolen') ||
-        text.includes('freeze') ||
-        text.includes('block my card') ||
-        text.includes('deactivate my card');
-};
-
-const getGuestReply = (message) => {
-    const text = (message || '').toLowerCase();
-    if (isSensitiveCardRequest(text)) {
-        return 'This request needs admin review. Please fill out the support form using your card number, email address, and reason. The admin will check your request and send confirmation to your email.';
-    }
-    if (text.includes('top-up') || text.includes('topup') || text.includes('recharge') || text.includes('load')) {
-        return 'For top-up help, log in to your passenger account, open your wallet, and check your pending or completed payment status.';
-    }
-    if (text.includes('fare') || text.includes('deduct')) {
-        return 'Fare deductions are tied to your RFID card account. Please log in first so your fare history can be checked securely.';
-    }
-    if (text.includes('balance') || text.includes('check')) {
-        return 'Please log in first to view your current balance. I cannot show account balance from the public login page.';
-    }
-    if (text.includes('payment') || text.includes('failed')) {
-        return 'For payment concerns, log in and check your transaction history. If payment was deducted but not credited, contact support at (02) 8888-171.';
-    }
-    if (text.includes('hello') || text.includes('hi') || text.includes('hey')) {
-        return 'Hello! I can answer general questions here. For account-specific help like balance, lost card, or transactions, please log in first.';
-    }
-    return 'I can help with general Premier Transit questions here. For lost cards, login issues, incorrect balance, top-up concerns, or RFID problems, use the support form so an admin can review it.';
-};
-
-export const useChatbot = ({ isAuthenticated = false, storageScope = 'guest' } = {}) => {
+export const useChatbot = ({ storageScope = 'guest' } = {}) => {
     const scopedStorageKey = useMemo(() => `${STORAGE_KEY}_${storageScope}`, [storageScope]);
     const scopedSessionKey = useMemo(() => `${SESSION_KEY}_${storageScope}`, [storageScope]);
 
@@ -110,11 +78,6 @@ export const useChatbot = ({ isAuthenticated = false, storageScope = 'guest' } =
             addMessage('user', trimmed);
         }
 
-        if (!isAuthenticated) {
-            addMessage('bot', getGuestReply(trimmed));
-            return;
-        }
-
         setIsTyping(true);
 
         try {
@@ -122,27 +85,32 @@ export const useChatbot = ({ isAuthenticated = false, storageScope = 'guest' } =
 
             if (!data.success && data.errorCode === 'RATE_LIMITED') {
                 addMessage('bot', 'You\'re sending messages too quickly. Please wait a moment and try again.');
-                return;
+                return { ok: false, reason: 'rate_limited' };
             }
 
             addMessage('bot', data.reply, data.quickReplies);
+            return {
+                ok: true,
+                source: 'api',
+                recommendedAction: data.recommendedAction || null,
+                intent: data.intent || null,
+            };
         } catch (err) {
             const status = err?.response?.status;
 
             if (status === 429) {
                 addMessage('bot', 'Too many messages. Please wait a moment before asking again.');
-                return;
+                return { ok: false, reason: 'rate_limited' };
             }
 
             if (status === 401) {
                 addMessage('bot', 'Please log in first so I can help with your account securely.');
-                return;
+                return { ok: false, reason: 'unauthorized' };
             }
 
             if (retryCount < MAX_RETRIES) {
                 await sleep(RETRY_DELAY_MS);
-                await sendMessage(trimmed, retryCount + 1);
-                return;
+                return sendMessage(trimmed, retryCount + 1);
             }
 
             const errMsg =
@@ -150,10 +118,11 @@ export const useChatbot = ({ isAuthenticated = false, storageScope = 'guest' } =
                 'Unable to connect to support. Please try again or call us at (02) 8888-171.';
             addMessage('bot', errMsg);
             setError(errMsg);
+            return { ok: false, reason: 'request_failed' };
         } finally {
             setIsTyping(false);
         }
-    }, [addMessage, isAuthenticated]);
+    }, [addMessage]);
 
     const resetChat = useCallback(() => {
         const newSession = uuidv4();

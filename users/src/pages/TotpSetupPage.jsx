@@ -8,9 +8,12 @@ import PrimaryButton from '@/components/auth/PrimaryButton';
 import BrandLogo from '@/components/auth/BrandLogo';
 import { BRAND_NAME, FOOTER_TEXT } from '@/constants/brand';
 import { captureEvent } from '../lib/posthog';
+import { useAuth } from '../context/AuthContext';
+import { apiOrigin } from '../api/apiOrigin';
 
 const TotpSetupPage = ({ accountType = 'passenger' }) => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [setup, setSetup] = useState(null);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(true);
@@ -29,7 +32,7 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
 
   const fetchSetup = async (tempToken) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/totp/setup`, {
+      const res = await fetch(`${apiOrigin}/api/passenger/auth/totp/setup`, {
         headers: { Authorization: `Bearer ${tempToken}`, 'Content-Type': 'application/json' },
       });
       const text = await res.text();
@@ -65,7 +68,7 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
         return;
       }
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/verify-totp`, {
+      const res = await fetch(`${apiOrigin}/api/passenger/auth/verify-totp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tempToken, totpCode: cleanCode }),
@@ -76,15 +79,20 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
       const { token, passengerName, passengerId } = data.data;
       if (!token) throw new Error('No authentication token received from server');
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('passengerName', passengerName);
+      login(token, passengerName);
       localStorage.removeItem('tempToken');
       captureEvent('passenger_web_login_success', {
         method: 'totp_setup',
       });
 
-      toast.success(`2FA setup complete! Welcome Passenger #${passengerId}`);
-      navigate('/dashboard');
+      const nextAction = localStorage.getItem('postLoginAction');
+      localStorage.removeItem('postLoginAction');
+      if (nextAction === 'REPORT_LOST_CARD') {
+        navigate('/report-lost-card');
+      } else {
+        toast.success(`2FA setup complete! Welcome Passenger #${passengerId}`);
+        navigate('/dashboard');
+      }
     } catch (error) {
       captureEvent('passenger_web_totp_setup_failed');
       toast.error(error.message || 'Setup failed');

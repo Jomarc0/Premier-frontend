@@ -10,6 +10,7 @@ import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
+import { useRealtime } from '../context/RealtimeContext';
 
 
 const AllUsersPage = () => {
@@ -17,8 +18,10 @@ const AllUsersPage = () => {
     const [stats, setStats] = useState({});
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('ALL');
     const [page, setPage] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
+    const { subscribe } = useRealtime();
 
     useEffect(() => { fetchData(); }, [page]);
 
@@ -40,14 +43,17 @@ const AllUsersPage = () => {
         }
     };
 
+    useEffect(() => subscribe((event) => {
+        if (event.entity === 'PASSENGER') fetchData();
+    }), [subscribe, page]);
 
 
-    const filtered = users.filter(u =>
-        search === '' ||
-        (u.cardNumber || '').toLowerCase()
-            .includes(search.toLowerCase()) ||
-        String(u.id).includes(search)
-    );
+
+    const filtered = users.filter(u => {
+        const query = search.trim().toLowerCase();
+        const matchesSearch = !query || (u.cardNumber || '').toLowerCase().includes(query) || String(u.id).includes(query);
+        return matchesSearch && (statusFilter === 'ALL' || String(u.status || 'ACTIVE').toUpperCase() === statusFilter);
+    });
 
     return (
         <div className={ui.layout}>
@@ -80,6 +86,15 @@ const AllUsersPage = () => {
                     ))}
                 </section>
 
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Users</h2>
+                    <div className={ui.filterBar}>
+                        <label className={`${ui.filterGroup} flex-[1_1_18rem]`}><span className={ui.filterLabel}>Search</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Card number or ID..." className={`${ui.filterSearch} w-full`} /></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={ui.filterField}><option value="ALL">All Statuses</option><option value="ACTIVE">Active</option><option value="FROZEN">Frozen</option><option value="BLOCKED">Blocked</option><option value="INACTIVE">Inactive</option></select></label>
+                        <button type="button" onClick={() => { setSearch(''); setStatusFilter('ALL'); }} className={ui.filterReset}>Reset</button>
+                    </div>
+                </section>
+
                 <section className={ui.dataPanel}>
                     <div className={ui.dataPanelHeader}>
                         <span className={ui.dataPanelTitle}>
@@ -87,15 +102,6 @@ const AllUsersPage = () => {
                             All Registered Users
                             <span className={ui.countPill}>{totalElements} users</span>
                         </span>
-                        <label className={ui.searchControl}>
-                            Search:
-                            <input
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Card number or ID..."
-                                className={ui.searchControlInput}
-                            />
-                        </label>
                     </div>
 
                     <div className={ui.tableWrap}>

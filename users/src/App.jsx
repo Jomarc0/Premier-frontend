@@ -5,12 +5,14 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { AuthProvider, useAuth }
     from './context/AuthContext';
+import { RealtimeProvider } from './context/RealtimeContext';
 import LoginPage from './pages/LoginPage';
 import TotpSetupPage from './pages/TotpSetupPage';
 import TotpVerifyPage from './pages/TotpVerifyPage';
 import DashboardPage from './pages/DashboardPage';
+import ReportLostCardPage from './pages/ReportLostCardPage';
 import FloatingChatbot from './components/FloatingChatbot';
-import { captureEvent } from './lib/posthog';
+import { capturePageView } from './lib/posthog';
 
 const PrivateRoute = ({ children }) => {
     const { passenger, loading } = useAuth();
@@ -29,8 +31,10 @@ function RouteAnalytics() {
     const location = useLocation();
 
     useEffect(() => {
-        captureEvent('passenger_web_page_viewed', {
+        capturePageView({
             path: location.pathname,
+            route: location.pathname,
+            title: document.title,
         });
     }, [location.pathname]);
 
@@ -41,6 +45,7 @@ function App() {
     return (
         <AuthProvider>
             <BrowserRouter>
+                <RealtimeProvider>
                 <RouteAnalytics />
                 <Routes>
                     {/* Public Routes */}
@@ -57,6 +62,16 @@ function App() {
                             <DashboardPage />
                         </PrivateRoute>
                     } />
+                    <Route path="/support-tickets" element={
+                        <PrivateRoute>
+                            <Navigate to="/dashboard" replace />
+                        </PrivateRoute>
+                    } />
+                    <Route path="/report-lost-card" element={
+                        <PrivateRoute>
+                            <ReportLostCardPage />
+                        </PrivateRoute>
+                    } />
 
                     {/* Default */}
                     <Route path="*"
@@ -69,6 +84,7 @@ function App() {
                     autoClose={3000}
                 />
                 <FloatingChatbot />
+                </RealtimeProvider>
             </BrowserRouter>
         </AuthProvider>
     );

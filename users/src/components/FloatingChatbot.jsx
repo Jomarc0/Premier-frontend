@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bot, CheckCircle2, RotateCcw, Send, Wifi, X } from 'lucide-react';
 import { useChatbot } from '../hooks/useChatbot';
 import { useAuth } from '../context/AuthContext';
 import { submitPublicSupportTicket } from '../api/chatbotApi';
 import { captureEvent } from '../lib/posthog';
+import { formatTime } from '../lib/time';
 
 const STATIC_QUICK_REPLIES = [
   'Contact support',
@@ -15,8 +17,6 @@ const STATIC_QUICK_REPLIES = [
 ];
 
 const CARD_REQUEST_TYPES = [
-  { value: 'LOST_CARD', label: 'Lost card' },
-  { value: 'FREEZE_CARD', label: 'Freeze card' },
   { value: 'DAMAGED_CARD', label: 'Damaged card' },
   { value: 'TOP_UP_ISSUE', label: 'Top-up issue' },
   { value: 'BALANCE_CONCERN', label: 'Balance concern' },
@@ -25,27 +25,22 @@ const CARD_REQUEST_TYPES = [
   { value: 'OTHER', label: 'Other' },
 ];
 
-const shouldOpenCardForm = (text) => {
+const isExplicitTicketConfirmation = (text) => {
   const value = (text || '').toLowerCase();
-  return value.includes('contact support') ||
-    value.includes('support ticket') ||
-    value.includes('admin support') ||
-    value.includes('talk to support') ||
-    value.includes('customer support') ||
-    value.includes('lost') ||
-    value.includes('stolen') ||
-    value.includes('freeze') ||
-    value.includes('block my card') ||
-    value.includes('deactivate my card') ||
-    value.includes('change card') ||
-    value.includes('card change') ||
-    value.includes('update card');
+  return value === 'yes' || value === 'yes please' || value === 'open ticket' ||
+    value === 'create ticket' || value === 'create a ticket' ||
+    value === 'submit ticket' || value === 'submit a ticket' ||
+    value.includes('i want to submit a ticket') || value.includes('i want to create a ticket');
+};
+
+const isLostCardRequest = (text) => {
+  const value = (text || '').toLowerCase();
+  return (value.includes('lost') || value.includes('stolen') || value.includes('missing'))
+    && (value.includes('card') || value.includes('rfid'));
 };
 
 const resolveRequestType = (text) => {
   const value = (text || '').toLowerCase();
-  if (value.includes('lost') || value.includes('stolen')) return 'LOST_CARD';
-  if (value.includes('freeze') || value.includes('block')) return 'FREEZE_CARD';
   if (value.includes('damage') || value.includes('replace')) return 'DAMAGED_CARD';
   if (value.includes('top-up') || value.includes('topup')) return 'TOP_UP_ISSUE';
   if (value.includes('balance')) return 'BALANCE_CONCERN';
@@ -56,13 +51,15 @@ const resolveRequestType = (text) => {
 
 const FloatingChatbot = () => {
   const { passenger } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [cardFormOpen, setCardFormOpen] = useState(false);
-  const [cardForm, setCardForm] = useState({ cardNumber: '', email: '', requestType: 'LOST_CARD', details: '', confirmed: false });
+  const [cardForm, setCardForm] = useState({ email: '', requestType: 'OTHER', details: '', confirmed: false });
   const [submittingCardRequest, setSubmittingCardRequest] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+  const [ticketContext, setTicketContext] = useState('');
   const { messages, isTyping, sendMessage, resetChat } = useChatbot({
     isAuthenticated: Boolean(passenger),
     storageScope: passenger?.id ? 'passenger-' + passenger.id : 'guest',
@@ -73,46 +70,75 @@ const FloatingChatbot = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping, open, cardFormOpen, formSuccess]);
 
-  const openCardRequestForm = (text = 'Lost RFID card') => {
+  const openCardRequestForm = (text = '') => {
+    if (!passenger) {
+      setFormError('Please log in before creating a support ticket so we can attach it securely to your account.');
+      setOpen(true);
+      return;
+    }
     setFormError('');
     setFormSuccess('');
-    setCardForm({ cardNumber: '', email: '', requestType: resolveRequestType(text), details: text, confirmed: false });
+    const isTicketCommand = isExplicitTicketConfirmation(text);
+    setCardForm({
+      email: '',
+      requestType: isTicketCommand ? 'OTHER' : resolveRequestType(text),
+      details: isTicketCommand ? '' : text,
+      confirmed: false,
+    });
     setCardFormOpen(true);
     setOpen(true);
     captureEvent('passenger_web_support_ticket_form_opened', {
-      request_type: resolveRequestType(text),
+      request_type: isTicketCommand ? 'OTHER' : resolveRequestType(text),
     });
   };
 
-  const handleSend = (value) => {
+  const openLostCardReport = () => {
+    setOpen(false);
+    navigate('/report-lost-card');
+  };
+
+  const handleSend = async (value) => {
     const text = value || input;
     if (!text.trim()) return;
     setInput('');
 
-    if (shouldOpenCardForm(text)) {
-      openCardRequestForm(text);
-      sendMessage(text);
+    captureEvent('chatbot_message_sent', { authenticated: Boolean(passenger) });
+    const result = await sendMessage(text);
+    captureEvent(result?.ok ? 'chatbot_response_received' : 'chatbot_error', {
+      authenticated: Boolean(passenger),
+      reason: result?.reason,
+    });
+    if (result?.recommendedAction === 'REPORT_LOST_CARD') {
+      openLostCardReport();
       return;
     }
-
-    sendMessage(text);
+    // Keep the dedicated card-protection flow even if an older chatbot
+    // response still tries to open the general support-ticket form.
+    if (result?.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM' && isLostCardRequest(ticketContext || text)) {
+      openLostCardReport();
+      return;
+    }
+    // A support request must be explicitly confirmed. Guidance such as a lost
+    // card or a failed top-up must never open a ticket form by itself.
+    if (result?.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM' && !isExplicitTicketConfirmation(text)) {
+      setTicketContext(text);
+    }
+    if (result?.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM' && isExplicitTicketConfirmation(text)) {
+      openCardRequestForm(ticketContext || text);
+    }
   };
 
   const handleSubmitCardRequest = async () => {
-    if (!cardForm.cardNumber.trim()) {
-      setFormError('Card number is required before admin can review the ticket.');
-      return;
-    }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cardForm.email.trim())) {
       setFormError('Enter a valid email address for admin confirmation.');
       return;
     }
     if (!cardForm.details.trim()) {
-      setFormError('Please describe what happened or what card change you need.');
+      setFormError('Please describe the issue so the support team can review it.');
       return;
     }
     if (!cardForm.confirmed) {
-      setFormError('Please confirm that you know this card number and want admin review.');
+      setFormError('Please confirm that this request needs support-team review.');
       return;
     }
 
@@ -123,7 +149,6 @@ const FloatingChatbot = () => {
       const typeLabel = CARD_REQUEST_TYPES.find((item) => item.value === cardForm.requestType)?.label || cardForm.requestType;
       const reason = `${typeLabel}: ${cardForm.details.trim()}`;
       const result = await submitPublicSupportTicket({
-          cardNumber: cardForm.cardNumber.trim(),
           email: cardForm.email.trim(),
           issueType: cardForm.requestType,
           reason,
@@ -150,6 +175,11 @@ const FloatingChatbot = () => {
     setFormSuccess('');
   };
 
+  const closeChat = () => {
+    setOpen(false);
+    captureEvent('chatbot_closed');
+  };
+
   const lastMessage = messages[messages.length - 1];
   const hasBotQuickReplies = lastMessage?.from === 'bot' && lastMessage?.quickReplies?.length > 0;
 
@@ -171,7 +201,7 @@ const FloatingChatbot = () => {
             <button type="button" onClick={handleReset} title="Reset conversation" className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-white/65 transition hover:bg-white/15 hover:text-white">
               <RotateCcw size={14} strokeWidth={2.5} />
             </button>
-            <button type="button" onClick={() => setOpen(false)} title="Close chat" className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-white/65 transition hover:bg-white/15 hover:text-white">
+            <button type="button" onClick={closeChat} title="Close chat" className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-white/65 transition hover:bg-white/15 hover:text-white">
               <X size={15} strokeWidth={2.5} />
             </button>
           </div>
@@ -194,7 +224,7 @@ const FloatingChatbot = () => {
                       </div>
                       {msg.timestamp && (
                         <p className="m-0 px-0.5 font-mono text-[9px] text-slate-400">
-                          {new Date(msg.timestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+                          {formatTime(msg.timestamp)}
                         </p>
                       )}
                     </div>
@@ -203,7 +233,7 @@ const FloatingChatbot = () => {
                   {!isUser && isLast && msg.quickReplies?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5 pl-9">
                       {msg.quickReplies.map((reply) => (
-                        <button key={reply} type="button" onClick={() => handleSend(reply)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10.5px] font-semibold text-brand-primary shadow-sm transition hover:border-brand-primary hover:bg-brand-primary hover:text-white">
+                        <button key={reply} type="button" onClick={() => reply === 'Report lost card' ? openLostCardReport() : handleSend(reply)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10.5px] font-semibold text-brand-primary shadow-sm transition hover:border-brand-primary hover:bg-brand-primary hover:text-white">
                           {reply}
                         </button>
                       ))}
@@ -223,21 +253,14 @@ const FloatingChatbot = () => {
               <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div>
-                    <p className="m-0 text-[12px] font-black text-brand-primary">Support ticket form</p>
-                    <p className="m-0 mt-0.5 text-[10.5px] font-medium text-slate-500">Use your card number so admin can review the correct account.</p>
+                    <p className="m-0 text-[12px] font-black text-brand-primary">Support ticket — other concerns</p>
+                    <p className="m-0 mt-0.5 text-[10.5px] font-medium text-slate-500">For top-up, fare, RFID, or account concerns. Lost cards use the separate secure report.</p>
                   </div>
                   <button type="button" onClick={() => setCardFormOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                     <X size={14} />
                   </button>
                 </div>
 
-                <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-600">Card number</label>
-                <input
-                  value={cardForm.cardNumber}
-                  onChange={(event) => setCardForm((current) => ({ ...current, cardNumber: event.target.value }))}
-                  placeholder="Enter your Premier card number"
-                  className="mb-2 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-semibold text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10"
-                />
                 <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-600">Email address</label>
                 <input
                   type="email"
@@ -260,7 +283,7 @@ const FloatingChatbot = () => {
                 <textarea
                   value={cardForm.details}
                   onChange={(event) => setCardForm((current) => ({ ...current, details: event.target.value }))}
-                  placeholder="Example: I lost my card today near SM Lipa. Please freeze it."
+                  placeholder="Describe your issue and include a reference number if available."
                   className="min-h-[5.5rem] w-full resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-medium text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10"
                 />
 
@@ -271,7 +294,7 @@ const FloatingChatbot = () => {
                     onChange={(event) => setCardForm((current) => ({ ...current, confirmed: event.target.checked }))}
                     className="mt-0.5 h-4 w-4 accent-brand-primary"
                   />
-                  I confirm I know this card number and this request needs admin review.
+                  I confirm this request needs admin review.
                 </label>
 
                 {formError && <p className="mt-2 text-[10.5px] font-semibold text-red-600">{formError}</p>}
@@ -336,11 +359,10 @@ const FloatingChatbot = () => {
 
       <button type="button" onClick={() => setOpen((current) => {
         const next = !current;
-        if (next) captureEvent('passenger_web_chatbot_opened');
+        captureEvent(next ? 'chatbot_opened' : 'chatbot_closed');
         return next;
-      })} title="Chat with Premier Bot" className="relative grid h-14 w-14 place-items-center rounded-2xl border-0 bg-brand-primary text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-brand-primary-dark hover:shadow-2xl active:scale-95">
-        {open ? <X size={21} strokeWidth={2.5} /> : <Bot size={23} strokeWidth={2} />}
-        {!open && <span className="absolute -right-1 -top-1 h-4 w-4 animate-pulse rounded-full border-2 border-white bg-brand-accent" />}
+      })} title="Passenger Support" aria-label={open ? 'Close Passenger Support' : 'Open Passenger Support'} className="relative grid h-12 w-12 place-items-center rounded-xl border border-white/10 bg-brand-primary text-white shadow-md transition hover:-translate-y-0.5 hover:bg-brand-primary-dark hover:shadow-lg active:scale-95">
+        {open ? <X size={20} strokeWidth={2.5} /> : <Bot size={21} strokeWidth={2} />}
       </button>
     </div>
   );

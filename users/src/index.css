@@ -1,16 +1,16 @@
   @import "tailwindcss";
 
   :root {
-    --brand-maroon: #5c2028;
-    --brand-maroon-dark: #42171d;
-    --brand-maroon-soft: #7f4750;
-    --brand-gold: #f4c84d;
-    --brand-green: #236531;
-    --text-main: #392d33;
-    --text-muted: #717680;
-    --page-bg: #f3f4f7;
+    --brand-maroon: #6E2233;
+    --brand-maroon-dark: #581b29;
+    --brand-maroon-soft: #9a5866;
+    --brand-gold: #D4AF37;
+    --brand-green: #16A34A;
+    --text-main: #1F2937;
+    --text-muted: #6B7280;
+    --page-bg: #F8F9FB;
     --card-bg: #ffffff;
-    --border-soft: #e6e8ee;
+    --border-soft: #E5E7EB;
     --shadow-soft: 0 18px 42px rgba(44, 36, 41, 0.14);
   }
 

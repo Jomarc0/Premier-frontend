@@ -14,12 +14,12 @@ if exist "%ROOT%users\package.json" (
     start "Premier Users" cmd /k "cd /d ""%ROOT%users"" && npm run dev -- --host 0.0.0.0"
 )
 
-if exist "%ROOT%driver\package.json" (
-    start "Premier Driver" cmd /k "cd /d ""%ROOT%driver"" && npm run dev -- --host 0.0.0.0"
-)
+@REM if exist "%ROOT%driver\package.json" (
+@REM     start "Premier Driver" cmd /k "cd /d ""%ROOT%driver"" && npm run dev -- --host 0.0.0.0"
+@REM )
 
 if exist "%ROOT%staff\package.json" (
-    start "Premier Staff Queue" cmd /k "cd /d ""%ROOT%staff"" && npm run dev -- --host 0.0.0.0 --port 5177"
+    start "Premier Staff Queue" cmd /k "cd /d ""%ROOT%staff"" && npm run dev -- --host 0.0.0.0 "
 )
 
 echo Started available web frontend dev servers.

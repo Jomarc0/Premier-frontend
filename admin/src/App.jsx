@@ -3,7 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
-import { captureEvent } from './lib/posthog';
+import { RealtimeProvider } from './context/RealtimeContext';
+import { capturePageView } from './lib/posthog';
 import AdminLoginPage    from './pages/AdminLoginPage';
 import TransactionsPage  from './pages/TransactionsPage';
 import ReportsPage       from './pages/ReportsPage';
@@ -101,8 +102,10 @@ function RouteAnalytics() {
     const location = useLocation();
 
     useEffect(() => {
-        captureEvent('admin_page_viewed', {
+        capturePageView({
             path: location.pathname,
+            route: location.pathname,
+            title: document.title,
         });
     }, [location.pathname]);
 
@@ -113,6 +116,7 @@ function App() {
     return (
         <AdminAuthProvider>
             <BrowserRouter>
+                <RealtimeProvider>
                 <RouteAnalytics />
                 <Routes>
                     <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -164,6 +168,7 @@ function App() {
                     <Route path="*" element={<Navigate to="/admin/analytics" replace />} />
                 </Routes>
                 <ToastContainer position="top-right" autoClose={3000} />
+                </RealtimeProvider>
             </BrowserRouter>
         </AdminAuthProvider>
     );

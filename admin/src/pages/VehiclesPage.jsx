@@ -19,6 +19,7 @@ import adminAPI from '../api/adminAxios';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
+import { useRealtime } from '../context/RealtimeContext';
 
 const VEHICLE_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'OUT_OF_SERVICE'];
 
@@ -45,12 +46,14 @@ const VehicleStatVariants = {
 
 const VehiclesPage = () => {
     const auth = useAdminAuth();
+    const { subscribe } = useRealtime();
     const [vehicles, setVehicles] = useState([]);
     const [devices, setDevices] = useState([]);
     const [drivers, setDrivers] = useState([]);
     const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('ALL');
     const [showModal, setShowModal] = useState(false);
     const [editingVehicle, setEditingVehicle] = useState(null);
     const [form, setForm] = useState(EMPTY_FORM);
@@ -94,6 +97,10 @@ const VehiclesPage = () => {
             setLoading(false);
         }
     };
+
+    useEffect(() => subscribe((event) => {
+        if (['VEHICLE', 'DRIVER', 'DEVICE', 'FLEET_ASSIGNMENT'].includes(event.entity)) fetchVehicles();
+    }), [subscribe]);
 
     const openAddModal = () => {
         setEditingVehicle(null);
@@ -274,10 +281,12 @@ const VehiclesPage = () => {
 
     if (auth.loading) return <div className={ui.fullLoading}>Loading...</div>;
 
-    const filtered = vehicles.filter(v =>
-        v.plateNumber?.toLowerCase().includes(search.toLowerCase()) ||
-        v.status?.toLowerCase().includes(search.toLowerCase())
-    );
+    const filtered = vehicles.filter(v => {
+        const query = search.trim().toLowerCase();
+        const matchesSearch = !query || [v.plateNumber, v.status, v.id, v.totalCapacity]
+            .some(value => String(value ?? '').toLowerCase().includes(query));
+        return matchesSearch && (statusFilter === 'ALL' || v.status === statusFilter);
+    });
 
     const normalizePlate = (value) => String(value || '').trim().toUpperCase();
 
@@ -342,51 +351,37 @@ const VehiclesPage = () => {
                     })}
                 </section>
 
-                <section className={ui.dataPanel}>
-                    <div className="px-5 py-4 border-b border-border-soft">
-                        <div className={`${ui.fieldInput} mb-0`}>
-                            <FiSearch />
-                            <input type="text" placeholder="Search plate or status..." value={search} onChange={e => setSearch(e.target.value)} className={ui.fieldInputEl} />
-                        </div>
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Vehicles</h2>
+                    <div className={ui.filterBar}>
+                        <label className={`${ui.filterGroup} flex-[1_1_18rem]`}>
+                            <span className={ui.filterLabel}>Search</span>
+                            <div className="relative"><FiSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" /><input type="search" placeholder="Plate number, ID, capacity..." value={search} onChange={e => setSearch(e.target.value)} className={`${ui.filterSearch} w-full pl-9`} /></div>
+                        </label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Status</span><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={ui.filterField}><option value="ALL">All Statuses</option>{VEHICLE_STATUSES.map(status => <option key={status} value={status}>{status.replaceAll('_', ' ')}</option>)}</select></label>
+                        <button type="button" onClick={() => { setSearch(''); setStatusFilter('ALL'); }} className={ui.filterReset}>Reset</button>
                     </div>
+                </section>
 
-                    {loading ? (
-                        <div className="text-center p-10 text-text-muted italic">Loading vehicles...</div>
-                    ) : (
-                        <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4 p-5">
-                            {filtered.length === 0 ? (
-                                <div className="col-span-full text-center p-10 text-text-muted italic">No vehicles found</div>
-                            ) : filtered.map(v => {
+                <section className={ui.dataPanel}>
+                    <div className={ui.dataPanelHeader}><span className={ui.dataPanelTitle}><FiTruck /> Vehicles <span className={ui.countPill}>{filtered.length} shown</span></span></div>
+
+                    <div className={ui.tableWrap}>
+                        <table className={`${ui.adminTable} min-w-[800px]`}>
+                            <thead><tr>{['ID', 'Plate Number', 'Capacity', 'Device', 'Status', 'Actions'].map(header => <th key={header} className={ui.tableTh}>{header}</th>)}</tr></thead>
+                            <tbody>{loading ? <tr><td colSpan={6} className={ui.loadingRow}>Loading vehicles...</td></tr> : filtered.length === 0 ? <tr><td colSpan={6} className={ui.emptyRow}>No vehicles found.</td></tr> : filtered.map(v => {
                                 const linkedDevice = getLinkedDevice(v);
-                                return (
-                                    <div key={v.id} className="border-[1.5px] border-border-soft rounded-[10px] p-4 bg-white transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(44,36,41,0.10)] hover:border-gold">
-                                        <div className="flex justify-between items-start mb-[0.85rem]">
-                                            <div>
-                                                <div className="text-[1.05rem] font-black text-maroon tracking-[0.04em] inline-flex items-center gap-[0.35rem]"><FiTruck />{v.plateNumber}</div>
-                                                <div className="text-[0.7rem] text-text-muted mt-[0.15rem]">ID: {v.id}</div>
-                                            </div>
-                                            <span className={ui.statusPillColor} style={{ background: statusColor(v.status) }}>{v.status}</span>
-                                        </div>
-                                        <div className="mb-[0.7rem]">
-                                            <div className="flex justify-between text-[0.72rem] text-text-muted mb-[0.3rem]">
-                                                <span>Capacity</span><strong className="text-text-main font-black">{v.totalCapacity} pax</strong>
-                                            </div>
-                                            <div className="h-[0.4rem] bg-page-bg rounded-full overflow-hidden">
-                                                <span className="block h-full bg-green-brand rounded-full transition-[width] duration-300" style={{ width: v.status === 'ACTIVE' ? '60%' : '0%' }} />
-                                            </div>
-                                        </div>
-                                        <div className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.68rem] font-black ${linkedDevice ? 'bg-green-brand/10 text-green-brand' : 'bg-text-muted/10 text-text-muted'}`}>
-                                            <FiCpu /> {linkedDevice ? `Device Activated: ${linkedDevice.deviceId}` : 'No device registered'}
-                                        </div>
-                                        <div className="mt-4 pt-3 border-t border-border-soft flex flex-wrap gap-2">
-                                            <button type="button" onClick={() => openEditModal(v)} className="inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md bg-gold text-maroon text-[0.78rem] font-black cursor-pointer hover:bg-[#d9ad35]"><FiEdit2 /> Edit</button>
-                                            <button type="button" disabled={deletingId === v.id} onClick={() => handleDelete(v)} className="inline-flex items-center gap-[0.35rem] min-h-8 px-3 rounded-md bg-danger-muted text-white text-[0.78rem] font-black cursor-pointer hover:bg-[#9f283f] disabled:opacity-60 disabled:cursor-not-allowed"><FiTrash2 /> {deletingId === v.id ? 'Deleting...' : 'Delete'}</button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
+                                return <tr key={v.id} className={ui.tableRow}>
+                                    <td className={`${ui.tableTd} font-black`}>{v.id}</td>
+                                    <td className={`${ui.tableTd} font-black text-maroon`}><span className="inline-flex items-center gap-2"><FiTruck />{v.plateNumber}</span></td>
+                                    <td className={ui.tableTd}>{v.totalCapacity} pax</td>
+                                    <td className={ui.tableTd}><span className={`inline-flex items-center gap-1.5 ${linkedDevice ? 'text-green-brand' : 'text-text-muted'}`}><FiCpu />{linkedDevice ? linkedDevice.deviceId : 'No device registered'}</span></td>
+                                    <td className={ui.tableTd}><span className={ui.statusPillColor} style={{ background: statusColor(v.status) }}>{v.status}</span></td>
+                                    <td className={ui.tableTd}><div className="inline-flex gap-2"><button type="button" onClick={() => openEditModal(v)} className="inline-flex min-h-8 items-center gap-1 rounded-md bg-gold px-3 text-[0.78rem] font-black text-maroon hover:bg-[#d9ad35]"><FiEdit2 /> Edit</button><button type="button" disabled={deletingId === v.id} onClick={() => handleDelete(v)} className="inline-flex min-h-8 items-center gap-1 rounded-md bg-danger-muted px-3 text-[0.78rem] font-black text-white hover:bg-[#9f283f] disabled:cursor-not-allowed disabled:opacity-60"><FiTrash2 /> {deletingId === v.id ? 'Deleting...' : 'Delete'}</button></div></td>
+                                </tr>;
+                            })}</tbody>
+                        </table>
+                    </div>
                 </section>
             </main>
 

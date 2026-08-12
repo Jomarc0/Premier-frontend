@@ -1,118 +1,151 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FiBell, FiX } from 'react-icons/fi';
 import { onForegroundMessage } from '../firebase';
+import { formatTime } from '../lib/time';
+import { useAuth } from '../context/AuthContext';
+import { useRealtime } from '../context/RealtimeContext';
+import API from '../api/axiosConfig';
+import { requestNotificationPermission } from '../firebase';
+
+const MAX_NOTIFICATIONS = 20;
+
+const notificationForEvent = (event) => {
+  switch (event?.type) {
+    case 'TICKET_CREATED':
+      return { title: 'Support request received', body: 'Your request was received. We will send important updates to your email.', type: 'TICKET' };
+    case 'TICKET_STATUS_CHANGED':
+    case 'TICKET_UPDATED':
+      return { title: 'Support request updated', body: 'There is an update to your support request. Please check your email for details.', type: 'TICKET' };
+    case 'CARD_STATUS_CHANGED':
+    case 'PASSENGER_UPDATED':
+      return { title: 'Card account updated', body: 'Your card account information was updated.', type: 'CARD' };
+    case 'BALANCE_UPDATED':
+      return { title: 'Balance updated', body: 'Your available balance was updated.', type: 'TOPUP' };
+    case 'TOPUP_COMPLETED':
+      return { title: 'Top-up completed', body: 'Your card balance has been updated successfully.', type: 'TOPUP' };
+    case 'TRANSACTION_CREATED':
+    case 'FARE_PAID':
+      return { title: 'Recent activity', body: 'A new card transaction was recorded.', type: 'FARE' };
+    default:
+      return null;
+  }
+};
 
 const NotificationBell = () => {
+  const { passenger } = useAuth();
+  const { subscribe } = useRealtime();
+  const storageKey = useMemo(
+    () => (passenger?.id ? `premier:passenger-notifications:${passenger.id}` : null),
+    [passenger?.id],
+  );
   const [notifications, setNotifications] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!storageKey) {
+      setNotifications([]);
+      return;
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      setNotifications(Array.isArray(saved) ? saved.slice(0, MAX_NOTIFICATIONS) : []);
+    } catch {
+      setNotifications([]);
+    }
+  }, [storageKey]);
+
+  const addNotification = useCallback((title, body, type = 'INFO', id = `${Date.now()}-${Math.random()}`, time = new Date()) => {
+    const notification = {
+      id,
+      title: title || 'Notification',
+      body: body || '',
+      type,
+      time: new Date(time).toISOString(),
+      read: false,
+    };
+    setNotifications((previous) => {
+      if (previous.some((item) => item.id === notification.id)) return previous;
+      const next = [notification, ...previous].slice(0, MAX_NOTIFICATIONS);
+      if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next));
+      return next;
+    });
+  }, [storageKey]);
 
   useEffect(() => {
     const unsubscribe = onForegroundMessage((payload) => {
       const { title, body } = payload.notification || {};
-      const type = payload.data?.type || 'INFO';
-      addNotification(title || 'Notification', body || '', type);
+      addNotification(title, body, payload.data?.type || 'INFO', payload.messageId);
     });
-    return () => { 
-      if (typeof unsubscribe === 'function') unsubscribe(); 
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, []);
+  }, [addNotification]);
 
-  const addNotification = (title, body, type) => {
-    setNotifications(prev => [{
-      id: Date.now() + Math.random(), 
-      title, 
-      body, 
-      type, 
-      time: new Date(), 
-      read: false,
-    }, ...prev]);
-    setUnreadCount(prev => prev + 1);
+  useEffect(() => subscribe((event) => {
+    const notification = notificationForEvent(event);
+    if (notification) {
+      addNotification(notification.title, notification.body, notification.type, event.eventId, event.occurredAt);
+    }
+  }), [addNotification, subscribe]);
+
+  const updateNotifications = (update) => {
+    setNotifications((previous) => {
+      const next = update(previous);
+      if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next));
+      return next;
+    });
   };
 
   const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    setUnreadCount(0);
+    updateNotifications((previous) => previous.map((item) => ({ ...item, read: true })));
   };
-
-  const getIcon = (type) => ({
-    TOPUP: '💳', FARE: '🚌', LOW_BALANCE: '⚠️', TICKET: '🎫',
-  }[type] || '🔔');
+  const enableBrowserNotifications = async () => {
+    const token = await requestNotificationPermission();
+    if (token) {
+      await API.put('/notifications/fcm-token', { fcmToken: token });
+      addNotification('Browser notifications enabled', 'This browser will now receive Premier updates.', 'INFO');
+    }
+  };
+  const unreadCount = notifications.filter((item) => !item.read).length;
+  const getIcon = (type) => ({ TOPUP: '💳', FARE: '🚌', LOW_BALANCE: '⚠️', TICKET: '🎫', CARD: '🛡️' }[type] || '🔔');
 
   return (
     <div className="relative">
-      {/* Bell button styled exactly with Design reference reference layout */}
       <button
         onClick={() => {
-          setShowDropdown(!showDropdown);
+          if (typeof Notification !== 'undefined' && Notification.permission === 'default') enableBrowserNotifications();
           if (!showDropdown) markAllRead();
+          setShowDropdown(!showDropdown);
         }}
-        className="text-white/80 hover:text-white p-2 relative cursor-pointer transition-colors block border-none bg-transparent"
+        className="relative block cursor-pointer border-none bg-transparent p-2 text-white/80 transition-colors hover:text-white"
         aria-label="Notifications"
-        title="View Alerts"
+        title="View notifications"
       >
         <FiBell size={20} />
-        {unreadCount > 0 && (
-          <span className="absolute top-1.5 right-1.5 min-w-4 h-4 px-1 rounded-full bg-yellow-400 text-[#7A2F3D] text-[9px] font-black grid place-items-center border-2 border-[#7A2F3D]">
-            {unreadCount > 9 ? '9+' : unreadCount}
-          </span>
-        )}
+        {unreadCount > 0 && <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full border-2 border-[#6E2233] bg-[#D4AF37] px-1 text-[9px] font-black text-[#6E2233]">{unreadCount > 9 ? '9+' : unreadCount}</span>}
       </button>
 
-      {/* Dropdown with Design reference styling (rounded-2xl, crimson header, clean typography) */}
       {showDropdown && (
-        <div className="absolute top-[calc(100%+0.5rem)] right-0 w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden z-70 animate-in fade-in duration-150">
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3 bg-[#7A2F3D]">
-            <span className="text-white font-black text-xs uppercase tracking-wider">System Notifications</span>
-            <button
-              onClick={() => setShowDropdown(false)}
-              className="grid place-items-center w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer border-none"
-              aria-label="Close"
-            >
-              <FiX size={14} />
-            </button>
+        <div className="absolute top-[calc(100%+0.5rem)] right-0 z-70 w-80 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl md:w-96">
+          <div className="flex items-center justify-between bg-[#7A2F3D] px-5 py-3">
+            <span className="text-xs font-black uppercase tracking-wider text-white">Notifications</span>
+            <button onClick={() => setShowDropdown(false)} className="grid h-7 w-7 cursor-pointer place-items-center rounded-lg border-none bg-white/10 text-white transition-colors hover:bg-white/20" aria-label="Close"><FiX size={14} /></button>
           </div>
-
-          {/* List */}
-          <div className="max-h-80 overflow-y-auto divide-y divide-slate-50 bg-slate-50/30">
+          <div className="max-h-80 divide-y divide-slate-50 overflow-y-auto bg-slate-50/30">
             {notifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 px-4 text-slate-400 text-xs">
-                <FiBell className="text-2xl mb-2 opacity-30 animate-pulse" />
-                <p className="font-bold">No active tap warnings or alerts</p>
+              <div className="flex flex-col items-center justify-center px-4 py-12 text-xs text-slate-400"><FiBell className="mb-2 text-2xl opacity-30" /><p className="font-bold">No new notifications</p></div>
+            ) : notifications.map((notification) => (
+              <div key={notification.id} className={`flex items-start gap-3 px-4 py-3 ${notification.read ? 'bg-white' : 'bg-yellow-50/50'}`}>
+                <span className="mt-0.5 shrink-0 text-lg">{getIcon(notification.type)}</span>
+                <div className="min-w-0 flex-1 leading-tight"><p className="truncate text-xs font-black text-slate-900">{notification.title}</p><p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">{notification.body}</p><p className="mt-1 font-mono text-[9px] text-slate-400">{formatTime(notification.time)}</p></div>
               </div>
-            ) : (
-              notifications.map(notif => (
-                <div
-                  key={notif.id}
-                  className={`flex gap-3 items-start px-4 py-3 transition-colors ${
-                    notif.read ? 'bg-white' : 'bg-yellow-50/50'
-                  }`}
-                >
-                  <span className="text-lg shrink-0 mt-0.5">{getIcon(notif.type)}</span>
-                  <div className="flex-1 min-w-0 leading-tight">
-                    <p className="font-black text-xs text-slate-900 truncate">{notif.title}</p>
-                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">{notif.body}</p>
-                    <p className="text-[9px] text-slate-400 mt-1 font-mono">
-                      {new Date(notif.time).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
+            ))}
           </div>
-
-          {/* Footer */}
-          {notifications.length > 0 && (
-            <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-center">
-              <button
-                onClick={() => { setNotifications([]); setUnreadCount(0); }}
-                className="w-full py-1.5 rounded-lg text-[10px] font-bold text-[#7A2F3D] hover:bg-[#7A2F3D]/5 transition-colors uppercase tracking-wider cursor-pointer border-none bg-transparent"
-              >
-                Clear All Logs
-              </button>
-            </div>
-          )}
+          <div className="border-t border-slate-100 bg-slate-50 px-4 py-2 text-center">
+            {typeof Notification !== 'undefined' && Notification.permission !== 'granted' ? (
+              <button onClick={enableBrowserNotifications} className="w-full cursor-pointer rounded-lg border-none bg-transparent py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7A2F3D] transition-colors hover:bg-[#7A2F3D]/5">Enable browser notifications</button>
+            ) : notifications.length > 0 && <button onClick={markAllRead} className="w-full cursor-pointer rounded-lg border-none bg-transparent py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7A2F3D] transition-colors hover:bg-[#7A2F3D]/5">Mark all as read</button>}
+          </div>
         </div>
       )}
     </div>

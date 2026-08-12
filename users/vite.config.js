@@ -21,7 +21,18 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
-      }
+        configure: (proxy) => {
+          proxy.on('proxyReq', (request) => request.removeHeader('origin'));
+        },
+      },
+      '/ws-native': {
+        target: 'ws://localhost:8080',
+        ws: true,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReqWs', (request) => request.removeHeader('origin'));
+        },
+      },
     }
   }
 })

@@ -1,15 +1,22 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff, ListChecks, BusFront } from "lucide-react";
+import { Client } from "@stomp/stompjs";
 import logo from "./assets/image/logo-premier.webp";
 import { BRAND_NAME } from "./constants/brand";
-import { captureEvent } from "./lib/posthog";
+import { captureEvent, capturePageView, identifyUser, resetAnalytics } from "./lib/posthog";
+import { formatPhtTime } from "./time";
 
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_API_URL ||
-  "http://localhost:8080"
+  import.meta.env.DEV
+    ? ""
+    : (import.meta.env.VITE_API_BASE_URL ||
+      import.meta.env.VITE_API_URL ||
+      "http://localhost:8080")
 ).replace(/\/$/, "");
 const SESSION_KEY = "premier_staff_session";
+const WEBSOCKET_URL = import.meta.env.DEV
+  ? `ws://${window.location.host}/ws-native`
+  : `${API_BASE_URL.replace(/^http/, "ws")}/ws-native`;
 
 const emptyQueue = {
   incomingToSmTerminal: [],
@@ -209,6 +216,7 @@ function LoginPage({ onLogin }) {
 
       const session = {
         token: account.token,
+        userId: account.id ?? account.adminId ?? null,
         username: account.username || username.trim(),
         fullName: account.fullName || account.username || username.trim(),
         role: account.role,
@@ -394,25 +402,29 @@ function CashTransactions({ data, loading, error, onRefresh }) {
       {error ? <p className="rounded-lg border border-[#e8bd47] bg-[#fff7df] p-4 text-sm font-bold text-[#8a5a00]">{error}</p> : null}
       {!loading && !error ? (
         <div className="overflow-hidden rounded-2xl border border-[#e6e8ee] bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
+          {rows.length ? <>
+          <div className="border-b border-[#eceef2] px-4 py-2 text-right text-[11px] font-bold text-[#717680] sm:hidden">Swipe left to view all columns</div>
+          <div className="overflow-x-auto overscroll-x-contain">
+            <table className="w-full min-w-[560px] table-fixed text-left text-sm">
               <thead className="bg-[#f2e8ea] text-[#6f2f3c]">
-                <tr>{["Time", "Vehicle", "Category", "Amount", "Reference"].map((label) => <th key={label} className="px-4 py-3 text-xs font-black uppercase tracking-wide">{label}</th>)}</tr>
+                <tr>{[
+                  ["Time", "w-[5rem]"], ["Vehicle", "w-[5.75rem]"], ["Category", "w-[7.25rem]"], ["Amount", "w-[6rem]"], ["Reference", "w-[10.5rem]"],
+                ].map(([label, width]) => <th key={label} className={`${width} whitespace-nowrap px-3 py-3 text-xs font-black uppercase tracking-wide sm:px-4`}>{label}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id} className="border-t border-[#eceef2]">
-                    <td className="px-4 py-3 font-semibold">{new Date(row.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
-                    <td className="px-4 py-3 font-black">{row.plateNumber}</td>
-                    <td className="px-4 py-3"><span className="rounded-full bg-[#f2e8ea] px-2 py-1 text-xs font-black text-[#6f2f3c]">{row.fareCategory === "REGULAR_CASH" ? "Regular" : "Discounted"}</span></td>
-                    <td className="px-4 py-3 font-black">{peso(row.finalFare)}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-[#717680]">{row.referenceNumber}</td>
+                    <td className="whitespace-nowrap px-3 py-3 font-semibold sm:px-4">{formatPhtTime(row.createdAt)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 font-black sm:px-4">{row.plateNumber}</td>
+                    <td className="whitespace-nowrap px-3 py-3 sm:px-4"><span className="rounded-full bg-[#f2e8ea] px-2 py-1 text-xs font-black text-[#6f2f3c]">{row.fareCategory === "REGULAR_CASH" ? "Regular" : "Discounted"}</span></td>
+                    <td className="whitespace-nowrap px-3 py-3 font-black sm:px-4">{peso(row.finalFare)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-[#717680] sm:px-4">{row.referenceNumber}</td>
                   </tr>
                 ))}
-                {!rows.length ? <tr><td colSpan="5" className="px-4 py-8 text-center font-bold text-[#717680]">No cash fares recorded today.</td></tr> : null}
               </tbody>
             </table>
           </div>
+          </> : <div className="px-4 py-10 text-center text-sm font-bold text-[#717680]">No cash fares recorded today.</div>}
         </div>
       ) : null}
     </section>
@@ -430,6 +442,8 @@ function Dashboard({ username, onLogout }) {
   const [cashData, setCashData] = useState(null);
   const [cashLoading, setCashLoading] = useState(false);
   const [cashError, setCashError] = useState("");
+  const queueLoaderRef = useRef(null);
+  const cashLoaderRef = useRef(null);
 
   async function loadQueue({ silent = false } = {}) {
     if (!silent) setLoading(true);
@@ -504,22 +518,44 @@ function Dashboard({ username, onLogout }) {
     }
   }
 
+  queueLoaderRef.current = loadQueue;
+  cashLoaderRef.current = loadCashTransactions;
+
   useEffect(() => {
     loadQueue();
-    const timer = window.setInterval(() => loadQueue({ silent: true }), 5000);
+    const timer = window.setInterval(() => loadQueue({ silent: true }), 30000);
     return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
     if (activeView !== "transactions") return undefined;
     loadCashTransactions();
-    const timer = window.setInterval(() => loadCashTransactions({ silent: true }), 5000);
+    const timer = window.setInterval(() => loadCashTransactions({ silent: true }), 30000);
     return () => window.clearInterval(timer);
   }, [activeView]);
 
+  useEffect(() => {
+    const savedSession = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    if (!savedSession?.token) return undefined;
+    const client = new Client({
+      brokerURL: WEBSOCKET_URL,
+      connectHeaders: { Authorization: `Bearer ${savedSession.token}` },
+      reconnectDelay: 3000,
+      onConnect: () => client.subscribe("/topic/staff/realtime", (frame) => {
+        try {
+          const event = JSON.parse(frame.body);
+          if (event.entity === "VEHICLE_LOCATION" || event.entity === "VEHICLE") queueLoaderRef.current?.({ silent: true });
+          if (event.entity === "STAFF_CASH_TRANSACTION") cashLoaderRef.current?.({ silent: true });
+        } catch { /* Ignore malformed realtime envelopes. */ }
+      }),
+    });
+    client.activate();
+    return () => client.deactivate();
+  }, []);
+
   const updatedLabel = useMemo(() => {
     if (!lastUpdated) return "Waiting for live update";
-    return lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return formatPhtTime(lastUpdated);
   }, [lastUpdated]);
 
   const totalBuses = queue.incomingToSmTerminal.length + queue.incomingToGrandTerminal.length;
@@ -683,7 +719,17 @@ export default function App() {
     }
   });
 
+  useEffect(() => {
+    capturePageView({
+      path: window.location.pathname,
+      route: session ? "staff_dashboard" : "staff_login",
+      title: document.title,
+    });
+    if (session?.userId) identifyUser(session.userId, { role: "STAFF" });
+  }, [session]);
+
   function handleLogout() {
+    resetAnalytics();
     localStorage.removeItem(SESSION_KEY);
     captureEvent("staff_logout");
     setSession(null);

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FiCheck, FiCreditCard, FiEdit3, FiEye, FiRefreshCw, FiShield, FiX } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
 import { captureEvent } from '../lib/posthog';
+import { useRealtime } from '../context/RealtimeContext';
+import { formatDateTime } from '../lib/time';
 
 const filters = [
     ['ALL', 'All'],
@@ -39,15 +41,15 @@ const SupportTicketsPage = () => {
     const [loading, setLoading] = useState(true);
     const [selected, setSelected] = useState(null);
     const [filter, setFilter] = useState('ALL');
+    const [search, setSearch] = useState('');
     const [notes, setNotes] = useState('');
     const [newRfidUid, setNewRfidUid] = useState('');
     const [busy, setBusy] = useState(false);
     const [readingUid, setReadingUid] = useState(false);
     const [confirmation, setConfirmation] = useState(null);
+    const { subscribe } = useRealtime();
 
-    useEffect(() => { fetchTickets(); }, []);
-
-    const fetchTickets = async () => {
+    const fetchTickets = useCallback(async () => {
         setLoading(true);
         try {
             const res = await adminAPI.get('/support-tickets');
@@ -57,12 +59,23 @@ const SupportTicketsPage = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => { fetchTickets(); }, [fetchTickets]);
+
+    useEffect(() => subscribe((event) => {
+        if (event.entity === 'SUPPORT_TICKET') fetchTickets();
+    }), [fetchTickets, subscribe]);
 
     const visibleTickets = useMemo(() => {
-        if (filter === 'ALL') return tickets;
-        return tickets.filter((ticket) => ticket.status === filter || ticket.issueType === filter);
-    }, [filter, tickets]);
+        return tickets.filter((ticket) => {
+            const matchesFilter = filter === 'ALL' || ticket.status === filter || ticket.issueType === filter;
+            const query = search.trim().toLowerCase();
+            const matchesSearch = !query || [ticket.ticketNumber, ticket.maskedCardNumber, ticket.email, ticket.issueType]
+                .some(value => String(value || '').toLowerCase().includes(query));
+            return matchesFilter && matchesSearch;
+        });
+    }, [filter, search, tickets]);
 
     const pendingCount = tickets.filter((ticket) => ticket.status === 'PENDING').length;
     const inReviewCount = tickets.filter((ticket) => ticket.status === 'IN_REVIEW').length;
@@ -173,8 +186,8 @@ const SupportTicketsPage = () => {
         }
 
         await runConfirmedAction(
-            `Replace RFID UID for ${selected.ticketNumber}?\n\nCard: ${selected.cardNumber}\nOld UID: ${selected.currentRfidUid || '-'}\nNew UID: ${normalizedUid}\n\nThis will update the passenger card UID but will not resolve the ticket.`,
-            'RFID UID replaced',
+            `Assign this replacement RFID card to ${selected.ticketNumber}?\n\nCard: ${selected.cardNumber}\nOld UID: ${selected.currentRfidUid || '-'}\nNew UID: ${normalizedUid}\n\nThis activates the passenger account on the replacement card. The ticket remains open so you can add notes and send the resolution email.`,
+            'Replacement card assigned and account reactivated',
             () => adminAPI.post(`/support-tickets/${selected.id}/replace-rfid`, {
                 newRfidUid: normalizedUid,
                 adminNotes: notes,
@@ -218,25 +231,19 @@ const SupportTicketsPage = () => {
                     <article className={ui.statCardVariant.green}><div><span className={ui.statLabel}>In Review</span><span className={ui.statValue}>{inReviewCount}</span></div><span className={ui.statIconVariant.green}><FiEdit3 /></span></article>
                 </section>
 
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Support Tickets</h2>
+                    <div className={ui.filterBar}>
+                        <label className={`${ui.filterGroup} flex-[1_1_18rem]`}><span className={ui.filterLabel}>Search</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ticket, card, email, or issue..." className={`${ui.filterSearch} w-full`} /></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Status or issue</span><select value={filter} onChange={(event) => setFilter(event.target.value)} className={ui.filterField}>{filters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                        <button type="button" onClick={() => { setSearch(''); setFilter('ALL'); }} className={ui.filterReset}>Reset</button>
+                    </div>
+                </section>
+
                 <section className={ui.dataPanel}>
                     <div className={ui.dataPanelHeader}>
                         <span className={ui.dataPanelTitle}><FiShield /> Tickets</span>
                         <span className={ui.countPill}>{pendingCount} pending</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2 border-b border-slate-100 px-4 py-3">
-                        {filters.map(([value, label]) => (
-                            <button
-                                key={value}
-                                type="button"
-                                onClick={() => setFilter(value)}
-                                className={[
-                                    'rounded-lg px-3 py-2 text-xs font-black transition',
-                                    filter === value ? 'bg-maroon text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                                ].join(' ')}
-                            >
-                                {label}
-                            </button>
-                        ))}
                     </div>
                     <div className={ui.tableWrap}>
                         <table className={ui.adminTable}>
@@ -263,7 +270,7 @@ const SupportTicketsPage = () => {
                                         <td className={ui.tableTd}>{ticket.issueType}</td>
                                         <td className={ui.tableTd}>{ticket.priority}</td>
                                         <td className={ui.tableTd}><span className={statusClass(ticket.status)}>{ticket.status}</span></td>
-                                        <td className={ui.tableTd}>{ticket.createdAt ? new Date(ticket.createdAt).toLocaleString() : '-'}</td>
+                                        <td className={ui.tableTd}>{ticket.createdAt ? formatDateTime(ticket.createdAt) : '-'}</td>
                                         <td className={ui.tableTd}><button className={ui.adminAction} onClick={() => openTicket(ticket)}><FiEye /> View</button></td>
                                     </tr>
                                 ))}
@@ -301,7 +308,7 @@ const SupportTicketsPage = () => {
                                 <textarea className="w-full min-h-[7rem] rounded-lg border-2 border-[#d9dce2] p-3 outline-none focus:border-maroon" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Enter the resolution or rejection reason for the passenger" />
                                 <button className={ui.adminActionPrimary} disabled={busy || isClosed} onClick={() => runAction('Notes saved', () => adminAPI.put(`/support-tickets/${selected.id}/notes`, { adminNotes: notes }), 'save_notes')}><FiEdit3 /> Save Notes</button>
 
-                                <label className={ui.fieldLabel}>Replacement RFID UID</label>
+                                <label className={ui.fieldLabel}>Replacement card RFID UID</label>
                                 <div className="grid grid-cols-[1fr_8.5rem] gap-2 max-[620px]:grid-cols-1">
                                     <input
                                         className="w-full rounded-lg border-2 border-[#d9dce2] p-3 font-mono outline-none focus:border-maroon"
@@ -319,15 +326,15 @@ const SupportTicketsPage = () => {
                                     </button>
                                 </div>
                                 <p className="text-[0.74rem] text-text-muted">
-                                    Same as Create Cards: click Read UID, then tap the replacement RFID card on the PN532 hardware.
+                                    Click Read UID, then tap the replacement RFID card on the PN532 hardware. Assigning it reactivates the passenger account; the lost card stays unusable.
                                 </p>
-                                <button className={ui.adminActionPrimary} disabled={busy || readingUid || isClosed || cleanUid(newRfidUid).length < 4} onClick={handleReplaceRfidUid}><FiEdit3 /> Change RFID UID</button>
+                                <button className={ui.adminActionPrimary} disabled={busy || readingUid || isClosed || cleanUid(newRfidUid).length < 4} onClick={handleReplaceRfidUid}><FiEdit3 /> Assign replacement & reactivate</button>
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2 border-t border-slate-100 p-5">
                             <button className={ui.adminAction} disabled={busy || readingUid || isClosed} onClick={() => runConfirmedAction(`Mark ${selected.ticketNumber} as in review?`, 'Marked in review', () => adminAPI.put(`/support-tickets/${selected.id}/status`, { status: 'IN_REVIEW' }), 'mark_in_review')}><FiEye /> Mark In Review</button>
                             <button className={ui.adminAction} disabled={busy || readingUid || isClosed} onClick={() => runConfirmedAction(`Freeze the passenger card for ${selected.ticketNumber}?`, 'Card frozen', () => adminAPI.post(`/support-tickets/${selected.id}/freeze-card`, { adminNotes: notes }), 'freeze_card')}><FiShield /> Freeze Card</button>
-                            <button className={ui.adminActionPrimary} disabled={busy || readingUid || isClosed} onClick={() => runConfirmedAction(`Resolve ${selected.ticketNumber}? This sends the confirmation email to the passenger.`, 'Ticket resolved', () => adminAPI.post(`/support-tickets/${selected.id}/resolve`, { adminNotes: notes }), 'resolve')}><FiCheck /> Resolve</button>
+                            <button className={ui.adminActionPrimary} disabled={busy || readingUid || isClosed} onClick={() => runConfirmedAction(`Resolve ${selected.ticketNumber}? This sends the confirmation email to the passenger. For lost-card tickets, assign the replacement card first.`, 'Ticket resolved', () => adminAPI.post(`/support-tickets/${selected.id}/resolve`, { adminNotes: notes }), 'resolve')}><FiCheck /> Resolve & email passenger</button>
                             <button className="inline-flex items-center gap-[0.45rem] min-h-[2.45rem] px-[0.95rem] rounded-lg bg-white text-danger-muted border border-danger-muted/30 text-[0.86rem] font-black cursor-pointer hover:bg-danger-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={busy || readingUid || isClosed} onClick={handleReject}><FiX /> Reject</button>
                         </div>
                     </div>

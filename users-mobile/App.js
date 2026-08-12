@@ -6,11 +6,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PostHogProvider } from 'posthog-react-native';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { RealtimeProvider } from './src/context/RealtimeContext';
 import DashboardScreen from './src/screens/DashboardScreen';
 import LandingScreen from './src/screens/LandingScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import MobileNfcPaymentScreen from './src/screens/MobileNfcPaymentScreen';
 import QRFarePaymentScreen from './src/screens/QRFarePaymentScreen';
+import ReportLostCardScreen from './src/screens/ReportLostCardScreen';
 import TotpSetupScreen from './src/screens/TotpSetupScreen';
 import TotpVerifyScreen from './src/screens/TotpVerifyScreen';
 import { POSTHOG_HOST, POSTHOG_KEY } from './src/analytics/posthog';
@@ -41,6 +43,7 @@ function Routes() {
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
           <Stack.Screen name="MobileNfcPayment" component={MobileNfcPaymentScreen} />
           <Stack.Screen name="QRFarePayment" component={QRFarePaymentScreen} />
+          <Stack.Screen name="ReportLostCard" component={ReportLostCardScreen} />
         </>
       ) : (
         <>
@@ -59,10 +62,12 @@ export default function App() {
     <SafeAreaProvider>
       <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
         <AuthProvider>
+          <RealtimeProvider>
           <NavigationContainer>
             <StatusBar style="light" />
             <Routes />
           </NavigationContainer>
+          </RealtimeProvider>
         </AuthProvider>
       </PostHogProvider>
     </SafeAreaProvider>

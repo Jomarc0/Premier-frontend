@@ -10,6 +10,8 @@ import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
+import { useRealtime } from '../context/RealtimeContext';
+import { formatTime, phtDateKey } from '../lib/time';
 
 const statusColor = {
     SUCCESS: '#2f6b3d', PENDING: '#d97706', FAILED: '#b24a52',
@@ -21,13 +23,18 @@ const TransactionsPage = () => {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [filterStatus, setFilterStatus] = useState('All Status');
+    const [filterType, setFilterType] = useState('ALL');
     const [page, setPage] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
     const [staffCashTransactions, setStaffCashTransactions] = useState([]);
     const [activeTab, setActiveTab] = useState('transactions');
+    const [staffCashDate, setStaffCashDate] = useState(phtDateKey());
+    const [staffCashSearch, setStaffCashSearch] = useState('');
+    const [staffCashCategory, setStaffCashCategory] = useState('ALL');
+    const { subscribe } = useRealtime();
 
-    useEffect(() => { fetchData(); }, [page]);
+    useEffect(() => { fetchData(); }, [page, staffCashDate]);
 
     const fetchData = async () => {
         setLoading(true);
@@ -35,7 +42,7 @@ const TransactionsPage = () => {
             const [txRes, statsRes, staffCashRes] = await Promise.all([
                 adminAPI.get(`/transactions?page=${page}&size=25`),
                 adminAPI.get('/dashboard/stats'),
-                adminAPI.get(`/staff-cash/transactions?date=${new Date().toISOString().slice(0, 10)}`),
+                adminAPI.get(`/staff-cash/transactions?date=${staffCashDate}`),
             ]);
             const txData = txRes.data.data;
             setTransactions(txData.content || []);
@@ -49,6 +56,10 @@ const TransactionsPage = () => {
             setLoading(false);
         }
     };
+
+    useEffect(() => subscribe((event) => {
+        if (event.entity === 'TRANSACTION' || event.entity === 'TOPUP') fetchData();
+    }), [subscribe, page]);
 
     const handleApprove = async (id) => {
         try {
@@ -75,10 +86,16 @@ const TransactionsPage = () => {
             String(tx.id).includes(search) ||
             (tx.passenger?.rfidCardId || '').toLowerCase().includes(search.toLowerCase());
         const matchStatus = filterStatus === 'All Status' || tx.status === filterStatus;
-        return matchSearch && matchStatus;
+        const matchType = filterType === 'ALL' || tx.type === filterType;
+        return matchSearch && matchStatus && matchType;
     });
 
-    const filterField = 'min-h-[2.55rem] px-[0.85rem] border-[1.5px] border-border-soft rounded-lg text-[0.86rem] outline-none bg-white text-text-main focus:border-gold focus:shadow-[0_0_0_3px_rgba(232,189,71,0.18)]';
+    const filteredStaffCashTransactions = staffCashTransactions.filter((transaction) => {
+        const query = staffCashSearch.trim().toLowerCase();
+        const matchesSearch = !query || [transaction.staffName, transaction.plateNumber, transaction.deviceId, transaction.referenceNumber]
+            .some(value => String(value || '').toLowerCase().includes(query));
+        return matchesSearch && (staffCashCategory === 'ALL' || transaction.fareCategory === staffCashCategory);
+    });
 
     return (
         <div className={ui.layout}>
@@ -135,40 +152,40 @@ const TransactionsPage = () => {
                 </section>
 
                 {/* Filter */}
-                <section className="bg-white rounded-lg px-5 py-[1.1rem] mb-[1.1rem] shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
-                    <h2 className="m-0 mb-[0.8rem] text-[0.95rem] font-black text-maroon">Filter Transactions</h2>
-                    <div className="flex gap-[0.8rem] flex-wrap items-end">
-                        <div className="flex flex-col min-w-36">
-                            <span className="text-[0.74rem] text-text-muted font-extrabold mb-[0.3rem]">Status</span>
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Transactions</h2>
+                    <div className={ui.filterBar}>
+                        <label className={ui.filterGroup}>
+                            <span className={ui.filterLabel}>Status</span>
                             <select
                                 value={filterStatus}
                                 onChange={(e) => setFilterStatus(e.target.value)}
-                                className={filterField}
+                                className={ui.filterField}
                             >
                                 <option>All Status</option>
                                 <option value="SUCCESS">Completed</option>
                                 <option value="PENDING">Pending</option>
                                 <option value="FAILED">Failed</option>
                             </select>
-                        </div>
-                        <div className="flex flex-col min-w-36">
-                            <span className="text-[0.74rem] text-text-muted font-extrabold mb-[0.3rem]">Type</span>
-                            <select className={filterField}>
-                                <option>All Types</option>
-                                <option>Topup</option>
-                                <option>Fare Deduction</option>
+                        </label>
+                        <label className={ui.filterGroup}>
+                            <span className={ui.filterLabel}>Type</span>
+                            <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className={ui.filterField}>
+                                <option value="ALL">All Types</option>
+                                <option value="TOPUP">Topup</option>
+                                <option value="FARE_DEDUCTION">Fare Deduction</option>
                             </select>
-                        </div>
-                        <div className="flex flex-col min-w-36">
-                            <span className="text-[0.74rem] text-text-muted font-extrabold mb-[0.3rem]">User ID</span>
+                        </label>
+                        <label className={ui.filterGroup}>
+                            <span className={ui.filterLabel}>User ID or reference</span>
                             <input
                                 type="text"
                                 placeholder="Enter User ID"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                className={filterField}
+                                className={ui.filterField}
                             />
-                        </div>
+                        </label>
                         <button
                             type="button"
                             onClick={fetchData}
@@ -177,6 +194,7 @@ const TransactionsPage = () => {
                             <FiSearch />
                             Search
                         </button>
+                        <button type="button" onClick={() => { setSearch(''); setFilterStatus('All Status'); setFilterType('ALL'); }} className={ui.filterReset}>Reset</button>
                     </div>
                 </section>
 
@@ -188,16 +206,6 @@ const TransactionsPage = () => {
                             Transactions
                             <span className={ui.countPill}>{totalElements} records</span>
                         </span>
-                        <label className={ui.searchControl}>
-                            Search:
-                            <input
-                                type="text"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Search transactions..."
-                                className={ui.searchControlInput}
-                            />
-                        </label>
                     </div>
 
                     <div className={ui.tableWrap}>
@@ -318,19 +326,29 @@ const TransactionsPage = () => {
 
                 </>}
 
-                {activeTab === 'staff-cash' && <section className={ui.dataPanel}>
+                {activeTab === 'staff-cash' && <>
+                    <section className={ui.filterPanel}>
+                        <h2 className={ui.filterPanelTitle}>Filter Staff Cash Transactions</h2>
+                        <div className={ui.filterBar}>
+                            <label className={ui.filterGroup}><span className={ui.filterLabel}>Collection date</span><input type="date" value={staffCashDate} onChange={(event) => setStaffCashDate(event.target.value)} className={ui.filterField} /></label>
+                            <label className={`${ui.filterGroup} flex-[1_1_18rem]`}><span className={ui.filterLabel}>Search</span><input type="search" value={staffCashSearch} onChange={(event) => setStaffCashSearch(event.target.value)} placeholder="Staff, vehicle, device, or reference..." className={`${ui.filterSearch} w-full`} /></label>
+                            <label className={ui.filterGroup}><span className={ui.filterLabel}>Category</span><select value={staffCashCategory} onChange={(event) => setStaffCashCategory(event.target.value)} className={ui.filterField}><option value="ALL">All Categories</option><option value="REGULAR_CASH">Regular Cash</option><option value="DISCOUNTED_CASH">Discounted Cash</option></select></label>
+                            <button type="button" onClick={() => { setStaffCashDate(phtDateKey()); setStaffCashSearch(''); setStaffCashCategory('ALL'); }} className={ui.filterReset}>Reset</button>
+                        </div>
+                    </section>
+                <section className={ui.dataPanel}>
                     <div className={ui.dataPanelHeader}>
-                        <span className={ui.dataPanelTitle}><FiFileText /> Staff Cash Transactions <span className={ui.countPill}>{staffCashTransactions.length} today</span></span>
+                        <span className={ui.dataPanelTitle}><FiFileText /> Staff Cash Transactions <span className={ui.countPill}>{filteredStaffCashTransactions.length} shown</span></span>
                     </div>
                     <div className={ui.tableWrap}>
                         <table className={ui.adminTable}>
                             <thead><tr>{['Time','Staff','Vehicle','Device','Shift','Terminal','Category','Amount','Reference'].map(h => <th key={h} className={ui.tableTh}>{h}</th>)}</tr></thead>
-                            <tbody>{loading ? <tr><td colSpan="9" className={ui.loadingRow}>Loading...</td></tr> : staffCashTransactions.length ? staffCashTransactions.map(tx => <tr key={tx.id} className={ui.tableRow}>
-                                <td className={ui.tableTd}>{new Date(tx.createdAt).toLocaleTimeString()}</td><td className={`${ui.tableTd} font-black`}>{tx.staffName}</td><td className={ui.tableTd}>{tx.plateNumber}</td><td className={ui.tableTd}>{tx.deviceId}</td><td className={ui.tableTd}>{tx.driverShiftId}</td><td className={ui.tableTd}>{tx.terminal || '—'}</td><td className={ui.tableTd}>{tx.fareCategory === 'REGULAR_CASH' ? 'Regular Cash' : 'Discounted Cash'}</td><td className={`${ui.tableTd} ${ui.balancePositive}`}>₱{Number(tx.finalFare).toFixed(2)}</td><td className={`${ui.tableTd} ${ui.mono}`}>{tx.referenceNumber}</td>
-                            </tr>) : <tr><td colSpan="9" className={ui.emptyRow}>No staff cash transactions today.</td></tr>}</tbody>
+                            <tbody>{loading ? <tr><td colSpan="9" className={ui.loadingRow}>Loading...</td></tr> : filteredStaffCashTransactions.length ? filteredStaffCashTransactions.map(tx => <tr key={tx.id} className={ui.tableRow}>
+                                <td className={ui.tableTd}>{formatTime(tx.createdAt)}</td><td className={`${ui.tableTd} font-black`}>{tx.staffName}</td><td className={ui.tableTd}>{tx.plateNumber}</td><td className={ui.tableTd}>{tx.deviceId}</td><td className={ui.tableTd}>{tx.driverShiftId}</td><td className={ui.tableTd}>{tx.terminal || '—'}</td><td className={ui.tableTd}>{tx.fareCategory === 'REGULAR_CASH' ? 'Regular Cash' : 'Discounted Cash'}</td><td className={`${ui.tableTd} ${ui.balancePositive}`}>₱{Number(tx.finalFare).toFixed(2)}</td><td className={`${ui.tableTd} ${ui.mono}`}>{tx.referenceNumber}</td>
+                            </tr>) : <tr><td colSpan="9" className={ui.emptyRow}>No staff cash transactions match the selected filters.</td></tr>}</tbody>
                         </table>
                     </div>
-                </section>}
+                </section></>}
             </main>
         </div>
     );

@@ -31,6 +31,7 @@ const ActivityLogsPage = () => {
     const [stats, setStats]                 = useState({});
     const [loading, setLoading]             = useState(true);
     const [search, setSearch]               = useState('');
+    const [actionFilter, setActionFilter]   = useState('ALL');
     const [page, setPage]                   = useState(0);
     const [totalElements, setTotalElements] = useState(0);
 
@@ -67,11 +68,14 @@ const ActivityLogsPage = () => {
     }
 
     const filtered = logs.filter(log =>
-        search === '' ||
+        (search === '' ||
         (log.action  || '').toLowerCase().includes(search.toLowerCase()) ||
         (log.details || '').toLowerCase().includes(search.toLowerCase()) ||
-        (log.admin?.username || '').toLowerCase().includes(search.toLowerCase())
+        (log.admin?.username || '').toLowerCase().includes(search.toLowerCase())) &&
+        (actionFilter === 'ALL' || log.action === actionFilter)
     );
+
+    const availableActions = [...new Set(logs.map(log => log.action).filter(Boolean))].sort();
 
     const formatDateTime = (d) => {
         if (!d) return { date: '—', time: '—' };
@@ -127,6 +131,15 @@ const ActivityLogsPage = () => {
                     ))}
                 </section>
 
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Activity Logs</h2>
+                    <div className={ui.filterBar}>
+                        <label className={`${ui.filterGroup} flex-[1_1_18rem]`}><span className={ui.filterLabel}>Search</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Action, details, admin..." className={`${ui.filterSearch} w-full`} /></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Action</span><select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)} className={ui.filterField}><option value="ALL">All Actions</option>{availableActions.map(action => <option key={action} value={action}>{action.replaceAll('_', ' ')}</option>)}</select></label>
+                        <button type="button" onClick={() => { setSearch(''); setActionFilter('ALL'); }} className={ui.filterReset}>Reset</button>
+                    </div>
+                </section>
+
                 {/* Table */}
                 <section className={ui.dataPanel}>
                     <div className={ui.dataPanelHeader}>
@@ -135,15 +148,6 @@ const ActivityLogsPage = () => {
                             Activity Logs
                             <span className={ui.countPill}>{totalElements} entries</span>
                         </span>
-                        <label className={ui.searchControl}>
-                            Search:
-                            <input
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Action, details, admin..."
-                                className={ui.searchControlInput}
-                            />
-                        </label>
                     </div>
 
                     <div className={ui.tableWrap}>

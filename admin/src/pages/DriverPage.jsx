@@ -32,6 +32,7 @@ const DriversPage = () => {
     const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('ALL');
     const [showModal, setShowModal] = useState(false);
     const [editingDriver, setEditingDriver] = useState(null);
     const [form, setForm] = useState(EMPTY_FORM);
@@ -170,11 +171,12 @@ const DriversPage = () => {
         return <div className={ui.fullLoading}>Loading...</div>;
     }
 
-    const filteredDrivers = drivers.filter(driver =>
-        driver.fullName?.toLowerCase().includes(search.toLowerCase()) ||
-        driver.licenseNumber?.toLowerCase().includes(search.toLowerCase()) ||
-        driver.phoneNumber?.includes(search)
-    );
+    const filteredDrivers = drivers.filter(driver => {
+        const query = search.trim().toLowerCase();
+        const matchesSearch = !query || [driver.fullName, driver.licenseNumber, driver.phoneNumber, driver.id]
+            .some(value => String(value || '').toLowerCase().includes(query));
+        return matchesSearch && (statusFilter === 'ALL' || driver.status === statusFilter);
+    });
 
     const statusColor = (status) => ({
         ACTIVE: '#2f6b3d',
@@ -210,18 +212,14 @@ const DriversPage = () => {
                     </div>
                 </header>
 
-                <div className="bg-white rounded-lg p-4 mb-[1.1rem] shadow-[0_10px_26px_rgba(44,36,41,0.08)] flex items-center gap-[0.65rem]">
-                    <div className={`${ui.fieldInput} flex-1 mb-0 min-h-[2.6rem]`}>
-                        <FiSearch />
-                        <input
-                            type="text"
-                            placeholder="Search name, license, phone..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            className={ui.fieldInputEl}
-                        />
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Drivers</h2>
+                    <div className={ui.filterBar}>
+                        <label className={`${ui.filterGroup} flex-[1_1_18rem]`}><span className={ui.filterLabel}>Search</span><div className="relative"><FiSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" /><input type="search" placeholder="Name, license, or phone..." value={search} onChange={(e) => setSearch(e.target.value)} className={`${ui.filterSearch} w-full pl-9`} /></div></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={ui.filterField}><option value="ALL">All Statuses</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option><option value="ON_BREAK">On Break</option><option value="OFF_DUTY">Off Duty</option></select></label>
+                        <button type="button" onClick={() => { setSearch(''); setStatusFilter('ALL'); }} className={ui.filterReset}>Reset</button>
                     </div>
-                </div>
+                </section>
 
                 <section className={ui.dataPanel}>
                     <div className={ui.dataPanelHeader}>

@@ -12,6 +12,7 @@ import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
+import { formatDateTime } from '../lib/time';
 
 const CARD_CATEGORIES = [
     { value: 'REGULAR', label: 'Regular', help: 'No discount eligibility' },
@@ -35,16 +36,7 @@ const normalizeReaderUid = (value) => {
 const formatCategory = (value) =>
     CARD_CATEGORIES.find((category) => category.value === value)?.label || value;
 
-const formatCreatedAt = (value) =>
-    value
-        ? new Date(value).toLocaleString('en-PH', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        })
-        : 'Just now';
+const formatCreatedAt = (value) => value ? formatDateTime(value) : 'Just now';
 
 const modeButtonClass = (active) =>
     [

@@ -1,19 +1,21 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { FiCreditCard, FiLogIn } from 'react-icons/fi';
+import { FiCreditCard, FiLogIn, FiShield } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { BRAND_NAME, FOOTER_TEXT } from '../constants/brand';
 import BrandLogo from '../components/auth/BrandLogo';
 import PrivacyNoticeModal from '../components/PrivacyNoticeModal';
 import { PRIVACY_NOTICE_ACCEPTED_KEY } from '../constants/privacy';
 import { captureEvent } from '../lib/posthog';
+import { apiOrigin } from '../api/apiOrigin';
 
 const LoginPage = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [cardNumber, setCardNumber] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lostCardFlow, setLostCardFlow] = useState(false);
   const [privacyNoticeOpen, setPrivacyNoticeOpen] = useState(
     () => localStorage.getItem(PRIVACY_NOTICE_ACCEPTED_KEY) !== 'true',
   );
@@ -32,27 +34,19 @@ const LoginPage = () => {
     setLoading(true);
     captureEvent('passenger_web_login_started');
 
-    try {
-      let res;
-      let data;
+    if (lostCardFlow) {
+      localStorage.setItem('postLoginAction', 'REPORT_LOST_CARD');
+    } else {
+      localStorage.removeItem('postLoginAction');
+    }
 
-      try {
-        res = await fetch(`${import.meta.env.VITE_API_URL}/api/passenger/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cardNumber }),
-        });
-        data = await res.json();
-      } catch {
-        res = { ok: true };
-        data = {
-          message: 'Success',
-          data: {
-            tempToken: `TEMP_SESS_${Date.now()}`,
-            requireSetup: false,
-          },
-        };
-      }
+    try {
+      const res = await fetch(`${apiOrigin}/api/passenger/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardNumber }),
+      });
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) throw new Error(data.message || 'Login failed');
 
@@ -82,6 +76,13 @@ const LoginPage = () => {
     }
   };
 
+  const beginLostCardReport = () => setLostCardFlow(true);
+
+  const returnToNormalLogin = () => {
+    localStorage.removeItem('postLoginAction');
+    setLostCardFlow(false);
+  };
+
   return (
     <main className="grid min-h-screen place-items-center bg-page px-4 py-12 font-sans text-text-heading selection:bg-brand-primary selection:text-white">
       <section className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl md:p-8">
@@ -96,10 +97,12 @@ const LoginPage = () => {
 
         <div className="mb-6 rounded-xl border border-slate-100 bg-slate-50 p-3 text-left">
           <h2 className="mb-1 text-xs font-black uppercase tracking-wider text-brand-primary">
-            Welcome Back, Passenger
+            {lostCardFlow ? 'Secure your lost card' : 'Welcome Back, Passenger'}
           </h2>
           <p className="text-[11px] leading-relaxed text-text-body">
-            Enter your card number to securely access your transport account.
+            {lostCardFlow
+              ? 'Sign in with your card number and Google Authenticator to review the final freeze confirmation.'
+              : 'Enter your card number to securely access your transport account.'}
           </p>
         </div>
 
@@ -133,8 +136,32 @@ const LoginPage = () => {
             className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-brand-primary py-4 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-brand-primary-dark active:scale-95 disabled:cursor-wait disabled:bg-brand-primary/40"
           >
             <FiLogIn size={16} />
-            {loading ? 'Signing in...' : 'Log In'}
+            {loading ? 'Signing in...' : lostCardFlow ? 'Continue to secure verification' : 'Log In'}
           </button>
+
+          {lostCardFlow ? (
+            <button
+              type="button"
+              onClick={returnToNormalLogin}
+              className="flex w-full items-center justify-center gap-2 py-2 text-xs font-black uppercase tracking-widest text-text-body transition hover:text-brand-primary"
+            >
+              Return to normal sign in
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={beginLostCardReport}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-3 text-xs font-black uppercase tracking-widest text-rose-800 transition hover:bg-rose-100"
+              >
+                <FiShield size={16} />
+                Report a lost card
+              </button>
+              <p className="-mt-2 text-center text-[10px] leading-relaxed text-text-body">
+                Secure verification is required before a card can be frozen.
+              </p>
+            </>
+          )}
 
           <p className="text-center text-[11px] leading-relaxed text-text-body">
             By continuing, you acknowledge the{' '}

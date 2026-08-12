@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { jwtDecode } from 'jwt-decode';
 import adminAPI from '../api/adminAxios';
+import { identifyUser, resetAnalytics } from '../lib/posthog';
 
 export const AdminAuthContext = createContext();
 
@@ -41,6 +42,7 @@ export const AdminAuthProvider = ({ children }) => {
                 role,
                 id: decoded.sub,
             });
+            identifyUser(decoded.sub, { role: role || 'admin' });
             setTwoFactorEnabledState(savedTwoFactor);
 
         } catch (err) {
@@ -71,6 +73,7 @@ export const AdminAuthProvider = ({ children }) => {
         try {
             const decoded = jwtDecode(token);
             setAdmin({ token, fullName, username, role, id: decoded.sub });
+            identifyUser(decoded.sub, { role: role || 'admin' });
             setTwoFactorEnabledState(Boolean(is2FaEnabled));
             adminAPI.defaults.headers.common['Authorization'] =
                 `Bearer ${token}`;
@@ -81,6 +84,7 @@ export const AdminAuthProvider = ({ children }) => {
     };
 
     const logout = () => {
+        resetAnalytics();
         clearSession();
         window.location.href = '/admin/login';
     };

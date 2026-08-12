@@ -21,6 +21,7 @@ import QRCode from 'react-native-qrcode-svg';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePostHog } from 'posthog-react-native';
 
@@ -30,6 +31,8 @@ import AppGuideOverlay from '../components/AppGuideOverlay';
 import Button from '../components/Button';
 import PrivacyNoticeModal from '../components/PrivacyNoticeModal';
 import { useAuth } from '../context/AuthContext';
+import { useRealtime } from '../context/RealtimeContext';
+import { formatPhtDateTime, phtDateKey } from '../utils/time';
 import { colors, shadow } from '../theme';
 
 const loadNfcManager = () => {
@@ -105,43 +108,24 @@ function formatCountdown(seconds) {
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
-
-  return new Date(dateStr).toLocaleString('en-PH', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatPhtDateTime(dateStr);
 }
 
 function formatFullDate(dateStr) {
   if (!dateStr) return '-';
 
-  return new Date(dateStr).toLocaleString('en-PH', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return formatPhtDateTime(dateStr);
 }
 
 function groupDateLabel(dateStr) {
   if (!dateStr) return 'Unknown Date';
 
-  const date = new Date(dateStr);
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-
-  if (date.toDateString() === today.toDateString()) return 'Today';
-  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
-
-  return date.toLocaleDateString('en-PH', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const today = phtDateKey();
+  const yesterday = phtDateKey(Date.now() - 24 * 60 * 60 * 1000);
+  const key = phtDateKey(dateStr);
+  if (key === today) return 'Today';
+  if (key === yesterday) return 'Yesterday';
+  return formatPhtDateTime(dateStr).split(',')[0];
 }
 
 function txStatus(tx) {
@@ -358,6 +342,7 @@ function TransactionRow({ tx, onPress }) {
 }
 
 export default function DashboardScreen({ navigation }) {
+  const { lastEvent } = useRealtime();
   const {
     passenger,
     logout,
@@ -413,6 +398,16 @@ export default function DashboardScreen({ navigation }) {
   const [showChatbotIntro, setShowChatbotIntro] = useState(false);
   const [showOtherModal, setShowOtherModal] = useState(false);
   const [privacyNoticeOpen, setPrivacyNoticeOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    SecureStore.getItemAsync('postLoginAction').then(async (action) => {
+      if (!active || action !== 'REPORT_LOST_CARD') return;
+      await SecureStore.deleteItemAsync('postLoginAction');
+      if (active) navigation.navigate('ReportLostCard');
+    });
+    return () => { active = false; };
+  }, [navigation]);
 
   const [helpContent, setHelpContent] = useState(null);
   const [chatInput, setChatInput] = useState('');
@@ -929,6 +924,12 @@ export default function DashboardScreen({ navigation }) {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (['TRANSACTION', 'TOPUP', 'PASSENGER', 'SUPPORT_TICKET'].includes(lastEvent?.entity)) {
+      fetchData({ silent: true });
+    }
+  }, [fetchData, lastEvent]);
 
   const closeAllAutomaticModals = useCallback(() => {
     setShowChatbotIntro(false);

@@ -10,9 +10,8 @@ export const sendChatMessage = async (message, sessionId) => {
     return response.data?.data || response.data;
 };
 
-export const submitPublicSupportTicket = async ({ cardNumber, email, issueType, reason }) => {
-    const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/public/support-tickets`, {
-        cardNumber,
+export const submitPublicSupportTicket = async ({ email, issueType, reason }) => {
+    const response = await API.post('/support-tickets', {
         email,
         issueType,
         reason,
@@ -22,4 +21,14 @@ export const submitPublicSupportTicket = async ({ cardNumber, email, issueType, 
         ...(response.data?.data || {}),
         message: response.data?.message,
     };
+};
+
+export const getMySupportTickets = async () => {
+    const response = await API.get('/support-tickets');
+    return response.data?.data || [];
+};
+
+export const getMySupportTicket = async (id) => {
+    const response = await API.get(`/support-tickets/${id}`);
+    return response.data?.data;
 };

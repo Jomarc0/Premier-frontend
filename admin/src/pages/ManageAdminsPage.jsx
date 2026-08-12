@@ -20,10 +20,14 @@ import AdminSidebar from '../components/AdminSidebar';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
+import { formatDateTime } from '../lib/time';
 
 const ManageAdminsPage = () => {
     const { isSuperAdmin } = useAdminAuth();
     const [admins, setAdmins] = useState([]);
+    const [accountSearch, setAccountSearch] = useState('');
+    const [roleFilter, setRoleFilter] = useState('ALL');
+    const [accountStatusFilter, setAccountStatusFilter] = useState('ALL');
     const [loading, setLoading] = useState(true);
     const [showCreate, setShowCreate] = useState(false);
     const [editingAdmin, setEditingAdmin] = useState(null);
@@ -31,6 +35,9 @@ const ManageAdminsPage = () => {
     const [managementTab, setManagementTab] = useState('accounts');
     const [editForm, setEditForm] = useState({ fullName: '', email: '', phoneNumber: '', role: 'ADMIN', active: true });
     const [cashCards, setCashCards] = useState([]);
+    const [cashCardSearch, setCashCardSearch] = useState('');
+    const [cashCardPurposeFilter, setCashCardPurposeFilter] = useState('ALL');
+    const [cashCardStatusFilter, setCashCardStatusFilter] = useState('ALL');
     const [capturingCard, setCapturingCard] = useState(false);
     const [registeringCard, setRegisteringCard] = useState(false);
     const [cardForm, setCardForm] = useState({ staffId: '', purpose: 'REGULAR_CASH', rfidUid: '' });
@@ -41,6 +48,24 @@ const ManageAdminsPage = () => {
     });
 
     useEffect(() => { fetchAdmins(); fetchCashCards(); }, []);
+
+    const filteredAdmins = admins.filter((admin) => {
+        const query = accountSearch.trim().toLowerCase();
+        const matchesSearch = !query || [admin.id, admin.fullName, admin.username, admin.email, admin.phoneNumber, admin.role]
+            .some(value => String(value || '').toLowerCase().includes(query));
+        const matchesRole = roleFilter === 'ALL' || admin.role === roleFilter;
+        const matchesStatus = accountStatusFilter === 'ALL' || String(Boolean(admin.active)) === accountStatusFilter;
+        return matchesSearch && matchesRole && matchesStatus;
+    });
+
+    const filteredCashCards = cashCards.filter((card) => {
+        const query = cashCardSearch.trim().toLowerCase();
+        const matchesSearch = !query || [card.staffName, card.maskedRfidUid, card.id]
+            .some(value => String(value || '').toLowerCase().includes(query));
+        return matchesSearch
+            && (cashCardPurposeFilter === 'ALL' || card.purpose === cashCardPurposeFilter)
+            && (cashCardStatusFilter === 'ALL' || card.status === cashCardStatusFilter);
+    });
 
     const fetchCashCards = async () => {
         try {
@@ -440,12 +465,22 @@ const ManageAdminsPage = () => {
 
                 {/* Admins Table */}
                 {managementTab === 'accounts' && (
+                <>
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Accounts</h2>
+                    <div className={ui.filterBar}>
+                        <label className={`${ui.filterGroup} flex-[1_1_18rem]`}><span className={ui.filterLabel}>Search</span><input type="search" value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} placeholder="Name, username, email, or role..." className={`${ui.filterSearch} w-full`} /></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Role</span><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} className={ui.filterField}><option value="ALL">All Roles</option><option value="SUPER_ADMIN">Super Admin</option><option value="ADMIN">Admin</option><option value="STAFF">Staff</option></select></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Status</span><select value={accountStatusFilter} onChange={(event) => setAccountStatusFilter(event.target.value)} className={ui.filterField}><option value="ALL">All Statuses</option><option value="true">Active</option><option value="false">Inactive</option></select></label>
+                        <button type="button" onClick={() => { setAccountSearch(''); setRoleFilter('ALL'); setAccountStatusFilter('ALL'); }} className={ui.filterReset}>Reset</button>
+                    </div>
+                </section>
                 <section className={ui.dataPanel}>
                     <div className={ui.dataPanelHeader}>
                         <span className={ui.dataPanelTitle}>
                             <FiUsers />
                             Admin and Staff Accounts
-                            <span className={ui.countPill}>{admins.length} total</span>
+                            <span className={ui.countPill}>{filteredAdmins.length} shown</span>
                         </span>
                     </div>
 
@@ -466,11 +501,11 @@ const ManageAdminsPage = () => {
                                     <tr>
                                         <td colSpan={9} className={ui.loadingRow}>Loading...</td>
                                     </tr>
-                                ) : admins.length === 0 ? (
+                                ) : filteredAdmins.length === 0 ? (
                                     <tr>
                                         <td colSpan={9} className={ui.emptyRow}>No admins found.</td>
                                     </tr>
-                                ) : admins.map((a) => (
+                                ) : filteredAdmins.map((a) => (
                                     <tr key={a.id} className={ui.tableRow}>
                                         <td className={ui.tableTd}><strong>{a.id}</strong></td>
                                         <td className={`${ui.tableTd} whitespace-nowrap font-black`}>{a.fullName}</td>
@@ -494,12 +529,7 @@ const ManageAdminsPage = () => {
                                             </span>
                                         </td>
                                         <td className={`${ui.tableTd} text-text-muted text-[0.78rem] whitespace-nowrap`}>
-                                            {a.lastLogin
-                                                ? new Date(a.lastLogin).toLocaleString('en-PH', {
-                                                    month: 'short', day: 'numeric',
-                                                    hour: '2-digit', minute: '2-digit',
-                                                })
-                                                : 'Never'}
+                                            {a.lastLogin ? formatDateTime(a.lastLogin) : 'Never'}
                                         </td>
                                         <td className={ui.tableTd}>
                                             <div className="flex flex-nowrap items-center gap-[0.35rem]">
@@ -529,6 +559,7 @@ const ManageAdminsPage = () => {
                         </table>
                     </div>
                 </section>
+                </>
                 )}
 
                 {managementTab === 'accounts' && actionMenu && (
@@ -553,12 +584,22 @@ const ManageAdminsPage = () => {
                 )}
 
                 {managementTab === 'cash-cards' && (
+                <>
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Staff Cash RFID Cards</h2>
+                    <div className={ui.filterBar}>
+                        <label className={`${ui.filterGroup} flex-[1_1_18rem]`}><span className={ui.filterLabel}>Search</span><input type="search" value={cashCardSearch} onChange={(event) => setCashCardSearch(event.target.value)} placeholder="Staff name or RFID UID..." className={`${ui.filterSearch} w-full`} /></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Purpose</span><select value={cashCardPurposeFilter} onChange={(event) => setCashCardPurposeFilter(event.target.value)} className={ui.filterField}><option value="ALL">All Purposes</option><option value="REGULAR_CASH">Regular Cash</option><option value="DISCOUNTED_CASH">Discounted Cash</option></select></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Status</span><select value={cashCardStatusFilter} onChange={(event) => setCashCardStatusFilter(event.target.value)} className={ui.filterField}><option value="ALL">All Statuses</option><option value="ACTIVE">Active</option><option value="BLOCKED">Blocked</option></select></label>
+                        <button type="button" onClick={() => { setCashCardSearch(''); setCashCardPurposeFilter('ALL'); setCashCardStatusFilter('ALL'); }} className={ui.filterReset}>Reset</button>
+                    </div>
+                </section>
                 <section className={ui.dataPanel}>
                     <div className={ui.dataPanelHeader}>
                         <span className={ui.dataPanelTitle}>
                             <FiCreditCard />
                             Staff Cash RFID Cards
-                            <span className={ui.countPill}>{cashCards.length} registered</span>
+                            <span className={ui.countPill}>{filteredCashCards.length} shown</span>
                         </span>
                     </div>
                     <div className="border-b border-border-soft p-5">
@@ -593,10 +634,10 @@ const ManageAdminsPage = () => {
                                 />
                             </div>
                         </div>
-                        <button type="button" disabled={capturingCard || registeringCard} onClick={readCashCardUid} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-maroon bg-white px-5 font-black text-maroon disabled:opacity-60">
+                        <button type="button" disabled={capturingCard || registeringCard} onClick={readCashCardUid} className="mt-[1.75rem] inline-flex min-h-12 self-start items-center justify-center gap-2 rounded-lg border border-maroon bg-white px-5 font-black text-maroon disabled:opacity-60">
                             <FiCreditCard /> {capturingCard ? 'Waiting for tap...' : 'Read UID'}
                         </button>
-                        <button type="button" disabled={capturingCard || registeringCard} onClick={registerCashCard} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-maroon px-5 font-black text-white disabled:opacity-60">
+                        <button type="button" disabled={capturingCard || registeringCard} onClick={registerCashCard} className="mt-[1.75rem] inline-flex min-h-12 self-start items-center justify-center gap-2 rounded-lg bg-maroon px-5 font-black text-white disabled:opacity-60">
                             <FiCheck /> {registeringCard ? 'Registering...' : 'Register Card'}
                         </button>
                     </div>
@@ -605,24 +646,25 @@ const ManageAdminsPage = () => {
                         <table className={ui.adminTable}>
                             <thead><tr>{['Staff', 'Purpose', 'RFID UID', 'Status', 'Registered', 'Action'].map(h => <th key={h} className={ui.tableTh}>{h}</th>)}</tr></thead>
                             <tbody>
-                                {cashCards.length ? cashCards.map(card => (
+                                {filteredCashCards.length ? filteredCashCards.map(card => (
                                     <tr key={card.id} className={ui.tableRow}>
                                         <td className={`${ui.tableTd} font-black`}>{card.staffName}</td>
                                         <td className={ui.tableTd}>{card.purpose === 'REGULAR_CASH' ? 'Regular Cash' : 'Discounted Cash'}</td>
                                         <td className={`${ui.tableTd} ${ui.mono}`}>{card.maskedRfidUid}</td>
                                         <td className={ui.tableTd}><span className={card.status === 'ACTIVE' ? ui.statusPillSoftSuccess : ui.statusPillSoftDanger}>{card.status}</span></td>
-                                        <td className={ui.tableTd}>{new Date(card.registeredAt).toLocaleString('en-PH')}</td>
+                                        <td className={ui.tableTd}>{formatDateTime(card.registeredAt)}</td>
                                         <td className={ui.tableTd}>
                                             <button type="button" onClick={() => updateCashCardStatus(card, card.status === 'ACTIVE' ? 'BLOCKED' : 'ACTIVE')} className="min-h-8 rounded-md bg-maroon px-3 text-xs font-black text-white">
                                                 {card.status === 'ACTIVE' ? 'Block' : 'Activate'}
                                             </button>
                                         </td>
                                     </tr>
-                                )) : <tr><td colSpan={6} className={ui.emptyRow}>No staff cash cards registered.</td></tr>}
+                                )) : <tr><td colSpan={6} className={ui.emptyRow}>No staff cash cards match the selected filters.</td></tr>}
                             </tbody>
                         </table>
                     </div>
                 </section>
+                </>
                 )}
             </main>
         </div>

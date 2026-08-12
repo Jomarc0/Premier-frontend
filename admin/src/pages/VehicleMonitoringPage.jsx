@@ -14,6 +14,8 @@ import {
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
 import adminAPI from '../api/adminAxios';
+import { useRealtime } from '../context/RealtimeContext';
+import { formatDateTime, formatTime } from '../lib/time';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -73,14 +75,6 @@ const formatCoordinate = (value) => {
     return Number.isFinite(numeric) ? numeric.toFixed(5) : 'N/A';
 };
 
-const formatDateTime = (value) => {
-    if (!value) return 'No GPS record yet';
-    const date = new Date(value);
-    return Number.isNaN(date.getTime())
-        ? String(value)
-        : date.toLocaleString();
-};
-
 const MapFlyTo = ({ target }) => {
     const map = useMap();
     useEffect(() => {
@@ -93,6 +87,8 @@ const MapFlyTo = ({ target }) => {
 
 const VehicleMonitoringPage = () => {
     const [buses, setBuses]               = useState([]);
+    const [busSearch, setBusSearch]       = useState('');
+    const [busStatusFilter, setBusStatusFilter] = useState('ALL');
     const [loading, setLoading]           = useState(true);
     const [lastUpdated, setLastUpdated]   = useState(null);
     const [error, setError]               = useState(null);
@@ -103,17 +99,16 @@ const VehicleMonitoringPage = () => {
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState(null);
     const intervalRef                     = useRef(null);
+    const { subscribe } = useRealtime();
 
     const fetchBuses = async () => {
         try {
-            const response = await adminAPI.get(
-                `${import.meta.env.VITE_API_URL}/api/driver/buses`
-            );
+            const response = await adminAPI.get('/vehicle-monitoring/buses');
             setBuses(getBusList(response.data));
-            setLastUpdated(new Date().toLocaleTimeString());
+            setLastUpdated(formatTime(new Date()));
             setError(null);
         } catch (err) {
-            setError('Cannot fetch buses - is Spring Boot running?');
+            setError(err.response?.data?.message || 'Unable to load vehicle monitoring data. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -123,9 +118,13 @@ const VehicleMonitoringPage = () => {
         fetchBuses();
         intervalRef.current = setInterval(() => {
             fetchBuses();
-        }, 5000);
+        }, 30000);
         return () => clearInterval(intervalRef.current);
     }, []);
+
+    useEffect(() => subscribe((event) => {
+        if (event.entity === 'VEHICLE_LOCATION' || event.entity === 'VEHICLE') fetchBuses();
+    }), [subscribe]);
 
     const fetchHistory = async (bus = selectedHistoryBus, range = historyRange) => {
         if (!bus?.plateNumber) return;
@@ -134,7 +133,7 @@ const VehicleMonitoringPage = () => {
             setHistoryLoading(true);
             setHistoryError(null);
             const response = await adminAPI.get(
-                `${import.meta.env.VITE_API_URL}/api/driver/location-history/${encodeURIComponent(bus.plateNumber)}?range=${range}`
+                `/vehicle-monitoring/location-history/${encodeURIComponent(bus.plateNumber)}?range=${range}`
             );
             setHistoryPoints(getHistoryList(response.data).filter(hasCoordinates));
         } catch (err) {
@@ -186,6 +185,13 @@ const VehicleMonitoringPage = () => {
             </span>
         </div>
     );
+
+    const filteredBuses = buses.filter((bus) => {
+        const query = busSearch.trim().toLowerCase();
+        const matchesSearch = !query || [bus.plateNumber, bus.route, bus.status]
+            .some(value => String(value || '').toLowerCase().includes(query));
+        return matchesSearch && (busStatusFilter === 'ALL' || bus.status === busStatusFilter);
+    });
 
     return (
         <div className={ui.layout}>
@@ -244,6 +250,15 @@ const VehicleMonitoringPage = () => {
                         </div>
                     ))}
                 </div>
+
+                <section className={ui.filterPanel}>
+                    <h2 className={ui.filterPanelTitle}>Filter Monitored Vehicles</h2>
+                    <div className={ui.filterBar}>
+                        <label className={`${ui.filterGroup} flex-[1_1_18rem]`}><span className={ui.filterLabel}>Search</span><input type="search" value={busSearch} onChange={(event) => setBusSearch(event.target.value)} placeholder="Vehicle plate or route..." className={`${ui.filterSearch} w-full`} /></label>
+                        <label className={ui.filterGroup}><span className={ui.filterLabel}>Status</span><select value={busStatusFilter} onChange={(event) => setBusStatusFilter(event.target.value)} className={ui.filterField}><option value="ALL">All Statuses</option>{[...new Set(buses.map(bus => bus.status).filter(Boolean))].map(status => <option key={status} value={status}>{status}</option>)}</select></label>
+                        <button type="button" onClick={() => { setBusSearch(''); setBusStatusFilter('ALL'); }} className={ui.filterReset}>Reset</button>
+                    </div>
+                </section>
 
                 {/* Map card */}
                 <div className="bg-white rounded-lg p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
@@ -385,56 +400,17 @@ const VehicleMonitoringPage = () => {
                     )}
 
                     {/* Vehicle list */}
-                    {buses.length > 0 && (
-                        <div className="mt-5">
-                            <div className="text-[0.92rem] font-black text-maroon mb-[0.6rem] inline-flex items-center gap-[0.4rem]">
-                                <FiTruck />
-                                Monitored Vehicles ({buses.length})
-                            </div>
-                            <div>
-                                {buses.map((bus, i) => (
-                                    <div
-                                        key={bus.plateNumber || i}
-                                        className="bg-page-bg border border-slate-200 border-l-4 border-l-maroon rounded-lg px-4 py-3 mb-2 flex justify-between items-center gap-[0.8rem] max-[860px]:flex-col max-[860px]:items-start"
-                                    >
-                                        <div>
-                                            <div className="font-black text-maroon text-[0.85rem]">
-                                                Bus {bus.plateNumber}
-                                            </div>
-                                            <div className="text-[0.78rem] text-text-main mt-[0.15rem]">
-                                                {bus.route || 'No route set'} - {bus.status || 'UNKNOWN'}
-                                            </div>
-                                            <div className="text-[0.72rem] text-text-muted mt-1">
-                                                Last position: {formatCoordinate(bus.latitude)}, {formatCoordinate(bus.longitude)}
-                                            </div>
-                                            <div className="text-[0.72rem] text-text-muted">
-                                                Last seen: {formatDateTime(bus.lastUpdated)}
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-wrap gap-[0.4rem]">
-                                            <button
-                                                type="button"
-                                                onClick={() => setFlyTarget(bus)}
-                                                disabled={!hasCoordinates(bus)}
-                                                className="inline-flex items-center gap-[0.35rem] px-[0.85rem] min-h-[2.2rem] rounded-md bg-maroon text-white font-black text-[0.78rem] cursor-pointer hover:bg-maroon-dark"
-                                            >
-                                                <FiNavigation />
-                                                Locate
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => showHistory(bus)}
-                                                disabled={!hasCoordinates(bus)}
-                                                className="inline-flex items-center gap-[0.35rem] px-[0.85rem] min-h-[2.2rem] rounded-md bg-white border border-maroon text-maroon font-black text-[0.78rem] cursor-pointer hover:bg-[#f8eef0] disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                <FiMapPin />
-                                                Show History
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                    {filteredBuses.length > 0 && (
+                        <section className={`${ui.dataPanel} mt-5`}>
+                            <div className={ui.dataPanelHeader}><span className={ui.dataPanelTitle}><FiTruck /> Monitored Vehicles <span className={ui.countPill}>{filteredBuses.length} shown</span></span></div>
+                            <div className={ui.tableWrap}><table className={`${ui.adminTable} min-w-[850px]`}><thead><tr>{['Vehicle', 'Route', 'Status', 'Last Position', 'Last Seen', 'Actions'].map(header => <th key={header} className={ui.tableTh}>{header}</th>)}</tr></thead><tbody>{filteredBuses.map((bus, i) => <tr key={bus.plateNumber || i} className={ui.tableRow}>
+                                <td className={`${ui.tableTd} font-black text-maroon`}>Bus {bus.plateNumber}</td><td className={ui.tableTd}>{bus.route || 'No route set'}</td><td className={ui.tableTd}><span className={ui.statusPillColor} style={{ background: bus.status === 'ACTIVE' ? '#2f6b3d' : '#717680' }}>{bus.status || 'UNKNOWN'}</span></td><td className={`${ui.tableTd} ${ui.mono}`}>{formatCoordinate(bus.latitude)}, {formatCoordinate(bus.longitude)}</td><td className={`${ui.tableTd} text-text-muted`}>{formatDateTime(bus.lastUpdated)}</td>
+                                <td className={ui.tableTd}><div className="inline-flex gap-2"><button type="button" onClick={() => setFlyTarget(bus)} disabled={!hasCoordinates(bus)} className="inline-flex min-h-8 items-center gap-1 rounded-md bg-maroon px-3 text-[0.78rem] font-black text-white disabled:cursor-not-allowed disabled:opacity-50"><FiNavigation /> Locate</button><button type="button" onClick={() => showHistory(bus)} disabled={!hasCoordinates(bus)} className="inline-flex min-h-8 items-center gap-1 rounded-md border border-maroon bg-white px-3 text-[0.78rem] font-black text-maroon disabled:cursor-not-allowed disabled:opacity-50"><FiMapPin /> History</button></div></td>
+                            </tr>)}</tbody></table></div>
+                        </section>
+                    )}
+                    {buses.length > 0 && filteredBuses.length === 0 && (
+                        <section className={`${ui.dataPanel} mt-5`}><div className={ui.dataPanelHeader}><span className={ui.dataPanelTitle}><FiTruck /> Monitored Vehicles</span></div><div className="p-10 text-center text-text-muted italic">No monitored vehicles match the current filters.</div></section>
                     )}
 
                     {/* Stats */}
