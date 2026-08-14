@@ -1763,15 +1763,10 @@ export default function DashboardScreen({ navigation }) {
           from: 'bot',
           text: payload.reply || 'I received your message.',
           timestamp: new Date().toISOString(),
-          quickReplies: payload.quickReplies || null,
+          quickReplies: payload.quickReplies ||
+            (payload.recommendedAction === 'REPORT_LOST_CARD' ? ['Report lost card', 'Cancel'] : null),
         },
       ]);
-
-      if (payload.recommendedAction === 'REPORT_LOST_CARD' ||
-          (payload.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM' && isLostCardRequest(trimmed))) {
-        navigation.navigate('ReportLostCard');
-        return;
-      }
 
       if (payload.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM') {
         if (isTicketConfirmation(trimmed)) {
@@ -2617,43 +2612,42 @@ export default function DashboardScreen({ navigation }) {
           const isUser = message.from === 'user';
 
           return (
-            <View
-              key={`${message.timestamp}-${index}`}
-              style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}
-            >
-              {!isUser && (
-                <View style={styles.smallBot}>
-                  <MaterialCommunityIcons
-                    name="robot-outline"
-                    size={14}
-                    color="#fff"
-                  />
+            <View key={`${message.timestamp}-${index}`}>
+              <View style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}>
+                {!isUser && (
+                  <View style={styles.smallBot}>
+                    <MaterialCommunityIcons
+                      name="robot-outline"
+                      size={14}
+                      color="#fff"
+                    />
+                  </View>
+                )}
+
+                <View
+                  style={[
+                    styles.bubble,
+                    isUser ? styles.userBubble : styles.botBubble,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.bubbleText,
+                      isUser && styles.userBubbleText,
+                    ]}
+                  >
+                    {message.text}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.bubbleTime,
+                      isUser && styles.userBubbleText,
+                    ]}
+                  >
+                    {formatDate(message.timestamp)}
+                  </Text>
                 </View>
-              )}
-
-              <View
-                style={[
-                  styles.bubble,
-                  isUser ? styles.userBubble : styles.botBubble,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.bubbleText,
-                    isUser && styles.userBubbleText,
-                  ]}
-                >
-                  {message.text}
-                </Text>
-
-                <Text
-                  style={[
-                    styles.bubbleTime,
-                    isUser && styles.userBubbleText,
-                  ]}
-                >
-                  {formatDate(message.timestamp)}
-                </Text>
               </View>
 
               {!isUser && index === messages.length - 1 && message.quickReplies?.length > 0 && (
@@ -2900,6 +2894,61 @@ export default function DashboardScreen({ navigation }) {
         visible={privacyNoticeOpen}
         onClose={() => setPrivacyNoticeOpen(false)}
       />
+
+      <Modal
+        visible={ticketOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTicketOpen(false)}
+      >
+        <View style={styles.centerModalBackdrop}>
+          <View style={[styles.helpModalCard, { gap: 10 }]}> 
+            <View style={styles.helpModalHeader}>
+              <Text style={styles.helpModalTitle}>Submit support ticket</Text>
+              <Pressable onPress={() => setTicketOpen(false)} hitSlop={10}>
+                <Feather name="x" size={20} color={colors.maroon} />
+              </Pressable>
+            </View>
+            <Text style={styles.helpModalText}>Your signed-in account is linked automatically. We will send status updates to this email address.</Text>
+            <TextInput
+              value={ticketEmail}
+              onChangeText={setTicketEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Email for support updates"
+              placeholderTextColor="#7B8794"
+              style={styles.supportTicketInput}
+            />
+            <View style={styles.quickReplies}>
+              {SUPPORT_TICKET_TYPES.map(([value, label]) => (
+                <Pressable
+                  key={value}
+                  onPress={() => setTicketIssueType(value)}
+                  style={[styles.quickReply, ticketIssueType === value && { backgroundColor: colors.maroon, borderColor: colors.maroon }]}
+                >
+                  <Text style={[styles.quickReplyText, ticketIssueType === value && { color: '#fff' }]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={ticketReason}
+              onChangeText={setTicketReason}
+              multiline
+              placeholder="Describe the issue and include a transaction reference if available."
+              placeholderTextColor="#7B8794"
+              style={[styles.supportTicketInput, { minHeight: 112, textAlignVertical: 'top' }]}
+            />
+            <Pressable
+              disabled={ticketSubmitting}
+              onPress={submitSupportTicket}
+              style={[styles.supportTicketSubmit, ticketSubmitting && { opacity: 0.6 }]}
+            >
+              <Text style={styles.supportTicketSubmitText}>{ticketSubmitting ? 'Submitting...' : 'Submit for admin review'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={!!selectedReceipt}
@@ -5251,6 +5300,30 @@ const styles = StyleSheet.create({
 
   helpModalButton: {
     marginTop: 20,
+  },
+
+  supportTicketInput: {
+    borderWidth: 1,
+    borderColor: '#DDE5EF',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    color: '#1C2A44',
+    fontSize: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+
+  supportTicketSubmit: {
+    alignItems: 'center',
+    backgroundColor: colors.maroon,
+    borderRadius: 12,
+    paddingVertical: 13,
+  },
+
+  supportTicketSubmitText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '900',
   },
 
   inlineError: {
