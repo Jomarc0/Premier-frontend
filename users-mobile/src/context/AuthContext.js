@@ -1,11 +1,14 @@
 ﻿import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { useRef } from 'react';
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { usePostHog } from 'posthog-react-native';
 
 import { setUnauthorizedHandler } from '../api/api';
 import { clearHceToken } from '../api/hceTokenStore';
 import { registerPushNotifications } from '../notifications/pushNotifications';
+import { identifyMobileUser, resetMobileAnalytics } from '../analytics/posthog';
 
 const AuthContext = createContext(null);
 const FINGERPRINT_ENABLED_KEY = 'premier_fingerprint_enabled';
@@ -27,6 +30,8 @@ function decodeJwt(token) {
 }
 
 export function AuthProvider({ children }) {
+  const posthog = usePostHog();
+  const trackedPassengerId = useRef(null);
   const [passenger, setPassenger] = useState(null);
   const [loading, setLoading] = useState(true);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -82,6 +87,17 @@ export function AuthProvider({ children }) {
 
     init();
   }, []);
+
+  useEffect(() => {
+    const passengerId = passenger?.id;
+    if (passengerId) {
+      identifyMobileUser(posthog, passengerId);
+      trackedPassengerId.current = passengerId;
+    } else if (trackedPassengerId.current) {
+      resetMobileAnalytics(posthog);
+      trackedPassengerId.current = null;
+    }
+  }, [passenger?.id, posthog]);
 
   const value = useMemo(() => ({
     passenger,

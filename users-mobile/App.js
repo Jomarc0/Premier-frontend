@@ -60,16 +60,16 @@ function Routes() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
-        <AuthProvider>
-          <RealtimeProvider>
-          <NavigationContainer>
-            <StatusBar style="light" />
-            <Routes />
-          </NavigationContainer>
-          </RealtimeProvider>
-        </AuthProvider>
-      </PostHogProvider>
+      <NavigationContainer>
+        <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
+          <AuthProvider>
+            <RealtimeProvider>
+              <StatusBar style="light" />
+              <Routes />
+            </RealtimeProvider>
+          </AuthProvider>
+        </PostHogProvider>
+      </NavigationContainer>
     </SafeAreaProvider>
   );
 }

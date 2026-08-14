@@ -45,6 +45,13 @@ const loadNfcManager = () => {
 
 const QUICK_AMOUNTS = [20, 40, 50, 100, 200, 500];
 const QUICK_REPLIES = ['Top-up issue', 'Fare deduction', 'Payment failed', 'Lost RFID card', 'Check balance'];
+const CHAT_HISTORY_PREFIX = 'premier_mobile_chat_history_';
+const CHAT_SESSION_PREFIX = 'premier_mobile_chat_session_';
+const SUPPORT_TICKET_TYPES = [
+  ['DAMAGED_CARD', 'Damaged card'], ['TOP_UP_ISSUE', 'Top-up issue'],
+  ['BALANCE_CONCERN', 'Balance concern'], ['LOGIN_PROBLEM', 'Login problem'],
+  ['RFID_NOT_WORKING', 'RFID not working'], ['OTHER', 'Other'],
+];
 const LEGACY_APP_GUIDE_STORAGE_KEY = 'premierPassengerAppGuideCompleted';
 const APP_GUIDE_STORAGE_KEY = 'premier_dashboard_guide_completed';
 const APP_GUIDE_REPLAYED_KEY = 'premier_app_guide_replayed';
@@ -54,6 +61,26 @@ const DASHBOARD_FIRST_VISIT_DONE_KEY = 'premier_dashboard_first_visit_done';
 const WALLET_GUIDE_STORAGE_KEY = 'premierPassengerWalletGuideCompleted';
 const TOPUP_GUIDE_STORAGE_KEY = 'premierPassengerTopUpGuideCompleted';
 const QR_REFRESH_BUFFER_SECONDS = 8;
+
+const initialChatMessage = () => ({
+  from: 'bot',
+  text: "Hi! I'm Premier Bot, your passenger support assistant. I can help with general assistance, top-ups, lost-card procedures, and support tickets. How can I help?",
+  timestamp: new Date().toISOString(),
+  quickReplies: null,
+});
+
+const newChatSessionId = () => `mobile-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+const isLostCardRequest = (text = '') => /\b(lost|stolen|missing)\b/.test(text.toLowerCase()) && /\b(card|rfid)\b/.test(text.toLowerCase());
+const isTicketConfirmation = (text = '') => /^(yes|yes please|open ticket|create( a)? ticket|submit( a)? ticket)$/i.test(text.trim());
+const ticketTypeFor = (text = '') => {
+  const value = text.toLowerCase();
+  if (value.includes('damage') || value.includes('replace')) return 'DAMAGED_CARD';
+  if (value.includes('top-up') || value.includes('topup')) return 'TOP_UP_ISSUE';
+  if (value.includes('balance')) return 'BALANCE_CONCERN';
+  if (value.includes('login')) return 'LOGIN_PROBLEM';
+  if (value.includes('rfid') || value.includes('tap')) return 'RFID_NOT_WORKING';
+  return 'OTHER';
+};
 
 const PAYMENT_OPTIONS = [
   {
@@ -123,9 +150,10 @@ function groupDateLabel(dateStr) {
   const today = phtDateKey();
   const yesterday = phtDateKey(Date.now() - 24 * 60 * 60 * 1000);
   const key = phtDateKey(dateStr);
+  if (!key) return 'Unknown Date';
   if (key === today) return 'Today';
   if (key === yesterday) return 'Yesterday';
-  return formatPhtDateTime(dateStr).split(',')[0];
+  return formatPhtDateTime(dateStr).split(',')[0] || 'Unknown Date';
 }
 
 function txStatus(tx) {
@@ -412,16 +440,44 @@ export default function DashboardScreen({ navigation }) {
   const [helpContent, setHelpContent] = useState(null);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatLoaded, setChatLoaded] = useState(false);
+  const [ticketContext, setTicketContext] = useState('');
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const [ticketSubmitting, setTicketSubmitting] = useState(false);
+  const [ticketEmail, setTicketEmail] = useState('');
+  const [ticketIssueType, setTicketIssueType] = useState('OTHER');
+  const [ticketReason, setTicketReason] = useState('');
 
-  const [messages, setMessages] = useState([
-    {
-      from: 'bot',
-      text: "Hi! I'm Premier Bot, here to help you with top-up, fares, RFID cards, and payment concerns. How can I assist you today?",
-      timestamp: new Date().toISOString(),
-    },
-  ]);
+  const [messages, setMessages] = useState(() => [initialChatMessage()]);
 
-  const chatSessionId = useRef(`mobile-${Date.now()}`);
+  const chatSessionId = useRef(newChatSessionId());
+  const chatScope = passenger?.id ? `passenger-${passenger.id}` : 'guest';
+
+  useEffect(() => {
+    let active = true;
+    setChatLoaded(false);
+    Promise.all([
+      AsyncStorage.getItem(`${CHAT_HISTORY_PREFIX}${chatScope}`),
+      AsyncStorage.getItem(`${CHAT_SESSION_PREFIX}${chatScope}`),
+    ]).then(([storedMessages, storedSession]) => {
+      if (!active) return;
+      try {
+        const parsed = storedMessages ? JSON.parse(storedMessages) : null;
+        setMessages(Array.isArray(parsed) && parsed.length ? parsed : [initialChatMessage()]);
+      } catch {
+        setMessages([initialChatMessage()]);
+      }
+      chatSessionId.current = storedSession || newChatSessionId();
+      if (!storedSession) AsyncStorage.setItem(`${CHAT_SESSION_PREFIX}${chatScope}`, chatSessionId.current).catch(() => {});
+      setChatLoaded(true);
+    });
+    return () => { active = false; };
+  }, [chatScope]);
+
+  useEffect(() => {
+    if (!chatLoaded) return;
+    AsyncStorage.setItem(`${CHAT_HISTORY_PREFIX}${chatScope}`, JSON.stringify(messages.slice(-50))).catch(() => {});
+  }, [chatLoaded, chatScope, messages]);
 
   const balanceGuideRef = useRef(null);
   const walletGuideRef = useRef(null);
@@ -1707,8 +1763,25 @@ export default function DashboardScreen({ navigation }) {
           from: 'bot',
           text: payload.reply || 'I received your message.',
           timestamp: new Date().toISOString(),
+          quickReplies: payload.quickReplies || null,
         },
       ]);
+
+      if (payload.recommendedAction === 'REPORT_LOST_CARD' ||
+          (payload.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM' && isLostCardRequest(trimmed))) {
+        navigation.navigate('ReportLostCard');
+        return;
+      }
+
+      if (payload.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM') {
+        if (isTicketConfirmation(trimmed)) {
+          setTicketIssueType(ticketTypeFor(ticketContext || trimmed));
+          setTicketReason(ticketContext || '');
+          setTicketOpen(true);
+        } else {
+          setTicketContext(trimmed);
+        }
+      }
     } catch {
       setMessages((current) => [
         ...current,
@@ -1720,6 +1793,40 @@ export default function DashboardScreen({ navigation }) {
       ]);
     } finally {
       setChatLoading(false);
+    }
+  };
+
+  const submitSupportTicket = async () => {
+    const email = ticketEmail.trim();
+    const reason = ticketReason.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert('Email required', 'Enter a valid email address for support updates.');
+      return;
+    }
+    if (!reason) {
+      Alert.alert('Description required', 'Describe the issue so the support team can review it.');
+      return;
+    }
+
+    setTicketSubmitting(true);
+    try {
+      const response = await api.post('/support-tickets', {
+        email,
+        issueType: ticketIssueType,
+        reason,
+      });
+      const ticket = response.data?.data || response.data || {};
+      captureMobileEvent(posthog, 'mobile_support_ticket_submitted', { request_type: ticketIssueType });
+      setTicketOpen(false);
+      setTicketEmail('');
+      setTicketReason('');
+      setTicketContext('');
+      Alert.alert('Ticket submitted', ticket.message || `Your support ticket${ticket.ticketNumber ? ` ${ticket.ticketNumber}` : ''} was submitted. We will email you with updates.`);
+    } catch (error) {
+      captureMobileEvent(posthog, 'mobile_support_ticket_failed', { request_type: ticketIssueType });
+      Alert.alert('Ticket not submitted', error.response?.data?.message || 'Please try again.');
+    } finally {
+      setTicketSubmitting(false);
     }
   };
 
@@ -2548,6 +2655,20 @@ export default function DashboardScreen({ navigation }) {
                   {formatDate(message.timestamp)}
                 </Text>
               </View>
+
+              {!isUser && index === messages.length - 1 && message.quickReplies?.length > 0 && (
+                <View style={styles.messageQuickReplies}>
+                  {message.quickReplies.map((reply) => (
+                    <Pressable
+                      key={reply}
+                      onPress={() => reply === 'Report lost card' ? navigation.navigate('ReportLostCard') : sendChat(reply)}
+                      style={styles.quickReply}
+                    >
+                      <Text style={styles.quickReplyText}>{reply}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
           );
         })}
@@ -2556,17 +2677,15 @@ export default function DashboardScreen({ navigation }) {
           <Text style={styles.typing}>Premier Bot is typing...</Text>
         )}
 
-        <View style={styles.quickReplies}>
-          {QUICK_REPLIES.map((reply) => (
-            <Pressable
-              key={reply}
-              onPress={() => sendChat(reply)}
-              style={styles.quickReply}
-            >
-              <Text style={styles.quickReplyText}>{reply}</Text>
-            </Pressable>
-          ))}
-        </View>
+        {!messages[messages.length - 1]?.quickReplies?.length && !chatLoading && (
+          <View style={styles.quickReplies}>
+            {QUICK_REPLIES.map((reply) => (
+              <Pressable key={reply} onPress={() => sendChat(reply)} style={styles.quickReply}>
+                <Text style={styles.quickReplyText}>{reply}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </ScrollView>
 
       <View style={styles.chatInputRow}>
@@ -4812,6 +4931,14 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 8,
+  },
+
+  messageQuickReplies: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+    marginLeft: 34,
   },
 
   quickReply: {
