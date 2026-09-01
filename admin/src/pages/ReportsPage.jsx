@@ -3,7 +3,6 @@ import {
     FiActivity,
     FiAlertTriangle,
     FiBarChart2,
-    FiClock,
     FiCreditCard,
     FiDownload,
     FiInfo,
@@ -38,9 +37,11 @@ const TIMEZONE = 'Asia/Manila';
 
 const RANGE_OPTIONS = [
     { label: 'Today', value: 'today' },
+    { label: 'Yesterday', value: 'yesterday' },
     { label: 'Last 7 Days', value: 'last7' },
     { label: 'Last 30 Days', value: 'last30' },
     { label: 'This Month', value: 'thismonth' },
+    { label: 'Previous Month', value: 'previousmonth' },
     { label: 'Custom', value: 'custom' },
 ];
 
@@ -49,8 +50,22 @@ const DEFAULT_FILTERS = {
     startDate: '',
     endDate: '',
     busId: '',
-    routeId: '',
+    direction: '',
     paymentMethod: '',
+    transactionStatus: '',
+};
+
+const ANALYTICS_VIEWS = [
+    { id: 'overview', label: 'Overview', description: 'Revenue, passengers, and bus performance at a glance.', icon: FiBarChart2 },
+    { id: 'operations', label: 'Bus & Trips', description: 'Daily bus results, trips, and peak travel periods.', icon: FiTruck },
+    { id: 'payments', label: 'Payments', description: 'Payment methods, transaction status, and failures.', icon: FiCreditCard },
+    { id: 'fleet', label: 'Fleet & Terminals', description: 'Utilization, attention items, terminal health, and queues.', icon: FiActivity },
+    { id: 'activity', label: 'Recent Activity', description: 'Latest fares, support tickets, and system alerts.', icon: FiAlertTriangle },
+];
+
+const readViewFromUrl = () => {
+    const requested = new URLSearchParams(window.location.search).get('view');
+    return ANALYTICS_VIEWS.some(view => view.id === requested) ? requested : 'overview';
 };
 
 const money = (value) => `₱${Number(value || 0).toLocaleString('en-PH', {
@@ -65,17 +80,18 @@ const metricFormatters = {
     money,
     number,
     percent,
+    text: (value) => value || 'Not available',
 };
 
 const kpiConfig = [
-    ['fareRevenue', 'Total Fare Revenue', 'money', FiCreditCard, 'Successful RFID, QR, and NFC fare payments only.'],
-    ['successfulTransactions', 'Successful Transactions', 'number', FiActivity, 'Successful fare transactions in the selected period.'],
-    ['activePassengers', 'Active Passengers', 'number', FiUsers, 'Unique passengers with at least one successful fare transaction.'],
-    ['activeBuses', 'Active Buses', 'number', FiTruck, 'Buses active by trip, status, or recent GPS/device activity.'],
-    ['paymentSuccessRate', 'Payment Success Rate', 'percent', FiBarChart2, 'Successful fare attempts divided by all fare attempts.'],
-    ['pendingTopUps', 'Pending Top-Ups', 'number', FiClock, 'Top-up requests still pending or processing.'],
-    ['openTickets', 'Open Support Tickets', 'number', FiAlertTriangle, 'Support tickets not yet resolved or rejected.'],
-    ['offlineDevices', 'Offline Devices', 'number', FiAlertTriangle, 'Active devices without a valid recent heartbeat.'],
+    ['totalRevenue', 'Total Fare Revenue', 'money', FiCreditCard, 'Successful fare revenue for the selected period.'],
+    ['totalPassengers', 'Total Passengers', 'number', FiUsers, 'Successful passenger fare transactions; see Unique Passengers for distinct accounts.'],
+    ['totalTrips', 'Total Trips', 'number', FiTruck, 'Completed terminal-to-terminal trips.'],
+    ['averageFarePerPassenger', 'Average Fare per Passenger', 'money', FiBarChart2, 'Successful revenue divided by successful fare transactions.'],
+    ['revenueToday', 'Revenue Today', 'money', FiCreditCard, 'Today’s successful revenue using the active bus, direction, payment, and status filters.'],
+    ['passengersToday', 'Passengers Today', 'number', FiUsers, 'Today’s successful fare transactions using the active filters.'],
+    ['bestPerformingBus', 'Best Performing Bus', 'bus', FiTruck, 'Bus with the highest successful fare revenue.'],
+    ['peakDirection', 'Peak Direction', 'direction', FiActivity, 'Direction with the most successful passenger fare transactions.'],
 ];
 
 const readFiltersFromUrl = () => {
@@ -85,8 +101,9 @@ const readFiltersFromUrl = () => {
         startDate: params.get('startDate') || '',
         endDate: params.get('endDate') || '',
         busId: params.get('busId') || '',
-        routeId: params.get('routeId') || '',
+        direction: params.get('direction') || '',
         paymentMethod: params.get('paymentMethod') || '',
+        transactionStatus: params.get('transactionStatus') || '',
     };
 };
 
@@ -100,6 +117,7 @@ const ReportsPage = () => {
     const [exporting, setExporting] = useState('');
     const [error, setError] = useState('');
     const [filterError, setFilterError] = useState('');
+    const [activeView, setActiveView] = useState(readViewFromUrl);
 
     const buildParams = useCallback((source) => {
         const params = {
@@ -108,14 +126,19 @@ const ReportsPage = () => {
             ...(source.range === 'custom' && source.startDate ? { startDate: source.startDate } : {}),
             ...(source.range === 'custom' && source.endDate ? { endDate: source.endDate } : {}),
             ...(source.busId ? { busId: source.busId } : {}),
-            ...(source.routeId ? { routeId: source.routeId } : {}),
+            ...(source.direction ? { direction: source.direction } : {}),
             ...(source.paymentMethod ? { paymentMethod: source.paymentMethod } : {}),
+            ...(source.transactionStatus ? { transactionStatus: source.transactionStatus } : {}),
         };
         return params;
     }, []);
 
     const syncUrl = useCallback((source) => {
         const params = new URLSearchParams(buildParams(source));
+        const currentView = new URLSearchParams(window.location.search).get('view');
+        if (ANALYTICS_VIEWS.some(view => view.id === currentView) && currentView !== 'overview') {
+            params.set('view', currentView);
+        }
         window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
     }, [buildParams]);
 
@@ -173,6 +196,29 @@ const ReportsPage = () => {
         fetchAnalytics(filters, 'load');
     };
 
+    const resetFilters = () => {
+        const reset = { ...DEFAULT_FILTERS };
+        setFilters(reset);
+        setFilterError('');
+        fetchAnalytics(reset, 'load');
+    };
+
+    const selectBus = (busId) => {
+        const next = { ...filters, busId };
+        setFilters(next);
+        fetchAnalytics(next, 'load');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const selectView = (view) => {
+        setActiveView(view);
+        const params = new URLSearchParams(window.location.search);
+        if (view === 'overview') params.delete('view');
+        else params.set('view', view);
+        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
     const summary = analytics?.summary || {};
     const charts = analytics?.charts || {};
     const recent = analytics?.recent || {};
@@ -199,8 +245,9 @@ const ReportsPage = () => {
                 range: appliedFilters.range,
                 has_custom_dates: Boolean(appliedFilters.startDate || appliedFilters.endDate),
                 has_bus_filter: Boolean(appliedFilters.busId),
-                has_route_filter: Boolean(appliedFilters.routeId),
+                has_direction_filter: Boolean(appliedFilters.direction),
                 has_payment_filter: Boolean(appliedFilters.paymentMethod),
+                has_status_filter: Boolean(appliedFilters.transactionStatus),
             });
         } catch (err) {
             console.error('Analytics export failed', err);
@@ -218,6 +265,14 @@ const ReportsPage = () => {
                     exporting={exporting}
                     onExport={exportFile}
                     onRefresh={() => fetchAnalytics(appliedFilters, 'refresh')}
+                    generatedAt={analytics?.generatedAt}
+                />
+
+                <AnalyticsViewNav
+                    activeView={activeView}
+                    onChange={selectView}
+                    alerts={recent.systemAlerts?.length || 0}
+                    attention={analytics?.fleetAnalytics?.busesRequiringAttention?.length || 0}
                 />
 
                 <AnalyticsFilters
@@ -227,18 +282,38 @@ const ReportsPage = () => {
                     error={filterError}
                     onChange={updateFilter}
                     onApply={applyFilters}
+                    onReset={resetFilters}
                 />
 
                 {error ? (
                     <RetryPanel message={error} onRetry={() => fetchAnalytics(appliedFilters, 'refresh')} />
                 ) : (
                     <>
-                        <AnalyticsSummaryGrid loading={loading} summary={summary} />
-                        <AnalyticsChartGrid loading={loading} charts={charts} />
-                        {analytics?.forecast && !analytics.forecast.available && (
-                            <ForecastAvailabilityCard forecast={analytics.forecast} />
+                        {activeView === 'overview' && (
+                            <>
+                                <AnalyticsSummaryGrid loading={loading} summary={summary} comparison={analytics?.comparison} />
+                                <AnalyticsChartGrid loading={loading} analytics={analytics} charts={charts} />
+                            </>
                         )}
-                        <RecentActivity loading={loading} recent={recent} />
+                        {activeView === 'operations' && (
+                            <OperationsAnalytics loading={loading} analytics={analytics} onSelectBus={selectBus} />
+                        )}
+                        {activeView === 'payments' && (
+                            <>
+                                <PaymentSection data={analytics?.paymentAnalytics} loading={loading} />
+                                <TransactionSection data={analytics?.transactionAnalytics} loading={loading} />
+                            </>
+                        )}
+                        {activeView === 'fleet' && (
+                            <>
+                                <FleetSection data={analytics?.fleetAnalytics} loading={loading} onSelectBus={selectBus} />
+                                <TerminalSection data={analytics?.terminalAnalytics} loading={loading} />
+                                {analytics?.forecast && !analytics.forecast.available && (
+                                    <ForecastAvailabilityCard forecast={analytics.forecast} />
+                                )}
+                            </>
+                        )}
+                        {activeView === 'activity' && <RecentActivity loading={loading} recent={recent} />}
                     </>
                 )}
             </main>
@@ -246,14 +321,12 @@ const ReportsPage = () => {
     );
 };
 
-const AnalyticsHeader = ({ loading, exporting, onExport, onRefresh }) => (
+const AnalyticsHeader = ({ loading, exporting, onExport, onRefresh, generatedAt }) => (
     <header className={`${ui.headerBar} items-start`}>
         <div>
             <span className={ui.eyebrow}>Analytics</span>
             <h1 className={ui.headerTitle}>Admin Analytics Dashboard</h1>
-            <p className="mt-1 mb-0 text-[0.82rem] leading-5 text-text-muted max-w-3xl">
-                Monitor fare revenue, passenger activity, payment performance, fleet operations, terminal queues, tickets, and system alerts.
-            </p>
+            {generatedAt && <p className="mt-1 mb-0 text-xs font-semibold text-text-muted">Last updated: {new Date(generatedAt).toLocaleString('en-PH', { timeZone: TIMEZONE })}</p>}
         </div>
         <div className="flex justify-end gap-2 flex-wrap">
             <ActionButton disabled={loading || exporting} onClick={() => onExport('csv')} label="CSV" icon={FiDownload} busy={exporting === 'csv'} />
@@ -273,9 +346,11 @@ const ActionButton = ({ primary, disabled, onClick, label, icon, busy }) => {
     );
 };
 
-const AnalyticsFilters = ({ filters, options, loading, error, onChange, onApply }) => (
-    <section className="rounded-lg bg-white p-4 shadow-[0_10px_26px_rgba(44,36,41,0.08)] mb-5">
-        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 items-end max-[1200px]:grid-cols-3 max-[760px]:grid-cols-1">
+const AnalyticsFilters = ({ filters, options, loading, error, onChange, onApply, onReset }) => (
+    <section className="mb-5 rounded-lg bg-white p-3 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+        <div className={`grid items-end gap-2 ${filters.range === 'custom'
+            ? 'grid-cols-[repeat(7,minmax(7rem,1fr))_auto]'
+            : 'grid-cols-[repeat(5,minmax(8rem,1fr))_auto]'} max-[1150px]:grid-cols-3 max-[760px]:grid-cols-1`}>
             <FilterSelect label="Date Range" value={filters.range} onChange={v => onChange('range', v)} options={RANGE_OPTIONS} />
             {filters.range === 'custom' && (
                 <>
@@ -284,38 +359,41 @@ const AnalyticsFilters = ({ filters, options, loading, error, onChange, onApply 
                 </>
             )}
             <FilterSelect label="Bus" value={filters.busId} onChange={v => onChange('busId', v)}
-                options={[{ label: 'All', value: '' }, ...(options.buses || [])]} />
-            <FilterSelect label="Route" value={filters.routeId} onChange={v => onChange('routeId', v)}
-                options={[{ label: 'All', value: '' }, ...(options.routes || [])]} />
+                options={[{ label: 'All Buses', value: '' }, ...(options.buses || [])]} />
+            <FilterSelect label="Direction" value={filters.direction} onChange={v => onChange('direction', v)}
+                options={[{ label: 'All Directions', value: '' }, ...(options.directions || [])]} />
             <FilterSelect label="Payment Method" value={filters.paymentMethod} onChange={v => onChange('paymentMethod', v)}
-                options={[{ label: 'All', value: '' }, ...(options.paymentMethods || ['RFID', 'QR', 'NFC']).map(method => ({ label: method, value: method }))]} />
-            <button type="button" disabled={loading} onClick={onApply} className={`${ui.adminActionPrimary} min-w-32 justify-center disabled:opacity-60`}>
-                Apply Filters
-            </button>
+                options={[{ label: 'All', value: '' }, ...(options.paymentMethods || [])]} />
+            <FilterSelect label="Transaction Status" value={filters.transactionStatus} onChange={v => onChange('transactionStatus', v)}
+                options={[{ label: 'All', value: '' }, ...(options.transactionStatuses || []).map(status => ({ label: status[0] + status.slice(1).toLowerCase(), value: status }))]} />
+            <div className="flex gap-2 whitespace-nowrap">
+                <button type="button" disabled={loading} onClick={onApply} className={`${ui.adminActionPrimary} min-w-[6.75rem] justify-center disabled:opacity-60`}>Apply Filters</button>
+                <button type="button" disabled={loading} onClick={onReset} className={`${ui.adminAction} min-w-[4.75rem] justify-center disabled:opacity-60`}>Reset</button>
+            </div>
         </div>
         {error && <p className="mt-3 mb-0 text-sm font-bold text-danger-muted">{error}</p>}
     </section>
 );
 
 const FilterInput = ({ label, value, onChange }) => (
-    <label className="grid gap-1 text-xs font-black text-text-muted">
+    <label className="grid gap-1 text-[0.7rem] font-black text-text-muted">
         {label}
         <input
             type="date"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="min-h-[2.65rem] rounded-md border border-border-soft px-3 text-sm font-semibold text-text-main outline-none focus:border-gold"
+            className="min-h-[2.45rem] min-w-0 rounded-md border border-border-soft px-2.5 text-[0.8rem] font-semibold text-text-main outline-none focus:border-gold"
         />
     </label>
 );
 
 const FilterSelect = ({ label, value, onChange, options }) => (
-    <label className="grid gap-1 text-xs font-black text-text-muted">
+    <label className="grid gap-1 text-[0.7rem] font-black text-text-muted">
         {label}
         <select
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="min-h-[2.65rem] rounded-md border border-border-soft px-3 text-sm font-semibold text-text-main outline-none focus:border-gold"
+            className="min-h-[2.45rem] min-w-0 rounded-md border border-border-soft px-2.5 text-[0.8rem] font-semibold text-text-main outline-none focus:border-gold"
         >
             {options.map(option => (
                 <option key={option.value || option.id || option.label} value={option.value ?? option.id}>{option.label}</option>
@@ -324,66 +402,122 @@ const FilterSelect = ({ label, value, onChange, options }) => (
     </label>
 );
 
-const AnalyticsSummaryGrid = ({ loading, summary }) => (
+const AnalyticsViewNav = ({ activeView, onChange, alerts, attention }) => {
+    const selected = ANALYTICS_VIEWS.find(view => view.id === activeView) || ANALYTICS_VIEWS[0];
+    return (
+        <section className="sticky top-3 z-20 mb-5 rounded-lg border border-border-soft bg-white/95 p-2 shadow-[0_10px_26px_rgba(44,36,41,0.08)] backdrop-blur">
+            <div role="tablist" aria-label="Analytics categories" className="flex gap-2 overflow-x-auto pb-1">
+                {ANALYTICS_VIEWS.map(view => {
+                    const ViewIcon = view.icon;
+                    const count = view.id === 'activity' ? alerts : view.id === 'fleet' ? attention : 0;
+                    const active = view.id === activeView;
+                    return (
+                        <button
+                            key={view.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            onClick={() => onChange(view.id)}
+                            className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-black transition-colors ${active
+                                ? 'bg-maroon text-white shadow-sm'
+                                : 'bg-page-bg text-maroon hover:bg-maroon/10'}`}
+                        >
+                            <ViewIcon />
+                            {view.label}
+                            {count > 0 && (
+                                <span className={`rounded-full px-2 py-0.5 text-[0.65rem] ${active ? 'bg-white/20 text-white' : 'bg-gold/25 text-maroon'}`}>
+                                    {count}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
+            <p className="mb-0 mt-1 px-2 text-xs font-semibold text-text-muted">{selected.description}</p>
+        </section>
+    );
+};
+
+const AnalyticsSummaryGrid = ({ loading, summary, comparison }) => (
     <section className="mb-5">
-        <h2 className="m-0 mb-3 text-maroon text-lg font-black">Executive Summary</h2>
+        <h2 className="m-0 mb-3 text-lg font-black text-maroon">Executive Summary</h2>
         <div className="grid grid-cols-4 gap-3 max-[1100px]:grid-cols-2 max-[560px]:grid-cols-1">
-            {kpiConfig.map(([key, label, type, Icon, help]) => (
-                <KpiCard key={key} loading={loading} label={label} value={summary[key]} type={type} icon={Icon} help={help} />
+            {kpiConfig.map(([key, label, type, Icon, help], index) => (
+                <KpiCard key={key} loading={loading} label={label} value={summary[key]} type={type} icon={Icon} help={help}
+                    comparison={index < 3 ? comparison?.[index === 0 ? 'revenue' : index === 1 ? 'passengers' : 'trips'] : null}
+                    comparisonLabel={comparison?.label} />
             ))}
         </div>
     </section>
 );
 
-const KpiCard = ({ loading, label, value, type, icon, help }) => {
+const KpiCard = ({ loading, label, value, type, icon, help, comparison, comparisonLabel }) => {
     const CardIcon = icon;
     return (
-        <article className="min-h-[7rem] rounded-lg bg-white p-4 shadow-[0_10px_26px_rgba(44,36,41,0.08)] border-l-4 border-maroon">
+        <article className="min-h-[5.25rem] rounded-lg border-l-4 border-maroon bg-white p-3.5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
             {loading ? (
                 <SkeletonBlock />
             ) : (
                 <>
                     <div className="flex items-start justify-between gap-3">
-                        <div className="text-[0.78rem] font-black text-text-muted">{label}</div>
-                        <span title={help} className="inline-flex items-center gap-1 text-maroon">
+                        <div className="text-[0.8rem] font-black text-text-muted">{label}</div>
+                        <span title={help} className="inline-flex items-center gap-1 text-base text-maroon">
                             <CardIcon />
                         </span>
                     </div>
-                    <div className="mt-2 text-[1.55rem] font-black text-maroon">{metricFormatters[type](value)}</div>
-                    <p className="m-0 mt-1 text-[0.72rem] leading-4 text-text-muted">{help}</p>
+                    <div className="mt-2 text-[1.4rem] font-black leading-tight text-maroon">{formatKpiValue(type, value)}</div>
+                    {comparison?.available && comparison.percentage != null && (
+                        <div className={`mt-1 text-xs font-black ${Number(comparison.percentage) >= 0 ? 'text-[#2f6b3d]' : 'text-danger-muted'}`}>
+                            {Number(comparison.percentage) >= 0 ? '↑' : '↓'} {Math.abs(Number(comparison.percentage)).toFixed(1)}% vs {comparisonLabel}
+                        </div>
+                    )}
                 </>
             )}
         </article>
     );
 };
 
-const AnalyticsChartGrid = ({ loading, charts }) => (
+const formatKpiValue = (type, value) => {
+    if (value == null) return 'Not available';
+    if (type === 'bus') return value.bus || 'Not available';
+    if (type === 'direction') return value.label || 'Not available';
+    return metricFormatters[type](value);
+};
+
+const AnalyticsChartGrid = ({ loading, analytics, charts }) => (
     <section className="mb-5">
-        <h2 className="m-0 mb-3 text-maroon text-lg font-black">Revenue and Operations</h2>
-        <div className="grid grid-cols-[minmax(0,1.8fr)_minmax(18rem,1fr)] gap-5 max-[1100px]:grid-cols-1 mb-5">
-            <AnalyticsChartCard title="Revenue Trend" loading={loading} wide>
+        <h2 className="m-0 mb-3 text-maroon text-lg font-black">Revenue & Passenger Trends</h2>
+        <div className="grid grid-cols-2 gap-5 max-[1100px]:grid-cols-1 mb-5">
+            <AnalyticsChartCard title="Revenue Trend" loading={loading}>
                 <LineGraph data={charts.revenueTrend || []} lines={[['revenue', '#6f2f3c', 'Revenue']]} moneyAxis />
             </AnalyticsChartCard>
-            <AnalyticsChartCard title="Transactions by Payment Method" loading={loading}>
-                <DonutGraph data={charts.transactionsByPaymentMethod || []} dataKey="count" />
-            </AnalyticsChartCard>
-        </div>
-        <div className="grid grid-cols-2 gap-5 max-[1100px]:grid-cols-1 mb-5">
             <AnalyticsChartCard title="Passenger Activity Trend" loading={loading}>
                 <LineGraph data={charts.passengerActivityTrend || []} lines={[['passengers', '#2f6b3d', 'Passengers']]} />
             </AnalyticsChartCard>
-            <AnalyticsChartCard title="Peak Travel Hours" loading={loading}>
-                <BarGraph data={charts.peakTravelHours || []} bars={[['count', '#e8bd47', 'Transactions']]} />
-            </AnalyticsChartCard>
         </div>
         <div className="grid grid-cols-2 gap-5 max-[1100px]:grid-cols-1">
-            <AnalyticsChartCard title="Trips and Passengers by Bus" loading={loading}>
-                <BarGraph data={charts.tripsAndPassengersByBus || []} bars={[['completedTrips', '#6f2f3c', 'Completed Trips'], ['passengersServed', '#2f6b3d', 'Passengers Served']]} />
+            <AnalyticsChartCard title="Passengers by Bus" loading={loading}>
+                <BarGraph data={analytics?.busPerformance?.passengersByBus || []} bars={[['passengers', '#2f6b3d', 'Passengers']]} />
             </AnalyticsChartCard>
-            <AnalyticsChartCard title="Queue Length by Terminal" loading={loading}>
-                <BarGraph data={charts.queueLengthByTerminal || []} bars={[['queueCount', '#b24a52', 'Queue Count']]} />
+            <AnalyticsChartCard title="Revenue by Bus" loading={loading}>
+                <BarGraph data={analytics?.busPerformance?.revenueByBus || []} bars={[['revenue', '#6f2f3c', 'Revenue']]} moneyAxis />
             </AnalyticsChartCard>
         </div>
+    </section>
+);
+
+const OperationsAnalytics = ({ loading, analytics, onSelectBus }) => (
+    <>
+        <DailyBusPerformance loading={loading} rows={analytics?.dailyBusPerformance || []} onSelectBus={onSelectBus} />
+        <TripAvailability data={analytics?.tripPerformance} loading={loading} />
+        <PassengerPeakSection data={analytics?.passengerAnalytics} loading={loading} />
+    </>
+);
+
+const DashboardSection = ({ title, children }) => (
+    <section className="mb-5 min-w-0">
+        <h2 className="m-0 mb-3 text-lg font-black text-maroon">{title}</h2>
+        {children}
     </section>
 );
 
@@ -394,10 +528,191 @@ const AnalyticsChartCard = ({ title, loading, children }) => (
     </section>
 );
 
+const DailyBusPerformance = ({ loading, rows, onSelectBus }) => {
+    const [search, setSearch] = useState('');
+    const [sort, setSort] = useState('date');
+    const [page, setPage] = useState(0);
+    const size = 10;
+    const filtered = useMemo(() => [...rows]
+        .filter(row => !search || row.bus?.toLowerCase().includes(search.toLowerCase()) || String(row.date).includes(search))
+        .sort((a, b) => sort === 'revenue' ? Number(b.revenue) - Number(a.revenue)
+            : sort === 'passengers' ? b.totalPassengers - a.totalPassengers
+                : String(b.date).localeCompare(String(a.date))), [rows, search, sort]);
+    const pages = Math.max(1, Math.ceil(filtered.length / size));
+    const visible = filtered.slice(page * size, page * size + size);
+    return (
+        <DashboardSection title="Daily Bus Performance">
+            <section className="rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+                <div className="mb-4 flex flex-wrap gap-2">
+                    <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="Search date or bus"
+                        className="min-h-[2.5rem] flex-1 min-w-52 rounded-md border border-border-soft px-3 text-sm outline-none focus:border-gold" />
+                    <select value={sort} onChange={e => setSort(e.target.value)}
+                        className="min-h-[2.5rem] rounded-md border border-border-soft px-3 text-sm font-semibold">
+                        <option value="date">Newest date</option><option value="passengers">Highest passengers</option><option value="revenue">Highest revenue</option>
+                    </select>
+                </div>
+                {loading ? <TableSkeleton /> : visible.length ? (
+                    <>
+                        <DataTable rows={visible} columns={[
+                            ['date', 'Date'], ['bus', 'Bus', value => <button className="font-black text-maroon hover:text-gold" onClick={() => onSelectBus(value)}>{value}</button>],
+                            ['smToGrandPassengers', 'SM → Grand', number], ['grandToSmPassengers', 'Grand → SM', number],
+                            ['totalPassengers', 'Total Pax', number], ['trips', 'Trips', unavailable],
+                            ['revenue', 'Revenue', money], ['passengersPerTrip', 'Pax / Trip', unavailable], ['revenuePerTrip', 'Revenue / Trip', unavailable],
+                        ]} />
+                        <div className="mt-4 flex items-center justify-between text-xs font-bold text-text-muted">
+                            <span>Page {page + 1} of {pages} · {filtered.length} rows</span>
+                            <div className="flex gap-2">
+                                <button className={ui.adminAction} disabled={page === 0} onClick={() => setPage(v => v - 1)}>Previous</button>
+                                <button className={ui.adminAction} disabled={page + 1 >= pages} onClick={() => setPage(v => v + 1)}>Next</button>
+                            </div>
+                        </div>
+                    </>
+                ) : <AnalyticsEmptyState title="No data for the selected period" text="No successful fare transactions match the selected filters." />}
+            </section>
+        </DashboardSection>
+    );
+};
+
+const TripAvailability = ({ data, loading }) => (
+    <DashboardSection title="Trip Performance">
+        <section className="rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+            {loading ? <SkeletonBlock /> : !data?.available ? (
+                <div className="flex items-start gap-3 rounded-md border border-gold/40 bg-[#fffaf0] p-4">
+                    <FiInfo className="mt-1 shrink-0 text-maroon" />
+                    <div><strong className="text-maroon">Trip data is not yet available</strong><p className="m-0 mt-1 text-sm text-text-muted">{data?.message}</p></div>
+                </div>
+            ) : <DataTable rows={data.byBus || []} columns={[]} />}
+        </section>
+    </DashboardSection>
+);
+
+const PassengerPeakSection = ({ data = {}, loading }) => (
+    <DashboardSection title="Passenger Analytics">
+        <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(18rem,1fr)] gap-5 max-[1100px]:grid-cols-1">
+            <AnalyticsChartCard title="Peak Travel Hours" loading={loading}>
+                <BarGraph data={data.hourlyVolume || []} bars={[['passengers', '#e8bd47', 'Passengers']]} />
+            </AnalyticsChartCard>
+            <section className="rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+                <h3 className="m-0 mb-4 text-maroon font-black">Peak Indicators</h3>
+                {loading ? <SkeletonBlock /> : <div className="grid gap-3">
+                    <MetricLine label="Peak hour" value={data.peakHour?.label} detail={data.peakHour ? `${number(data.peakHour.passengers)} passengers` : ''} />
+                    <MetricLine label="Peak day" value={data.peakDay?.day} detail={data.peakDay ? `${number(data.peakDay.passengers)} passengers` : ''} />
+                    <MetricLine label="Peak direction" value={data.peakDirection?.label} detail={data.peakDirection ? `${number(data.peakDirection.passengers)} passengers` : ''} />
+                </div>}
+            </section>
+        </div>
+    </DashboardSection>
+);
+
+const PaymentSection = ({ data = {}, loading }) => (
+    <DashboardSection title="Payment Analytics">
+        <div className="grid grid-cols-2 gap-5 max-[1100px]:grid-cols-1 mb-5">
+            <AnalyticsChartCard title="Payment Method Share" loading={loading}><DonutGraph data={data.methods || []} dataKey="count" /></AnalyticsChartCard>
+            <AnalyticsChartCard title="Revenue by Payment Method" loading={loading}><BarGraph data={data.methods || []} bars={[['revenue', '#6f2f3c', 'Revenue']]} moneyAxis /></AnalyticsChartCard>
+        </div>
+        <AnalyticsChartCard title="Daily Payment Trend" loading={loading}>
+            <LineGraph data={data.dailyTrend || []} lines={[['rfid', '#6f2f3c', 'RFID'], ['nfc', '#e8bd47', 'NFC'], ['qr', '#2f6b3d', 'QR'], ['assistedCash', '#58606f', 'Assisted Cash']]} />
+        </AnalyticsChartCard>
+    </DashboardSection>
+);
+
+const TransactionSection = ({ data = {}, loading }) => (
+    <DashboardSection title="Transaction Analytics">
+        <div className="grid grid-cols-2 gap-5 max-[1100px]:grid-cols-1">
+            <AnalyticsChartCard title="Transaction Status" loading={loading}><DonutGraph data={data.statuses || []} dataKey="count" /></AnalyticsChartCard>
+            <AnalyticsChartCard title="Failed Transaction Reasons" loading={loading}><BarGraph data={data.failureReasons || []} bars={[['count', '#b24a52', 'Failures']]} /></AnalyticsChartCard>
+        </div>
+        <section className="mt-5 rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+            <h3 className="m-0 mb-4 text-maroon font-black">Recent Failed Transactions</h3>
+            {loading ? <TableSkeleton /> : data.failedTransactions?.length
+                ? <DataTable rows={data.failedTransactions.slice(0, 20)} columns={[
+                    ['transactionId', 'Transaction ID'], ['dateTime', 'Date / Time', dateTime], ['bus', 'Bus', unavailable],
+                    ['directionLabel', 'Direction', unavailable], ['paymentMethod', 'Payment'], ['failureReason', 'Reason'], ['terminal', 'Terminal', unavailable],
+                ]} />
+                : <AnalyticsEmptyState title="No failed transactions" text="No failed fare attempts match the selected filters." />}
+        </section>
+    </DashboardSection>
+);
+
+const FleetSection = ({ data = {}, loading, onSelectBus }) => (
+    <DashboardSection title="Fleet Analytics">
+        <div className="grid grid-cols-2 gap-5 max-[1100px]:grid-cols-1">
+            <section className="rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+                <h3 className="m-0 mb-4 text-maroon font-black">Top Performing Buses</h3>
+                {loading ? <TableSkeleton /> : data.topPerformingBuses?.length
+                    ? <DataTable rows={data.topPerformingBuses} columns={[
+                        ['bus', 'Bus', value => <button className="font-black text-maroon" onClick={() => onSelectBus(value)}>{value}</button>],
+                        ['passengers', 'Passengers', number], ['revenue', 'Revenue', money], ['trips', 'Trips', unavailable],
+                    ]} />
+                    : <AnalyticsEmptyState title="No bus performance data" text="No bus-linked successful fares match the selected filters." />}
+            </section>
+            <section className="rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+                <h3 className="m-0 mb-4 text-maroon font-black">Buses Requiring Attention</h3>
+                {loading ? <TableSkeleton /> : data.busesRequiringAttention?.length
+                    ? <DataTable rows={data.busesRequiringAttention} columns={[['bus', 'Bus'], ['reason', 'Reason']]} />
+                    : <AnalyticsEmptyState title="No buses require attention" text="No supported fleet alerts match the selected filters." />}
+            </section>
+        </div>
+        <section className="mt-5 rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+            <h3 className="m-0 mb-4 text-maroon font-black">Bus Utilization</h3>
+            {loading ? <TableSkeleton /> : <DataTable rows={data.utilization || []} columns={[
+                ['bus', 'Bus'], ['capacity', 'Capacity', unavailable], ['averagePassengers', 'Average Passengers', unavailable],
+                ['utilizationPercentage', 'Utilization', value => value == null ? 'Not available' : percent(value)], ['reason', 'Data note'],
+            ]} />}
+        </section>
+    </DashboardSection>
+);
+
+const TerminalSection = ({ data = {}, loading }) => (
+    <DashboardSection title="Terminal Analytics">
+        <div className="grid grid-cols-4 gap-3 max-[900px]:grid-cols-2 max-[520px]:grid-cols-1 mb-5">
+            <MiniMetric label="Online" value={data.online} loading={loading} />
+            <MiniMetric label="Offline" value={data.offline} loading={loading} />
+            <MiniMetric label="Missing GPS" value={data.missingGpsUpdates} loading={loading} />
+            <MiniMetric label="Availability" value={data.availability == null ? 'Not available' : percent(data.availability)} loading={loading} />
+        </div>
+        <div className="grid grid-cols-2 gap-5 max-[1100px]:grid-cols-1">
+            <section className="rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+                <h3 className="m-0 mb-4 text-maroon font-black">Terminal Health</h3>
+                {loading ? <TableSkeleton /> : data.terminals?.length
+                    ? <DataTable rows={data.terminals} columns={[
+                        ['name', 'Terminal'], ['bus', 'Bus', unavailable], ['status', 'Status'], ['lastHeartbeat', 'Last Heartbeat', dateTime],
+                        ['transactionsProcessed', 'Processed', number], ['failedTransactions', 'Failed', number],
+                    ]} /> : <AnalyticsEmptyState title="No terminal records" text="No terminals match the selected bus filter." />}
+            </section>
+            <section className="rounded-lg bg-white p-5 shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+                <h3 className="m-0 mb-4 text-maroon font-black">Queue by Terminal</h3>
+                {loading ? <TableSkeleton /> : data.queues?.length
+                    ? <DataTable rows={data.queues} columns={[
+                        ['terminal', 'Terminal'], ['bus', 'Bus'], ['currentQueue', 'Queue', number], ['etaMinutes', 'ETA (min)', unavailable], ['status', 'Status'],
+                    ]} /> : <AnalyticsEmptyState title="No current queue data" text="No queue entries match the selected filters." />}
+                {!loading && data.queueHistoryMessage && <p className="mb-0 mt-3 text-xs text-text-muted">{data.queueHistoryMessage}</p>}
+            </section>
+        </div>
+    </DashboardSection>
+);
+
+const MiniMetric = ({ label, value, loading }) => (
+    <article className="rounded-lg bg-white p-4 border-l-4 border-maroon shadow-[0_10px_26px_rgba(44,36,41,0.08)]">
+        {loading ? <SkeletonBlock /> : <><div className="text-xs font-black text-text-muted">{label}</div><div className="mt-2 text-xl font-black text-maroon">{value ?? 0}</div></>}
+    </article>
+);
+
+const MetricLine = ({ label, value, detail }) => (
+    <div className="rounded-md border border-border-soft bg-page-bg p-3">
+        <div className="text-xs font-black text-text-muted">{label}</div>
+        <div className="mt-1 font-black text-maroon">{value || 'No data for the selected period'}</div>
+        {detail && <div className="mt-1 text-xs text-text-muted">{detail}</div>}
+    </div>
+);
+
+const unavailable = value => value == null || value === '' ? 'Not available' : value;
+const dateTime = value => value ? new Date(value).toLocaleString('en-PH', { timeZone: TIMEZONE }) : 'Not available';
+
 const RecentActivity = ({ loading, recent }) => (
     <section className="mb-5">
         <h2 className="m-0 mb-3 text-maroon text-lg font-black">Recent Activity</h2>
-        <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(18rem,1fr)_minmax(18rem,1fr)] gap-5 max-[1300px]:grid-cols-1">
+        <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(18rem,1fr)_minmax(18rem,1fr)] items-start gap-5 max-[1300px]:grid-cols-1">
             <RecentFareTransactionsTable loading={loading} rows={recent.fareTransactions || []} />
             <RecentSupportTicketsTable loading={loading} rows={recent.supportTickets || []} />
             <SystemAlertsList loading={loading} rows={recent.systemAlerts || []} />
@@ -493,7 +808,7 @@ const DataTable = ({ rows, columns }) => (
                     <tr key={index} className="border-t border-border-soft">
                         {columns.map(([key,, formatter]) => (
                             <td key={key} className="py-2 pr-3 align-top text-text-main">
-                                {formatter ? formatter(row[key]) : row[key] || 'Not available'}
+                                {formatter ? formatter(row[key], row) : (row[key] ?? 'Not available')}
                             </td>
                         ))}
                     </tr>
@@ -531,9 +846,12 @@ const RetryPanel = ({ message, onRetry }) => (
     </section>
 );
 
+const hasChartValues = (data, keys) => Boolean(data?.some(row =>
+    keys.some(key => Number.isFinite(Number(row?.[key])) && Number(row[key]) !== 0)));
+
 const LineGraph = ({ data, lines, moneyAxis }) => (
-    <div className="h-[20rem] w-full min-w-0">
-        {data?.length ? (
+    <div className="h-[16rem] w-full min-w-0">
+        {hasChartValues(data, lines.map(([key]) => key)) ? (
             <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={data}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -547,20 +865,20 @@ const LineGraph = ({ data, lines, moneyAxis }) => (
                 </LineChart>
             </ResponsiveContainer>
         ) : (
-            <AnalyticsEmptyState title="No data for the selected period" text="Change filters or wait for new records." />
+            <AnalyticsEmptyState fill title="No data for the selected period" text="Change filters or wait for new records." />
         )}
     </div>
 );
 
-const BarGraph = ({ data, bars }) => (
-    <div className="h-[19rem] w-full min-w-0">
-        {data?.length ? (
+const BarGraph = ({ data, bars, moneyAxis }) => (
+    <div className="h-[16rem] w-full min-w-0">
+        {hasChartValues(data, bars.map(([key]) => key)) ? (
             <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} />
-                    <Tooltip formatter={(value, name) => [number(value), name]} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={moneyAxis ? value => `₱${number(value)}` : undefined} />
+                    <Tooltip formatter={(value, name) => [moneyAxis ? money(value) : number(value), name]} />
                     <Legend />
                     {bars.map(([key, color, name]) => (
                         <Bar key={key} dataKey={key} fill={color} name={name} radius={[4, 4, 0, 0]} />
@@ -568,14 +886,14 @@ const BarGraph = ({ data, bars }) => (
                 </BarChart>
             </ResponsiveContainer>
         ) : (
-            <AnalyticsEmptyState title="No data for the selected period" text="This metric is supported, but no matching records were found." />
+            <AnalyticsEmptyState fill title="No data for the selected period" text="This metric is supported, but no matching records were found." />
         )}
     </div>
 );
 
 const DonutGraph = ({ data, dataKey }) => (
-    <div className="h-[20rem] w-full min-w-0">
-        {data?.length ? (
+    <div className="h-[16rem] w-full min-w-0">
+        {hasChartValues(data, [dataKey]) ? (
             <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                     <Pie data={data} dataKey={dataKey} nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={3}>
@@ -588,13 +906,13 @@ const DonutGraph = ({ data, dataKey }) => (
                 </PieChart>
             </ResponsiveContainer>
         ) : (
-            <AnalyticsEmptyState title="No data for the selected period" text="No successful fare transactions match this filter." />
+            <AnalyticsEmptyState fill title="No data for the selected period" text="No successful fare transactions match this filter." />
         )}
     </div>
 );
 
-const AnalyticsEmptyState = ({ title, text }) => (
-    <div className="h-full min-h-[12rem] grid place-items-center rounded-md border border-dashed border-border-soft bg-page-bg p-4 text-center">
+const AnalyticsEmptyState = ({ title, text, fill = false }) => (
+    <div className={`${fill ? 'h-full' : ''} min-h-[9rem] grid place-items-center rounded-md border border-dashed border-border-soft bg-page-bg p-4 text-center`}>
         <div>
             <FiInfo className="mx-auto mb-2 text-maroon" />
             <div className="font-black text-text-main">{title}</div>
@@ -617,10 +935,29 @@ const TableSkeleton = () => <div className="h-52 rounded-md bg-[#eceff3] animate
 const buildExportRows = (analytics) => {
     if (!analytics) return [];
     const rows = [['Section', 'Metric', 'Value']];
-    kpiConfig.forEach(([key, label, type]) => rows.push(['KPI', label, metricFormatters[type](analytics.summary?.[key])]));
-    Object.entries(analytics.charts || {}).forEach(([chartName, data]) => {
-        (data || []).forEach(item => rows.push(['Chart', chartName, JSON.stringify(item)]));
-    });
+    const filters = analytics.filters || {};
+    rows.push(['Report', 'Date range', `${filters.startDate || ''} to ${filters.endDate || ''}`]);
+    rows.push(['Applied filter', 'Bus', filters.busId || 'All Buses']);
+    rows.push(['Applied filter', 'Direction', filters.direction || 'All Directions']);
+    rows.push(['Applied filter', 'Payment method', filters.paymentMethod || 'All']);
+    rows.push(['Applied filter', 'Transaction status', filters.transactionStatus || 'All']);
+    kpiConfig.forEach(([key, label, type]) => rows.push(['Executive Summary', label, formatKpiValue(type, analytics.summary?.[key])]));
+    const exportSections = {
+        'Revenue Trend': analytics.trends?.revenue,
+        'Passenger Trend': analytics.trends?.passengers,
+        'Bus Performance': analytics.busPerformance?.buses,
+        'Daily Bus Performance': analytics.dailyBusPerformance,
+        'Direction Performance': analytics.directionAnalytics?.directions,
+        'Payment Analytics': analytics.paymentAnalytics?.methods,
+        'Transaction Status': analytics.transactionAnalytics?.statuses,
+        'Failure Reasons': analytics.transactionAnalytics?.failureReasons,
+        'Failed Transactions': analytics.transactionAnalytics?.failedTransactions,
+        'Fleet Ranking': analytics.fleetAnalytics?.topPerformingBuses,
+        'Buses Requiring Attention': analytics.fleetAnalytics?.busesRequiringAttention,
+        'Terminal Health': analytics.terminalAnalytics?.terminals,
+        'Terminal Queue': analytics.terminalAnalytics?.queues,
+    };
+    Object.entries(exportSections).forEach(([section, data]) => (data || []).forEach(item => rows.push([section, item.name || item.bus || item.date || item.reason || item.terminalId || '', JSON.stringify(item)])));
     (analytics.recent?.fareTransactions || []).forEach(item => rows.push(['Recent Fare Transactions', item.time, `${item.maskedCardNumber} ${item.paymentMethod} ${money(item.amount)} ${item.status}`]));
     (analytics.recent?.supportTickets || []).forEach(item => rows.push(['Recent Support Tickets', item.ticketNumber, `${item.category} ${item.status} ${item.dateSubmitted}`]));
     (analytics.recent?.systemAlerts || []).forEach(item => rows.push(['System Alerts', item.title, `${item.severity} ${item.message}`]));

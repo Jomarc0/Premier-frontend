@@ -27,6 +27,23 @@ const statusClass = (status) => {
 const cleanUid = (value) =>
     String(value || '').trim().replace(/[^a-fA-F0-9]/g, '').toUpperCase();
 
+const maskIdentifier = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return '-';
+    return `${'•'.repeat(Math.max(4, Math.min(8, text.length - 4)))}${text.slice(-4)}`;
+};
+
+const maskEmail = (value) => {
+    const email = String(value || '').trim();
+    const at = email.lastIndexOf('@');
+    if (at <= 0) return email ? '••••' : '-';
+    const local = email.slice(0, at);
+    const domain = email.slice(at + 1);
+    const first = local.charAt(0);
+    const last = local.length > 1 ? local.charAt(local.length - 1) : '';
+    return `${first}${'•'.repeat(Math.max(3, Math.min(8, local.length - 2)))}${last}@${domain}`;
+};
+
 const normalizeReaderUid = (value) => {
     if (!value) return '';
     const cleaned = String(value)
@@ -61,7 +78,10 @@ const SupportTicketsPage = () => {
         }
     }, []);
 
-    useEffect(() => { fetchTickets(); }, [fetchTickets]);
+    useEffect(() => {
+        const initialLoad = window.setTimeout(fetchTickets, 0);
+        return () => window.clearTimeout(initialLoad);
+    }, [fetchTickets]);
 
     useEffect(() => subscribe((event) => {
         if (event.entity === 'SUPPORT_TICKET') fetchTickets();
@@ -186,7 +206,7 @@ const SupportTicketsPage = () => {
         }
 
         await runConfirmedAction(
-            `Assign this replacement RFID card to ${selected.ticketNumber}?\n\nCard: ${selected.cardNumber}\nOld UID: ${selected.currentRfidUid || '-'}\nNew UID: ${normalizedUid}\n\nThis activates the passenger account on the replacement card. The ticket remains open so you can add notes and send the resolution email.`,
+            `Assign this replacement RFID card to ${selected.ticketNumber}?\n\nCard: ${maskIdentifier(selected.cardNumber)}\nOld UID: ${maskIdentifier(selected.currentRfidUid)}\nNew UID: ${maskIdentifier(normalizedUid)}\n\nThis activates the passenger account on the replacement card. The ticket remains open so you can add notes and send the resolution email.`,
             'Replacement card assigned and account reactivated',
             () => adminAPI.post(`/support-tickets/${selected.id}/replace-rfid`, {
                 newRfidUid: normalizedUid,
@@ -265,8 +285,8 @@ const SupportTicketsPage = () => {
                                 {!loading && visibleTickets.map((ticket) => (
                                     <tr key={ticket.id} className={ui.tableRow}>
                                         <td className={`${ui.tableTd} ${ui.mono}`}>{ticket.ticketNumber}</td>
-                                        <td className={`${ui.tableTd} ${ui.mono}`}>{ticket.maskedCardNumber}</td>
-                                        <td className={ui.tableTd}>{ticket.email}</td>
+                                        <td className={`${ui.tableTd} ${ui.mono}`}>{maskIdentifier(ticket.maskedCardNumber || ticket.cardNumber)}</td>
+                                        <td className={ui.tableTd}>{maskEmail(ticket.email)}</td>
                                         <td className={ui.tableTd}>{ticket.issueType}</td>
                                         <td className={ui.tableTd}>{ticket.priority}</td>
                                         <td className={ui.tableTd}><span className={statusClass(ticket.status)}>{ticket.status}</span></td>
@@ -289,10 +309,10 @@ const SupportTicketsPage = () => {
                         </div>
                         <div className="grid gap-4 p-5 text-sm text-text-main md:grid-cols-2">
                             <div className="space-y-2">
-                                <p><strong>Card:</strong> <span className={ui.mono}>{selected.cardNumber}</span></p>
+                                <p><strong>Card:</strong> <span className={ui.mono}>{maskIdentifier(selected.cardNumber)}</span></p>
                                 <p><strong>Passenger:</strong> {selected.passengerName || 'Unknown'}</p>
-                                <p><strong>Current RFID UID:</strong> <span className={ui.mono}>{selected.currentRfidUid || '-'}</span></p>
-                                <p><strong>Email:</strong> {selected.email}</p>
+                                <p><strong>Current RFID UID:</strong> <span className={ui.mono}>{maskIdentifier(selected.currentRfidUid)}</span></p>
+                                <p><strong>Email:</strong> {maskEmail(selected.email)}</p>
                                 <p><strong>Issue:</strong> {selected.issueType}</p>
                                 <p><strong>Status:</strong> {selected.status}</p>
                                 <p><strong>Priority:</strong> {selected.priority}</p>

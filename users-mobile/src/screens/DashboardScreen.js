@@ -1832,7 +1832,7 @@ export default function DashboardScreen({ navigation }) {
 
         Alert.alert(
           'Biometrics disabled',
-          'OTP will be required after logout or session expiry.',
+          'Card login and OTP will be required after logout or when the 30-day biometric session expires.',
         );
       } else {
         await enableBiometrics();
