@@ -25,6 +25,9 @@ export function initPostHog() {
     capture_pageview: false,
     capture_pageleave: true,
     autocapture: false,
+    disable_session_recording: true,
+    mask_all_text: true,
+    mask_all_element_attributes: true,
     person_profiles: 'identified_only',
   });
 

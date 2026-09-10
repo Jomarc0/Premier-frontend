@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
     FiUsers,
     FiRefreshCw,
@@ -10,7 +10,7 @@ import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
-import { useRealtime } from '../context/RealtimeContext';
+import { useRealtime } from '../context/RealtimeState';
 
 
 const AllUsersPage = () => {
@@ -23,9 +23,7 @@ const AllUsersPage = () => {
     const [totalElements, setTotalElements] = useState(0);
     const { subscribe } = useRealtime();
 
-    useEffect(() => { fetchData(); }, [page]);
-
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         try {
             const [usersRes, statsRes] = await Promise.all([
@@ -36,16 +34,23 @@ const AllUsersPage = () => {
             setUsers(data.content || []);
             setTotalElements(data.totalElements || 0);
             setStats(statsRes.data.data || {});
-        } catch (err) {
+        } catch {
             toast.error('Failed to load users');
         } finally {
             setLoading(false);
         }
-    };
+    }, [page]);
+
+    useEffect(() => {
+        const initial = window.setTimeout(() => { fetchData(); }, 0);
+        return () => window.clearTimeout(initial);
+    }, [fetchData]);
+
+
 
     useEffect(() => subscribe((event) => {
         if (event.entity === 'PASSENGER') fetchData();
-    }), [subscribe, page]);
+    }), [subscribe, fetchData]);
 
 
 

@@ -1,3 +1,4 @@
+import { installSessionGuard } from './lib/sessionGuard';
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./polyfills";
@@ -6,6 +7,8 @@ import "./styles.css";
 import { initPostHog } from "./lib/posthog";
 
 initPostHog();
+
+installSessionGuard();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

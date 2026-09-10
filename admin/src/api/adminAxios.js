@@ -11,7 +11,7 @@ const adminAPI = axios.create({
 
 adminAPI.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem('adminToken');
+        const token = sessionStorage.getItem('adminToken');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
@@ -28,10 +28,13 @@ adminAPI.interceptors.response.use(
         const isTotpVerifyRequest = requestUrl.includes('/auth/totp/verify');
 
         if (error.response?.status === 401 && !isLoginRequest && !isTotpVerifyRequest) {
-            localStorage.removeItem('adminToken');
-            localStorage.removeItem('adminName');
-            localStorage.removeItem('adminUsername');
-            localStorage.removeItem('adminRole');
+            for (const key of Object.keys(sessionStorage)) {
+                if (key.startsWith('premier:remittance-pending:')) sessionStorage.removeItem(key);
+            }
+            sessionStorage.removeItem('adminToken');
+            sessionStorage.removeItem('adminName');
+            sessionStorage.removeItem('adminUsername');
+            sessionStorage.removeItem('adminRole');
             window.location.href = '/admin/login';
         }
         return Promise.reject(error);

@@ -1,6 +1,6 @@
 const envApiBaseUrl =
   process.env.EXPO_PUBLIC_API_BASE_URL ||
-  'https://premiertranspo.onrender.com';
+  'https://api-proxy.rayjomar15.workers.dev';
 
 export const API_BASE_URL = envApiBaseUrl.replace(/\/$/, '');
 

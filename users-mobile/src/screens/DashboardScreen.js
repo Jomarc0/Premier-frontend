@@ -1,3 +1,4 @@
+import { csvEscape } from '../lib/csv';
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -26,6 +27,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePostHog } from 'posthog-react-native';
 
 import api from '../api/api';
+import { getHceStatus } from '../api/hceTokenStore';
+import useOwnedPendingTopups, { safeCheckoutUrl } from '../hooks/useOwnedPendingTopups';
 import { captureMobileEvent } from '../analytics/posthog';
 import AppGuideOverlay from '../components/AppGuideOverlay';
 import Button from '../components/Button';
@@ -34,14 +37,6 @@ import { useAuth } from '../context/AuthContext';
 import { useRealtime } from '../context/RealtimeContext';
 import { formatPhtDateTime, phtDateKey } from '../utils/time';
 import { colors, shadow } from '../theme';
-
-const loadNfcManager = () => {
-  try {
-    return require('react-native-nfc-manager').default;
-  } catch {
-    return null;
-  }
-};
 
 const QUICK_AMOUNTS = [20, 40, 50, 100, 200, 500];
 const QUICK_REPLIES = ['Top-up issue', 'Fare deduction', 'Payment failed', 'Lost RFID card', 'Check balance'];
@@ -72,6 +67,7 @@ const initialChatMessage = () => ({
 const newChatSessionId = () => `mobile-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const isLostCardRequest = (text = '') => /\b(lost|stolen|missing)\b/.test(text.toLowerCase()) && /\b(card|rfid)\b/.test(text.toLowerCase());
 const isTicketConfirmation = (text = '') => /^(yes|yes please|open ticket|create( a)? ticket|submit( a)? ticket)$/i.test(text.trim());
+const isRecoveryToken = (text = '') => text.trim().length >= 100 && text.trim().split('.').length === 3;
 const ticketTypeFor = (text = '') => {
   const value = text.toLowerCase();
   if (value.includes('damage') || value.includes('replace')) return 'DAMAGED_CARD';
@@ -107,10 +103,6 @@ const displayCardNumber = (cardNumber) => {
   return String(cardNumber).replace(/(.{4})/g, '$1 ').trim();
 };
 
-const csvEscape = (value) => {
-  const text = value === null || value === undefined ? '' : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
-};
 
 const transactionId = (tx) => tx?.referenceNumber || `TX-${tx?.id}`;
 
@@ -399,7 +391,7 @@ export default function DashboardScreen({ navigation }) {
 
   const [selectedAmount, setSelectedAmount] = useState(100);
   const [customAmount, setCustomAmount] = useState('');
-  const [pendingPayment, setPendingPayment] = useState(null);
+  const { pendingPayment, setPendingPayment, pendingLoading, pendingError, morePending, refreshPending, nextPending } = useOwnedPendingTopups(api, passenger?.id);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('GCASH');
 
   const [loading, setLoading] = useState(true);
@@ -407,8 +399,6 @@ export default function DashboardScreen({ navigation }) {
   const [verifying, setVerifying] = useState(false);
 
   const [nfcSupported, setNfcSupported] = useState(null);
-  const [nfcScanning, setNfcScanning] = useState(false);
-  const [nfcCardActive, setNfcCardActive] = useState(false);
 
   const [qrOpen, setQrOpen] = useState(false);
   const [qrLoading, setQrLoading] = useState(false);
@@ -447,6 +437,11 @@ export default function DashboardScreen({ navigation }) {
   const [ticketEmail, setTicketEmail] = useState('');
   const [ticketIssueType, setTicketIssueType] = useState('OTHER');
   const [ticketReason, setTicketReason] = useState('');
+
+  const [recoveryTokenMode, setRecoveryTokenMode] = useState(false);
+  const [recoveryToken, setRecoveryToken] = useState('');
+  const [recoverySubmitting, setRecoverySubmitting] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
 
   const [messages, setMessages] = useState(() => [initialChatMessage()]);
 
@@ -515,9 +510,6 @@ export default function DashboardScreen({ navigation }) {
   const walletScrollOffsetRef = useRef(0);
   const topUpScrollOffsetRef = useRef(0);
 
-  const hceSessionRef = useRef(null);
-  const hceReadListenerRef = useRef(null);
-  const hceExpiryTimerRef = useRef(null);
   const qrRefreshingRef = useRef(false);
   const hasStartedStartupFlowRef = useRef(false);
   const guideReplayRef = useRef(false);
@@ -933,24 +925,6 @@ export default function DashboardScreen({ navigation }) {
         ? topUpGuideSteps
         : guideSteps;
 
-  const stopMobileNfcCard = async () => {
-    if (hceExpiryTimerRef.current) {
-      clearTimeout(hceExpiryTimerRef.current);
-      hceExpiryTimerRef.current = null;
-    }
-
-    hceReadListenerRef.current?.();
-    hceReadListenerRef.current = null;
-
-    try {
-      await hceSessionRef.current?.setEnabled(false);
-    } catch {
-      // Native HCE service may already be stopped.
-    }
-
-    setNfcCardActive(false);
-  };
-
   const fetchData = useCallback(async ({ silent = false } = {}) => {
     setDashboardError(null);
 
@@ -979,7 +953,26 @@ export default function DashboardScreen({ navigation }) {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    const timer = setInterval(() => { if (AppState.currentState === 'active') fetchData({ silent: true }); }, 30000);
+    const listener = AppState.addEventListener('change', state => { if (state === 'active') refreshPending(); });
+    return () => { clearInterval(timer); listener.remove(); };
+  }, [fetchData, refreshPending]);
+
+  // Top-up expiration countdown
+  useEffect(() => {
+    if (!pendingPayment?.expiresAt) return;
+
+    const timer = setInterval(() => {
+      const expiresAt = new Date(pendingPayment.expiresAt).getTime();
+      const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      if (remaining <= 0) {
+        setPendingPayment(null);
+        refreshPending();
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [pendingPayment, refreshPending]);
 
   useEffect(() => {
     if (['TRANSACTION', 'TOPUP', 'PASSENGER', 'SUPPORT_TICKET'].includes(lastEvent?.entity)) {
@@ -1193,22 +1186,11 @@ export default function DashboardScreen({ navigation }) {
 
     const prepareNfc = async () => {
       try {
-        const NfcManager = loadNfcManager();
-
-        if (!NfcManager) {
-          if (active) setNfcSupported(false);
-          return;
-        }
-
-        const supported = await NfcManager.isSupported();
+        const { supported } = await getHceStatus();
 
         if (!active) return;
 
         setNfcSupported(supported);
-
-        if (supported) {
-          await NfcManager.start();
-        }
       } catch {
         if (active) {
           setNfcSupported(false);
@@ -1220,8 +1202,6 @@ export default function DashboardScreen({ navigation }) {
 
     return () => {
       active = false;
-      stopMobileNfcCard();
-      loadNfcManager()?.cancelTechnologyRequest().catch(() => {});
     };
   }, []);
 
@@ -1437,10 +1417,11 @@ export default function DashboardScreen({ navigation }) {
       return;
     }
 
+    if (pendingLoading || pendingError) { Alert.alert('Pending payments', pendingError || 'Recovering pending payments. Please wait.'); return; }
     if (pendingPayment) {
       Alert.alert(
         'Pending payment',
-        'Complete or cancel your current pending payment first.',
+        'Verify or resume your existing pending payment first.',
       );
       return;
     }
@@ -1460,18 +1441,21 @@ export default function DashboardScreen({ navigation }) {
         referenceNumber,
         amount,
         topUpId,
+        checkoutUrl,
+        requiresReconciliation: !checkoutUrl,
         paymentMethod: selectedPaymentMethod,
       });
 
-      if (checkoutUrl) {
-        await WebBrowser.openBrowserAsync(checkoutUrl);
+      if (safeCheckoutUrl(checkoutUrl)) {
+        await WebBrowser.openBrowserAsync(safeCheckoutUrl(checkoutUrl));
       }
     } catch (error) {
       Alert.alert(
-        'Top-up failed',
-        error.response?.data?.message || 'Please try again.',
+        'Top-up status unknown',
+        error.response?.data?.message || 'Check pending payments before retrying.',
       );
     } finally {
+      await refreshPending();
       setTopupLoading(false);
     }
   };
@@ -1483,9 +1467,10 @@ export default function DashboardScreen({ navigation }) {
 
     try {
       const response = await api.post(
-        `/topup/verify/${pendingPayment.referenceNumber}`,
+        `/topup/verify/${encodeURIComponent(pendingPayment.referenceNumber)}`,
       );
 
+      if (response.data?.success !== true || response.data?.data?.status !== 'SUCCESS') throw new Error('Payment has not settled yet.');
       const { newBalance, amount } = response.data.data || {};
 
       Alert.alert(
@@ -1494,6 +1479,7 @@ export default function DashboardScreen({ navigation }) {
       );
 
       setPendingPayment(null);
+      await refreshPending();
       setSelectedAmount(100);
       setCustomAmount('');
       fetchData();
@@ -1605,8 +1591,6 @@ export default function DashboardScreen({ navigation }) {
   }, [checkFareQrStatus, qrData?.payload, qrLoading, qrOpen, qrPayment]);
 
   const handleNfcPayment = async () => {
-    if (nfcScanning) return;
-
     if (Platform.OS !== 'android') {
       Alert.alert(
         'Android required',
@@ -1615,26 +1599,17 @@ export default function DashboardScreen({ navigation }) {
       return;
     }
 
-    if (nfcSupported === false) {
-      Alert.alert(
-        'NFC unavailable',
-        'This phone does not support NFC payments.',
-      );
-      return;
-    }
-
     try {
-      const NfcManager = loadNfcManager();
+      const { supported, enabled } = await getHceStatus();
+      setNfcSupported(supported);
 
-      if (!NfcManager) {
+      if (!supported) {
         Alert.alert(
           'NFC unavailable',
-          'Install and open the Premier Android APK to use mobile NFC payment.',
+          'This phone does not support NFC payments.',
         );
         return;
       }
-
-      const enabled = await NfcManager.isEnabled();
 
       if (!enabled) {
         Alert.alert(
@@ -1768,6 +1743,17 @@ export default function DashboardScreen({ navigation }) {
         },
       ]);
 
+      // MFA recovery: bot directs user to submit a ticket; if user already has a token, offer to enter it
+      if (payload.intent === 'MFA_RECOVERY_REQUEST' || payload.intent === 'LOCAL_MFA_RECOVERY') {
+        setRecoveryTokenMode(true);
+        return;
+      }
+      // If user pastes a recovery token (JWT-like), submit it
+      if (recoveryTokenMode && isRecoveryToken(trimmed)) {
+        await submitRecoveryToken(trimmed);
+        return;
+      }
+
       if (payload.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM') {
         if (isTicketConfirmation(trimmed)) {
           setTicketIssueType(ticketTypeFor(ticketContext || trimmed));
@@ -1789,6 +1775,38 @@ export default function DashboardScreen({ navigation }) {
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const submitRecoveryToken = async (token) => {
+    if (recoverySubmitting) return;
+    setRecoverySubmitting(true);
+    setRecoveryError('');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const res = await api.post('/auth/recovery/complete', { recoveryToken: token }, { signal: controller.signal });
+      const data = res.data?.data || res.data || {};
+      if (!data.tempToken || !data.requireSetup) {
+        throw new Error(res.data?.message || 'Recovery authorization was not accepted.');
+      }
+      await SecureStore.setItemAsync('tempToken', data.tempToken);
+      await SecureStore.deleteItemAsync('pendingCardNumber');
+      setRecoveryTokenMode(false);
+      navigation.navigate('TotpSetup');
+    } catch (err) {
+      setRecoveryError(err.name === 'AbortError'
+        ? 'The response was not received. Contact the verifying Super Admin if this one-use authorization has been consumed.'
+        : err.message || 'Unable to complete recovery.');
+    } finally {
+      clearTimeout(timer);
+      setRecoverySubmitting(false);
+    }
+  };
+
+  const cancelRecoveryTokenMode = () => {
+    setRecoveryTokenMode(false);
+    setRecoveryToken('');
+    setRecoveryError('');
   };
 
   const submitSupportTicket = async () => {
@@ -2322,13 +2340,42 @@ export default function DashboardScreen({ navigation }) {
         </Button>
       </View>
 
+      {(pendingLoading || pendingError) && <View style={styles.pendingBox}><Text accessibilityLiveRegion="polite">{pendingError || 'Recovering pending payments...'}</Text>{pendingError && <Button onPress={() => refreshPending()}>Retry</Button>}</View>}
       {pendingPayment && (
         <View style={styles.pendingBox}>
-          <Text style={styles.pendingTitle}>
-            Pending {pendingPayment.paymentMethod || 'payment'} payment:{' '}
-            {pendingPayment.referenceNumber}
-          </Text>
-
+          {(() => {
+            if (!pendingPayment.expiresAt) return <Text style={styles.pendingTitle}>Pending payment: {pendingPayment.referenceNumber}</Text>;
+            const remaining = Math.max(0, Math.floor((new Date(pendingPayment.expiresAt).getTime() - Date.now()) / 1000));
+            if (remaining <= 0) {
+              return (
+                <View style={styles.expiredBox}>
+                  <Text style={styles.expiredTitle}>Payment Expired</Text>
+                  <Text style={styles.expiredText}>This top-up has expired. You can create a new one.</Text>
+                  <Button
+                    variant="primary"
+                    onPress={() => { setPendingPayment(null); refreshPending(); }}
+                  >
+                    Create New Top-Up
+                  </Button>
+                </View>
+              );
+            }
+            const minutes = Math.floor(remaining / 60);
+            const seconds = remaining % 60;
+            return (
+              <Text style={styles.pendingTitle}>
+                Pending payment: {pendingPayment.referenceNumber} · Expires in {minutes}:{String(seconds).padStart(2, '0')}
+              </Text>
+            );
+          })()}
+          {pendingPayment.requiresReconciliation && <Text>This payment needs verification or support review. Do not pay a replacement checkout.</Text>}
+          {(() => {
+            if (!pendingPayment.expiresAt) return safeCheckoutUrl(pendingPayment.checkoutUrl) ? <Button onPress={() => WebBrowser.openBrowserAsync(safeCheckoutUrl(pendingPayment.checkoutUrl))}>Resume original checkout</Button> : null;
+            const remaining = Math.max(0, Math.floor((new Date(pendingPayment.expiresAt).getTime() - Date.now()) / 1000));
+            if (remaining <= 0) return null;
+            return safeCheckoutUrl(pendingPayment.checkoutUrl) ? <Button onPress={() => WebBrowser.openBrowserAsync(safeCheckoutUrl(pendingPayment.checkoutUrl))}>Continue Payment</Button> : null;
+          })()}
+          {morePending && <Button onPress={nextPending}>Next pending payment</Button>}
           <Button
             variant="secondary"
             loading={verifying}
@@ -2339,9 +2386,9 @@ export default function DashboardScreen({ navigation }) {
 
           <Button
             variant="ghost"
-            onPress={() => setPendingPayment(null)}
+            onPress={() => refreshPending()}
           >
-            Cancel Transaction
+            Refresh Pending Payments
           </Button>
         </View>
       )}
@@ -2680,6 +2727,42 @@ export default function DashboardScreen({ navigation }) {
             ))}
           </View>
         )}
+
+        {recoveryTokenMode && (
+          <View style={styles.recoveryTokenForm}>
+            <View style={styles.recoveryTokenHeader}>
+              <Text style={styles.recoveryTokenTitle}>MFA Recovery</Text>
+              <Pressable onPress={cancelRecoveryTokenMode} style={styles.closeButton}>
+                <MaterialCommunityIcons name="close" size={20} color={colors.slate} />
+              </Pressable>
+            </View>
+            <Text style={styles.recoveryTokenSubtitle}>
+              Enter the one-use recovery authorization from the verifying Super Admin.
+            </Text>
+            <TextInput
+              value={recoveryToken}
+              onChangeText={setRecoveryToken}
+              placeholder="Paste the recovery authorization token"
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="off"
+              maxLength={2048}
+              style={styles.recoveryTokenInput}
+            />
+            <Text style={styles.recoveryTokenNote}>The authorization expires after five minutes.</Text>
+            {recoveryError && <Text style={styles.recoveryTokenError}>{recoveryError}</Text>}
+            <Button
+              loading={recoverySubmitting}
+              disabled={!recoveryToken.trim() || recoverySubmitting}
+              onPress={() => submitRecoveryToken(recoveryToken)}
+              style={styles.recoveryTokenButton}
+            >
+              {recoverySubmitting ? 'Verifying...' : 'Set up a new authenticator'}
+            </Button>
+          </View>
+        )}
+
       </ScrollView>
 
       <View style={styles.chatInputRow}>
@@ -4531,6 +4614,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
+  expiredBox: {
+    backgroundColor: '#FDECEC',
+    borderRadius: 16,
+    padding: 15,
+    marginTop: 16,
+    gap: 10,
+  },
+
+  expiredTitle: {
+    color: '#B4232D',
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  expiredText: {
+    color: '#B4232D',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
   totalGrid: {
     flexDirection: 'row',
     gap: 12,
@@ -5043,6 +5148,70 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     paddingBottom: 10,
     backgroundColor: '#fff',
+  },
+
+  recoveryTokenForm: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#DDE5EF',
+  },
+
+  recoveryTokenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  recoveryTokenTitle: {
+    color: colors.maroon,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  closeButton: {
+    padding: 4,
+  },
+
+  recoveryTokenSubtitle: {
+    color: '#53616F',
+    fontSize: 11,
+    fontWeight: '500',
+    marginBottom: 12,
+  },
+
+  recoveryTokenInput: {
+    backgroundColor: '#F5F8FC',
+    borderRadius: 12,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    color: '#1C2A44',
+    fontSize: 12,
+    borderWidth: 1,
+    borderColor: '#DDE5EF',
+    marginBottom: 8,
+  },
+
+  recoveryTokenNote: {
+    color: '#8AA0BF',
+    fontSize: 10,
+    marginBottom: 10,
+  },
+
+  recoveryTokenError: {
+    color: '#B4232D',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+
+  recoveryTokenButton: {
+    borderRadius: 12,
+    minHeight: 48,
+    marginTop: 4,
   },
 
   chatFloat: {

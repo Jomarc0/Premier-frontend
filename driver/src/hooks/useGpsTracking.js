@@ -111,13 +111,11 @@ const useGpsTracking = (plateNumber, shiftId) => {
     // Main Effect 
     useEffect(() => {
         if (!plateNumber) {
-            setGpsStatus(GPS_STATUS.IDLE);
             return;
         }
 
         if (!navigator.geolocation) {
             console.warn('[GPS] Browser doesn\'t support geolocation');
-            setGpsStatus(GPS_STATUS.DISABLED);
             return;
         }
 
@@ -150,7 +148,7 @@ const useGpsTracking = (plateNumber, shiftId) => {
         };
     }, [plateNumber, onPosition, onError, sendLocation]);
 
-    return { gpsStatus, coordinates, geofence, eta, deviated };
+    return { gpsStatus: !plateNumber ? GPS_STATUS.IDLE : !navigator.geolocation ? GPS_STATUS.DISABLED : gpsStatus, coordinates, geofence, eta, deviated };
 };
 
 export default useGpsTracking;

@@ -1,17 +1,11 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { AuthContext } from './AuthState';
+import { useState, useEffect } from 'react';
 import { jwtDecode } from 'jwt-decode';
-import { PRIVACY_NOTICE_ACCEPTED_KEY } from '../constants/privacy';
+import { clearAuthStorage } from '../lib/authStorage';
 import { identifyUser, resetAnalytics } from '../lib/posthog';
 
-const AuthContext = createContext();
 
-const clearAuthStorage = () => {
-    const privacyAccepted = localStorage.getItem(PRIVACY_NOTICE_ACCEPTED_KEY);
-    localStorage.clear();
-    if (privacyAccepted === 'true') {
-        localStorage.setItem(PRIVACY_NOTICE_ACCEPTED_KEY, 'true');
-    }
-};
+
 
 export const AuthProvider = ({ children }) => {
     const [passenger, setPassenger] = useState(null);
@@ -19,7 +13,7 @@ export const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         const initAuth = async () => {
-            const token = localStorage.getItem('token');
+            const token = sessionStorage.getItem('token');
             //console.log('AuthContext init - token:', token ? 'EXISTS' : 'MISSING');
             
             if (token) {
@@ -29,7 +23,7 @@ export const AuthProvider = ({ children }) => {
                     if (decoded.exp * 1000 > Date.now()) {
                         setPassenger({
                             id: decoded.sub,
-                            name: localStorage.getItem('passengerName'),
+                            name: sessionStorage.getItem('passengerName'),
                             token: token
                         });
                         identifyUser(decoded.sub, { role: 'passenger' });
@@ -37,7 +31,7 @@ export const AuthProvider = ({ children }) => {
                     } else {
                         clearAuthStorage();
                     }
-                } catch (error) {
+                } catch {
                     clearAuthStorage();
                 }
             }
@@ -51,8 +45,8 @@ export const AuthProvider = ({ children }) => {
 
     const login = (token, name) => {
         //console.log('login called:', { token: !!token, name });
-        localStorage.setItem('token', token);
-        localStorage.setItem('passengerName', name);
+        sessionStorage.setItem('token', token);
+        sessionStorage.setItem('passengerName', name);
         
         try {
             const decoded = jwtDecode(token);
@@ -63,7 +57,7 @@ export const AuthProvider = ({ children }) => {
             });
             identifyUser(decoded.sub, { role: 'passenger' });
            // console.log('login set passenger:', decoded.sub);
-        } catch (error) {
+        } catch {
             //console.error('login JWT error:', error);
             clearAuthStorage();
             setPassenger(null);
@@ -84,4 +78,3 @@ export const AuthProvider = ({ children }) => {
     );
 };
 
-export const useAuth = () => useContext(AuthContext);

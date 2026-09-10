@@ -12,6 +12,7 @@ export function setUnauthorizedHandler(handler) {
 
 const api = axios.create({
   baseURL: API_PASSENGER_BASE,
+  timeout: 20000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -29,6 +30,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
+      await clearHceToken();
       await SecureStore.deleteItemAsync('token');
       await SecureStore.deleteItemAsync('passengerName');
       await SecureStore.deleteItemAsync('tempToken');

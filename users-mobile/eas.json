@@ -12,13 +12,16 @@
       "distribution": "internal",
       "channel": "preview",
       "android": {
-        "buildType": "apk",
-        "applicationArchivePath": "android/app/build/outputs/apk/release/*.apk"
+        "buildType": "apk"
       }
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "android": {
+        "buildType": "apk",
+        "distribution": "internal"
+      }
     }
   }
 }

@@ -1,4 +1,3 @@
-import axios from 'axios';
 import API from './axiosConfig';
 
 export const sendChatMessage = async (message, sessionId) => {

@@ -1,26 +1,35 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { AdminAuthContext } from './AdminAuthState';
+import { useState, useEffect, useCallback } from 'react';
 import { jwtDecode } from 'jwt-decode';
-import adminAPI from '../api/adminAxios';
 import { identifyUser, resetAnalytics } from '../lib/posthog';
 
-export const AdminAuthContext = createContext();
+
 
 export const AdminAuthProvider = ({ children }) => {
     const [admin, setAdmin] = useState(null);
     const [loading, setLoading] = useState(true);
     const [twoFactorEnabled, setTwoFactorEnabledState] = useState(false);
 
-    useEffect(() => {
-        restoreSession();
+    const clearSession = useCallback(() => {
+        for (const key of Object.keys(sessionStorage)) {
+            if (key.startsWith('premier:remittance-pending:')) sessionStorage.removeItem(key);
+        }
+        sessionStorage.removeItem('adminToken');
+        sessionStorage.removeItem('adminName');
+        sessionStorage.removeItem('adminUsername');
+        sessionStorage.removeItem('adminRole');
+        sessionStorage.removeItem('admin2FaEnabled');
+        setAdmin(null);
+        setTwoFactorEnabledState(false);
     }, []);
 
-    const restoreSession = () => {
+    const restoreSession = useCallback(() => {
         try {
-            const token    = localStorage.getItem('adminToken');
-            const fullName = localStorage.getItem('adminName');
-            const username = localStorage.getItem('adminUsername');
-            const role     = localStorage.getItem('adminRole');
-            const savedTwoFactor = localStorage.getItem('admin2FaEnabled') === 'true';
+            const token    = sessionStorage.getItem('adminToken');
+            const fullName = sessionStorage.getItem('adminName');
+            const username = sessionStorage.getItem('adminUsername');
+            const role     = sessionStorage.getItem('adminRole');
+            const savedTwoFactor = sessionStorage.getItem('admin2FaEnabled') === 'true';
 
             if (!token) return;
 
@@ -32,9 +41,6 @@ export const AdminAuthProvider = ({ children }) => {
                 return;
             }
 
-            adminAPI.defaults.headers.common['Authorization'] =
-                `Bearer ${token}`;
-
             setAdmin({
                 token,
                 fullName,
@@ -45,64 +51,60 @@ export const AdminAuthProvider = ({ children }) => {
             identifyUser(decoded.sub, { role: role || 'admin' });
             setTwoFactorEnabledState(savedTwoFactor);
 
-        } catch (err) {
+        } catch {
             clearSession();
         } finally {
             setLoading(false);
         }
-    };
+    }, [clearSession]);
 
-    const clearSession = () => {
-        localStorage.removeItem('adminToken');
-        localStorage.removeItem('adminName');
-        localStorage.removeItem('adminUsername');
-        localStorage.removeItem('adminRole');
-        localStorage.removeItem('admin2FaEnabled');
-        delete adminAPI.defaults.headers.common['Authorization'];
-        setAdmin(null);
-        setTwoFactorEnabledState(false);
-    };
+    useEffect(() => {
+        const initial = window.setTimeout(() => { restoreSession(); }, 0);
+        return () => window.clearTimeout(initial);
+    }, [restoreSession]);
+
+
+
+
 
     const login = (token, fullName, username, role, is2FaEnabled = false) => {
-        localStorage.setItem('adminToken', token);
-        localStorage.setItem('adminName', fullName);
-        localStorage.setItem('adminUsername', username);
-        localStorage.setItem('adminRole', role);
-        localStorage.setItem('admin2FaEnabled', String(Boolean(is2FaEnabled)));
+        sessionStorage.setItem('adminToken', token);
+        sessionStorage.setItem('adminName', fullName);
+        sessionStorage.setItem('adminUsername', username);
+        sessionStorage.setItem('adminRole', role);
+        sessionStorage.setItem('admin2FaEnabled', String(Boolean(is2FaEnabled)));
 
         try {
             const decoded = jwtDecode(token);
             setAdmin({ token, fullName, username, role, id: decoded.sub });
             identifyUser(decoded.sub, { role: role || 'admin' });
             setTwoFactorEnabledState(Boolean(is2FaEnabled));
-            adminAPI.defaults.headers.common['Authorization'] =
-                `Bearer ${token}`;
         } catch (err) {
             clearSession();
             throw err;
         }
     };
 
-    const logout = () => {
+    const logout = useCallback(() => {
         resetAnalytics();
         clearSession();
         window.location.href = '/admin/login';
-    };
+    }, [clearSession]);
 
     const isSuperAdmin = () =>
         admin?.role === 'SUPER_ADMIN' ||
-        localStorage.getItem('adminRole') === 'SUPER_ADMIN';
+        sessionStorage.getItem('adminRole') === 'SUPER_ADMIN';
 
     const isAdmin = () => {
-        const role = admin?.role || localStorage.getItem('adminRole');
+        const role = admin?.role || sessionStorage.getItem('adminRole');
         return ['ADMIN', 'SUPER_ADMIN'].includes(role);
     };
 
-    const setTwoFactorEnabled = (enabled) => {
+    const setTwoFactorEnabled = useCallback((enabled) => {
         const nextValue = Boolean(enabled);
-        localStorage.setItem('admin2FaEnabled', String(nextValue));
+        sessionStorage.setItem('admin2FaEnabled', String(nextValue));
         setTwoFactorEnabledState(nextValue);
-    };
+    }, []);
 
     return (
         <AdminAuthContext.Provider value={{
@@ -121,4 +123,3 @@ export const AdminAuthProvider = ({ children }) => {
 };
 
 
-export const useAdminAuth = () => useContext(AdminAuthContext);

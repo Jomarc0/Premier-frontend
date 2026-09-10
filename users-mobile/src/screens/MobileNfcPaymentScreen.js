@@ -1,22 +1,15 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePostHog } from 'posthog-react-native';
 
+import { useFocusEffect } from '@react-navigation/native';
 import Button from '../components/Button';
 import api from '../api/api';
-import { clearHceToken, saveHceToken } from '../api/hceTokenStore';
+import { beginHceSession, clearHceToken, getHceStatus, isHceReady, saveHceToken } from '../api/hceTokenStore';
 import { captureMobileEvent } from '../analytics/posthog';
 import { colors, shadow } from '../theme';
-
-const loadNfcManager = () => {
-  try {
-    return require('react-native-nfc-manager').default;
-  } catch {
-    return null;
-  }
-};
 
 export default function MobileNfcPaymentScreen({ navigation }) {
   const posthog = usePostHog();
@@ -38,15 +31,7 @@ export default function MobileNfcPaymentScreen({ navigation }) {
         return;
       }
 
-      const NfcManager = loadNfcManager();
-      if (!NfcManager) {
-        setNfcSupported(false);
-        setNfcEnabled(false);
-        return;
-      }
-
-      const supported = await NfcManager.isSupported();
-      const enabled = supported ? await NfcManager.isEnabled() : false;
+      const { supported, enabled } = await getHceStatus();
 
       setNfcSupported(supported);
       setNfcEnabled(enabled);
@@ -63,41 +48,86 @@ export default function MobileNfcPaymentScreen({ navigation }) {
     }
   }, [posthog]);
 
-  const prepareMobileToken = useCallback(async () => {
-    setTokenLoading(true);
-    setTokenError(null);
+  const active = useRef(false);
+  const requestVersion = useRef(0);
+  const invalidate = useCallback(() => {
+    requestVersion.current += 1;
+    void clearHceToken();
+    setMobileToken(null);
+    setTokenExpiresAt(null);
+    setTokenLoading(false);
+  }, []);
 
+  const prepareMobileToken = useCallback(async () => {
+    const version = ++requestVersion.current;
+    const current = () => active.current && AppState.currentState === 'active' && version === requestVersion.current;
+    if (!current()) return;
+    setTokenLoading(true);
+    setMobileToken(null);
+    setTokenError(null);
     try {
+      const generation = await beginHceSession();
+      if (!current()) return;
+      if (generation < 0) throw new Error('Native NFC is unavailable. Keep this screen open and your phone unlocked.');
+      const startedAt = Date.now();
       const response = await api.post('/fare/nfc/token');
+      if (!current()) return;
       const data = response.data?.data || {};
       const token = data.payload || data.token;
-
-      if (!token) {
-        throw new Error('Mobile NFC token is missing from the server response.');
-      }
-
-      await saveHceToken(token);
-      setMobileToken(token);
-      setTokenExpiresAt(data.expiresAt || null);
+      // Use a monotonic native lifetime; subtract the complete HTTP duration conservatively.
+      const ttl = Math.min(120000, Number(data.expiresInSeconds) * 1000) - (Date.now() - startedAt);
+      if (!token || !Number.isFinite(ttl) || ttl <= 0) throw new Error('Payment token expired. Refresh NFC Pay.');
+      const saved = await saveHceToken(token, ttl, generation);
+      if (!current()) return;
+      if (!saved) throw new Error('Native NFC did not accept the token. Refresh while the phone is unlocked.');
+      setMobileToken(true);
+      setTokenExpiresAt(Date.now() + ttl);
       captureMobileEvent(posthog, 'mobile_nfc_token_ready');
     } catch (error) {
+      if (!current()) return;
       await clearHceToken();
+      if (!current()) return;
       setMobileToken(null);
       setTokenExpiresAt(null);
-      setTokenError(error.response?.data?.message || error.message || 'Unable to prepare mobile NFC token.');
-      captureMobileEvent(posthog, 'mobile_nfc_token_failed');
+      setTokenError(error.response?.data?.message || error.message || 'Unable to prepare NFC payment.');
     } finally {
-      setTokenLoading(false);
+      if (current()) setTokenLoading(false);
     }
   }, [posthog]);
 
   const refreshNfcPayment = useCallback(async () => {
-    await Promise.all([checkNfc(), prepareMobileToken()]);
+    if (!active.current || AppState.currentState !== 'active') return;
+    await checkNfc();
+    if (active.current && AppState.currentState === 'active') await prepareMobileToken();
   }, [checkNfc, prepareMobileToken]);
 
+  useFocusEffect(useCallback(() => {
+    active.current = true;
+    void refreshNfcPayment();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') invalidate();
+    });
+    return () => {
+      active.current = false;
+      requestVersion.current += 1;
+      subscription.remove();
+      void clearHceToken();
+    };
+  }, [refreshNfcPayment, invalidate]));
+
   useEffect(() => {
-    refreshNfcPayment();
-  }, [refreshNfcPayment]);
+    if (!mobileToken || !tokenExpiresAt) return undefined;
+    const version = requestVersion.current;
+    const check = async () => {
+      const ready = Date.now() < tokenExpiresAt && await isHceReady();
+      if (active.current && version === requestVersion.current && !ready) {
+        invalidate();
+        setTokenError('Tap ended or token expired. Check payment history before preparing another tap.');
+      }
+    };
+    const timer = setInterval(check, 500);
+    return () => clearInterval(timer);
+  }, [mobileToken, tokenExpiresAt, invalidate]);
 
   const status = useMemo(() => {
     if (checking) {
@@ -114,7 +144,7 @@ export default function MobileNfcPaymentScreen({ navigation }) {
         icon: null,
         color: colors.teal,
         label: 'Preparing payment token',
-        detail: 'Keep this screen open while the secure token is saved to your phone.',
+        detail: 'Keep this screen open while the payment is prepared for this screen.',
       };
     }
 
@@ -145,13 +175,15 @@ export default function MobileNfcPaymentScreen({ navigation }) {
       };
     }
 
+    if (!mobileToken) return { icon: 'info', color: colors.teal, label: 'NFC payment is paused', detail: 'Refresh NFC Pay when you are ready to tap.' };
+
     return {
       icon: 'check-circle',
       color: colors.success,
       label: 'Ready to tap',
       detail: 'Hold the back of the phone near the Premier fare reader.',
     };
-  }, [checking, nfcEnabled, nfcSupported, tokenError, tokenLoading]);
+  }, [checking, nfcEnabled, nfcSupported, tokenError, tokenLoading, mobileToken]);
 
   return (
     <SafeAreaView style={styles.outer}>
@@ -189,7 +221,7 @@ export default function MobileNfcPaymentScreen({ navigation }) {
                 <View style={styles.phone}>
                   <View style={styles.phoneSpeaker} />
                   <MaterialCommunityIcons name="cellphone-nfc" size={54} color="#fff" />
-                  <Text style={styles.phoneText}>Tap Ready</Text>
+                  <Text style={styles.phoneText}>{mobileToken ? 'Tap Ready' : 'Not Ready'}</Text>
                 </View>
               </View>
             </View>
@@ -200,7 +232,7 @@ export default function MobileNfcPaymentScreen({ navigation }) {
 
         <View style={[styles.statusCard, { borderColor: `${status.color}44` }]}>
           <View style={[styles.statusIcon, { backgroundColor: `${status.color}18` }]}>
-            {checking ? (
+            {checking || tokenLoading ? (
               <ActivityIndicator color={status.color} />
             ) : (
               <Feather name={status.icon} size={20} color={status.color} />

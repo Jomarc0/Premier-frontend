@@ -41,3 +41,7 @@ yarn-error.*
 /ios
 /android
 
+
+# Required runtime of the locally patched file: dependency (not app build output).
+!/vendor/image-size/dist/
+!/vendor/image-size/dist/**

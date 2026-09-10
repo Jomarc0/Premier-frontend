@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
     FiFileText,
     FiCalendar,
@@ -7,7 +7,7 @@ import {
 } from 'react-icons/fi';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
-import { useAdminAuth } from '../context/AdminAuthContext';
+import { useAdminAuth } from '../context/AdminAuthState';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
 
@@ -26,6 +26,7 @@ const actionColors = {
 
 const ActivityLogsPage = () => {
     const auth = useAdminAuth();
+    const { logout } = auth;
 
     const [logs, setLogs]                   = useState([]);
     const [stats, setStats]                 = useState({});
@@ -35,12 +36,7 @@ const ActivityLogsPage = () => {
     const [page, setPage]                   = useState(0);
     const [totalElements, setTotalElements] = useState(0);
 
-    useEffect(() => {
-        if (auth.loading) return;
-        fetchData();
-    }, [page, auth.loading]);
-
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         try {
             const [logsRes, statsRes] = await Promise.all([
@@ -54,14 +50,22 @@ const ActivityLogsPage = () => {
         } catch (err) {
             if (err.response?.status === 401) {
                 toast.error('Session expired. Logging out...');
-                auth.logout();
+                logout();
             } else {
                 toast.error('Failed to load logs');
             }
         } finally {
             setLoading(false);
         }
-    };
+    }, [page, logout]);
+
+    useEffect(() => {
+        if (auth.loading) return;
+        const initial = window.setTimeout(() => { fetchData(); }, 0);
+        return () => window.clearTimeout(initial);
+    }, [fetchData, auth.loading]);
+
+
 
     if (auth.loading) {
         return <div className={ui.fullLoading}>Loading...</div>;

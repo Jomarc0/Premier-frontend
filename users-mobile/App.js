@@ -61,7 +61,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <NavigationContainer>
-        <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
+        <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST, captureNavigation: true }}>
           <AuthProvider>
             <RealtimeProvider>
               <StatusBar style="light" />

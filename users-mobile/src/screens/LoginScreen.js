@@ -150,7 +150,6 @@ export default function LoginScreen({ navigation }) {
       }
 
       const { tempToken, requireSetup } = data.data || {};
-
       if (!tempToken) {
         throw new Error('No session token received from backend.');
       }

@@ -1,4 +1,4 @@
-﻿name: Premier Frontend CI
+name: Premier Frontend CI
 
 on:
   push:
@@ -7,161 +7,72 @@ on:
     branches: ["main", "master"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  users-web:
-    name: Users Web
+  npm-osv-audit:
+    name: NPM OSV Audit
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: users
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Audit locked npm package versions
+        run: python3 tools/audit-npm.py --root . --output npm-osv-vulnerabilities.json
+
+  web:
+    name: ${{ matrix.app }} Web
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [admin, staff, users, driver, rfid]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
-          cache-dependency-path: users/package-lock.json
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
 
-      - name: Install dependencies
-        run: npm install
+      - name: Clean install
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Lint users web (non-blocking evidence)
-        continue-on-error: true
-        run: npm run lint
+      - name: Lint
+        run: npm run lint -- --max-warnings 0
 
-      - name: Build users web
+      - name: Build
         run: npm run build
 
   users-mobile:
-    name: React Native Expo Mobile
+    name: Users Mobile Export
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: users-mobile
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: users-mobile/package-lock.json
 
-      - name: Install dependencies
-        run: npm install
+      - name: Clean install
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Check Expo project (non-blocking evidence)
-        continue-on-error: true
-        run: npx expo-doctor
+      - name: Verify vendored image-size parser patch
+        run: node vendor/image-size/premier-regression.test.cjs
 
       - name: Export Android bundle
-        run: npm run build
-
-  admin:
-    name: Admin Web
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: admin
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: admin/package-lock.json
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Lint admin if available (non-blocking evidence)
-        continue-on-error: true
-        run: npm run lint --if-present
-
-      - name: Build admin
-        run: npm run build
-
-  staff:
-    name: Staff Web
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: staff
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: staff/package-lock.json
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build staff web
-        run: npm run build
-
-  rfid:
-    name: RFID Terminal Web
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: rfid
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: rfid/package-lock.json
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Lint RFID terminal (non-blocking evidence)
-        continue-on-error: true
-        run: npm run lint
-
-      - name: Build RFID terminal
-        run: npm run build
-
-  driver:
-    name: Driver Monitoring Web
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: driver
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: driver/package-lock.json
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Lint driver web (non-blocking evidence)
-        continue-on-error: true
-        run: npm run lint
-
-      - name: Build driver web
         run: npm run build

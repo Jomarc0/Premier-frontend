@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FiBell, FiX } from 'react-icons/fi';
 import { onForegroundMessage } from '../firebase';
 import { formatTime } from '../lib/time';
-import { useAuth } from '../context/AuthContext';
-import { useRealtime } from '../context/RealtimeContext';
+import { useAuth } from '../context/AuthState';
+import { useRealtime } from '../context/RealtimeState';
 import API from '../api/axiosConfig';
 import { requestNotificationPermission } from '../firebase';
 
@@ -38,20 +38,30 @@ const NotificationBell = () => {
     () => (passenger?.id ? `premier:passenger-notifications:${passenger.id}` : null),
     [passenger?.id],
   );
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState(() => {
+    if (!storageKey) return [];
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+      return Array.isArray(saved) ? saved.slice(0, MAX_NOTIFICATIONS) : [];
+    } catch {
+      return [];
+    }
+  });
   const [showDropdown, setShowDropdown] = useState(false);
 
   useEffect(() => {
-    if (!storageKey) {
-      setNotifications([]);
-      return;
-    }
-    try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) || '[]');
-      setNotifications(Array.isArray(saved) ? saved.slice(0, MAX_NOTIFICATIONS) : []);
-    } catch {
-      setNotifications([]);
-    }
+    queueMicrotask(() => {
+      if (!storageKey) {
+        setNotifications([]);
+        return;
+      }
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+        setNotifications(Array.isArray(saved) ? saved.slice(0, MAX_NOTIFICATIONS) : []);
+      } catch {
+        setNotifications([]);
+      }
+    });
   }, [storageKey]);
 
   const addNotification = useCallback((title, body, type = 'INFO', id = `${Date.now()}-${Math.random()}`, time = new Date()) => {
@@ -66,7 +76,7 @@ const NotificationBell = () => {
     setNotifications((previous) => {
       if (previous.some((item) => item.id === notification.id)) return previous;
       const next = [notification, ...previous].slice(0, MAX_NOTIFICATIONS);
-      if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next));
+      if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(next));
       return next;
     });
   }, [storageKey]);
@@ -91,7 +101,7 @@ const NotificationBell = () => {
   const updateNotifications = (update) => {
     setNotifications((previous) => {
       const next = update(previous);
-      if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next));
+      if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(next));
       return next;
     });
   };

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bot, CheckCircle2, RotateCcw, Send, Wifi, X } from 'lucide-react';
+import { Bot, CheckCircle2, RotateCcw, Send, Wifi, X, Key } from 'lucide-react';
 import { useChatbot } from '../hooks/useChatbot';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthState';
 import { submitPublicSupportTicket } from '../api/chatbotApi';
 import { captureEvent } from '../lib/posthog';
 import { formatTime } from '../lib/time';
@@ -14,6 +14,7 @@ const STATIC_QUICK_REPLIES = [
   'Payment failed',
   'Lost RFID card',
   'Check balance',
+  'Recover authenticator',
 ];
 
 const CARD_REQUEST_TYPES = [
@@ -39,6 +40,11 @@ const isLostCardRequest = (text) => {
     && (value.includes('card') || value.includes('rfid'));
 };
 
+const isRecoveryToken = (text) => {
+  const value = (text || '').trim();
+  return value.length >= 100 && value.split('.').length === 3;
+};
+
 const resolveRequestType = (text) => {
   const value = (text || '').toLowerCase();
   if (value.includes('damage') || value.includes('replace')) return 'DAMAGED_CARD';
@@ -60,6 +66,10 @@ const FloatingChatbot = () => {
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
   const [ticketContext, setTicketContext] = useState('');
+  const [recoveryTokenMode, setRecoveryTokenMode] = useState(false);
+  const [recoveryToken, setRecoveryToken] = useState('');
+  const [recoverySubmitting, setRecoverySubmitting] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
   const { messages, isTyping, sendMessage, resetChat } = useChatbot({
     isAuthenticated: Boolean(passenger),
     storageScope: passenger?.id ? 'passenger-' + passenger.id : 'guest',
@@ -126,6 +136,53 @@ const FloatingChatbot = () => {
     if (result?.recommendedAction === 'OPEN_SUPPORT_TICKET_FORM' && isExplicitTicketConfirmation(text)) {
       openCardRequestForm(ticketContext || text);
     }
+    // MFA recovery: bot directs user to submit a ticket; if user already has a token, offer to enter it
+    if (result?.intent === 'MFA_RECOVERY_REQUEST' || result?.intent === 'LOCAL_MFA_RECOVERY') {
+      setRecoveryTokenMode(true);
+      return;
+    }
+    // If user pastes a recovery token (JWT-like), submit it
+    if (recoveryTokenMode && isRecoveryToken(text)) {
+      await submitRecoveryToken(text);
+      return;
+    }
+  };
+
+  const submitRecoveryToken = async (token) => {
+    if (recoverySubmitting) return;
+    setRecoverySubmitting(true);
+    setRecoveryError('');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const res = await fetch('/api/passenger/auth/recovery/complete', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recoveryToken: token }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.data?.tempToken || !data.data?.requireSetup) {
+        throw new Error(data.message || 'Recovery authorization was not accepted.');
+      }
+      sessionStorage.removeItem('postLoginAction');
+      sessionStorage.setItem('tempToken', data.data.tempToken);
+      setRecoveryTokenMode(false);
+      navigate('/totp-setup', { replace: true });
+    } catch (err) {
+      setRecoveryError(err.name === 'AbortError'
+        ? 'The response was not received. Contact the verifying Super Admin if this one-use authorization has been consumed.'
+        : err.message || 'Unable to complete recovery.');
+    } finally {
+      clearTimeout(timer);
+      setRecoverySubmitting(false);
+    }
+  };
+
+  const cancelRecoveryTokenMode = () => {
+    setRecoveryTokenMode(false);
+    setRecoveryToken('');
+    setRecoveryError('');
   };
 
   const handleSubmitCardRequest = async () => {
@@ -306,6 +363,46 @@ const FloatingChatbot = () => {
                   className="mt-3 w-full rounded-xl bg-brand-primary px-3 py-2.5 text-[12px] font-black text-white shadow-md transition hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:bg-brand-primary/40"
                 >
                   {submittingCardRequest ? 'Submitting...' : 'Submit for admin review'}
+                </button>
+              </div>
+            )}
+
+            {recoveryTokenMode && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div>
+                    <p className="m-0 text-[12px] font-black text-brand-primary flex items-center gap-1.5">
+                      <Key size={14} /> MFA Recovery
+                    </p>
+                    <p className="m-0 mt-0.5 text-[10.5px] font-medium text-slate-500">Enter the one-use recovery authorization from the verifying Super Admin.</p>
+                  </div>
+                  <button type="button" onClick={cancelRecoveryTokenMode} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <X size={14} />
+                  </button>
+                </div>
+
+                <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-600">Recovery token</label>
+                <input
+                  type="password"
+                  value={recoveryToken}
+                  onChange={(event) => setRecoveryToken(event.target.value)}
+                  placeholder="Paste the recovery authorization token"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={2048}
+                  className="mb-2 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-semibold text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/10"
+                />
+                <p className="mb-2 text-[10px] text-slate-500">The authorization expires after five minutes.</p>
+
+                {recoveryError && <p className="mt-2 text-[10.5px] font-semibold text-red-600">{recoveryError}</p>}
+
+                <button
+                  type="button"
+                  onClick={() => submitRecoveryToken(recoveryToken)}
+                  disabled={recoverySubmitting || !recoveryToken.trim()}
+                  className="mt-3 w-full rounded-xl bg-brand-primary px-3 py-2.5 text-[12px] font-black text-white shadow-md transition hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:bg-brand-primary/40"
+                >
+                  {recoverySubmitting ? 'Verifying...' : 'Set up a new authenticator'}
                 </button>
               </div>
             )}

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiLogIn, FiShield, FiUser } from 'react-icons/fi';
 import TotpVerify from '@/components/auth/TotpVerify';
 import adminAPI from '../api/adminAxios';
-import { useAdminAuth } from '../context/AdminAuthContext';
+import { useAdminAuth } from '../context/AdminAuthState';
 import { toast } from 'react-toastify';
 import BrandLogo from '../components/auth/BrandLogo';
 import PasswordInput from '../components/auth/PasswordInput';

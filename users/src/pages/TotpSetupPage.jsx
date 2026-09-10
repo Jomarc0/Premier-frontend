@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { FiArrowLeft } from 'react-icons/fi';
@@ -8,10 +8,10 @@ import PrimaryButton from '@/components/auth/PrimaryButton';
 import BrandLogo from '@/components/auth/BrandLogo';
 import { BRAND_NAME, FOOTER_TEXT } from '@/constants/brand';
 import { captureEvent } from '../lib/posthog';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthState';
 import { apiOrigin } from '../api/apiOrigin';
 
-const TotpSetupPage = ({ accountType = 'passenger' }) => {
+const TotpSetupPage = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [setup, setSetup] = useState(null);
@@ -20,17 +20,7 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
   const [verifying, setVerifying] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    const tempToken = localStorage.getItem('tempToken');
-    if (!tempToken) {
-      toast.error('Session expired. Please login again.');
-      navigate('/login');
-      return;
-    }
-    fetchSetup(tempToken);
-  }, [navigate]);
-
-  const fetchSetup = async (tempToken) => {
+  const fetchSetup = useCallback(async (tempToken) => {
     try {
       const res = await fetch(`${apiOrigin}/api/passenger/auth/totp/setup`, {
         headers: { Authorization: `Bearer ${tempToken}`, 'Content-Type': 'application/json' },
@@ -40,16 +30,26 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
       try {
         data = JSON.parse(text);
       } catch {
-        throw new Error(`Invalid JSON: ${text.substring(0, 100)}`);
+        throw new Error('The service returned an invalid response. Please try again.');
       }
-      if (!res.ok) throw new Error(data.message || `HTTP ${res.status}: ${text}`);
+      if (!res.ok) throw new Error(data.message || 'Unable to prepare enrollment.');
       setSetup(data.data);
     } catch (err) {
       toast.error(`Failed to load QR code: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const tempToken = sessionStorage.getItem('tempToken');
+    if (!tempToken) {
+      toast.error('Session expired. Please login again.');
+      navigate('/login');
+      return;
+    }
+    queueMicrotask(() => fetchSetup(tempToken));
+  }, [fetchSetup, navigate]);
 
   const handleVerify = async (nextCode = code) => {
     const cleanCode = String(nextCode).replace(/\D/g, '').slice(0, 6);
@@ -61,7 +61,7 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
 
     setVerifying(true);
     try {
-      const tempToken = localStorage.getItem('tempToken');
+      const tempToken = sessionStorage.getItem('tempToken');
       if (!tempToken) {
         toast.error('Session expired');
         navigate('/login');
@@ -80,13 +80,13 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
       if (!token) throw new Error('No authentication token received from server');
 
       login(token, passengerName);
-      localStorage.removeItem('tempToken');
+      sessionStorage.removeItem('tempToken');
       captureEvent('passenger_web_login_success', {
         method: 'totp_setup',
       });
 
-      const nextAction = localStorage.getItem('postLoginAction');
-      localStorage.removeItem('postLoginAction');
+      const nextAction = sessionStorage.getItem('postLoginAction');
+      sessionStorage.removeItem('postLoginAction');
       if (nextAction === 'REPORT_LOST_CARD') {
         navigate('/report-lost-card');
       } else {
@@ -161,9 +161,9 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
           <div className="rounded-xl border border-border-input bg-white p-4">
             <p className="mb-3 text-sm font-black text-text-heading">Scan QR code</p>
             <div className="grid place-items-center rounded-lg border border-slate-100 bg-slate-50 p-3">
-              {setup?.qrCodeUrl ? (
+              {setup?.qrImageDataUri ? (
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(setup.qrCodeUrl)}`}
+                  src={setup.qrImageDataUri}
                   alt="Scan this QR code"
                   width={160}
                   height={160}
@@ -175,7 +175,7 @@ const TotpSetupPage = ({ accountType = 'passenger' }) => {
                   <button
                     onClick={() => {
                       setLoading(true);
-                      fetchSetup(localStorage.getItem('tempToken'));
+                      fetchSetup(sessionStorage.getItem('tempToken'));
                     }}
                     className="bg-transparent text-sm text-brand-primary underline"
                   >

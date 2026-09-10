@@ -4,7 +4,7 @@ import { CheckCircle2, Clock3, Eye, RefreshCw, Ticket, XCircle } from 'lucide-re
 import Navbar from '../components/Navbar';
 import { getMySupportTicket, getMySupportTickets } from '../api/chatbotApi';
 import { captureEvent } from '../lib/posthog';
-import { useRealtime } from '../context/RealtimeContext';
+import { useRealtime } from '../context/RealtimeState';
 import { formatDateTime } from '../lib/time';
 
 const statusStyle = (status) => ({
@@ -37,7 +37,9 @@ const SupportTicketsPage = () => {
     }
   }, []);
 
-  useEffect(() => { loadTickets(); }, [loadTickets]);
+  useEffect(() => {
+    queueMicrotask(() => loadTickets());
+  }, [loadTickets]);
 
   useEffect(() => subscribe((event) => {
     if (event.entity === 'SUPPORT_TICKET') loadTickets();

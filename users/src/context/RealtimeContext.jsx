@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { RealtimeContext } from './RealtimeState';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Client } from '@stomp/stompjs';
-import { useAuth } from './AuthContext';
+import { useAuth } from './AuthState';
 
-const RealtimeContext = createContext({ connected: false, subscribe: () => () => {} });
+
 const endpoint = () => import.meta.env.DEV
   ? `ws://${window.location.host}/ws-native`
   : `${(import.meta.env.VITE_API_URL || window.location.origin).replace(/\/$/, '').replace(/^http/, 'ws')}/ws-native`;
@@ -40,4 +41,3 @@ export const RealtimeProvider = ({ children }) => {
   return <RealtimeContext.Provider value={{ connected, subscribe }}>{children}</RealtimeContext.Provider>;
 };
 
-export const useRealtime = () => useContext(RealtimeContext);

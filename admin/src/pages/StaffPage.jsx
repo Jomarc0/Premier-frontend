@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import RemittanceAdjustments from '../components/RemittanceAdjustments';
+import { useCallback, useEffect, useState } from 'react';
 import { FiCheck, FiEye, FiRefreshCw, FiUsers, FiX } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 import adminAPI from '../api/adminAxios';
@@ -19,7 +20,9 @@ export default function StaffPage() {
     const [staffSearch, setStaffSearch] = useState('');
     const [remittanceStatus, setRemittanceStatus] = useState('ALL');
 
-    const loadCollections = async () => {
+
+
+    const loadCollections = useCallback(async () => {
         setLoading(true);
         try {
             const res = await adminAPI.get(`/staff-cash/collections?date=${date}`);
@@ -27,9 +30,12 @@ export default function StaffPage() {
         } catch (err) {
             toast.error(err.response?.data?.message || 'Failed to load staff collections');
         } finally { setLoading(false); }
-    };
+    }, [date]);
 
-    useEffect(() => { loadCollections(); }, [date]);
+    useEffect(() => {
+        const initial = window.setTimeout(() => { loadCollections(); }, 0);
+        return () => window.clearTimeout(initial);
+    }, [loadCollections]);
 
     const openCollection = async (row) => {
         try {
@@ -92,8 +98,8 @@ export default function StaffPage() {
         {selected && <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"><section className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white shadow-2xl">
             <header className="flex items-center justify-between border-b border-border-soft p-5"><div><h2 className="text-xl font-black text-text-main">{selected.summary.staffName}</h2><p className="text-sm text-text-muted">{selected.summary.date} · {selected.summary.totalTransactions} cash transactions</p></div><button onClick={() => setSelected(null)} className="grid h-10 w-10 place-items-center rounded-lg hover:bg-page-bg"><FiX /></button></header>
             <div className="grid grid-cols-4 gap-3 p-5 max-[760px]:grid-cols-2"><div><small>Regular</small><strong className="block">{selected.summary.regularCount}</strong></div><div><small>Discounted</small><strong className="block">{selected.summary.discountedCount}</strong></div><div><small>Expected Cash</small><strong className="block">{peso(selected.summary.expectedCash)}</strong></div><div><small>Status</small><strong className="block">{selected.summary.result || 'PENDING'}</strong></div></div>
-            <div className="overflow-x-auto border-y border-border-soft"><table className={ui.adminTable}><thead><tr>{['Time','Vehicle','Device','Shift','Terminal','Category','Amount','Reference'].map(h => <th key={h} className={ui.tableTh}>{h}</th>)}</tr></thead><tbody>{selected.transactions.map(tx => <tr key={tx.id} className={ui.tableRow}><td className={ui.tableTd}>{formatTime(tx.createdAt)}</td><td className={ui.tableTd}>{tx.plateNumber}</td><td className={ui.tableTd}>{tx.deviceId}</td><td className={ui.tableTd}>{tx.driverShiftId}</td><td className={ui.tableTd}>{tx.terminal || '—'}</td><td className={ui.tableTd}>{tx.fareCategory === 'REGULAR_CASH' ? 'Regular' : 'Discounted'}</td><td className={`${ui.tableTd} font-black`}>{peso(tx.finalFare)}</td><td className={`${ui.tableTd} ${ui.mono}`}>{tx.referenceNumber}</td></tr>)}</tbody></table></div>
-            <footer className="flex items-end justify-end gap-3 p-5 max-[620px]:flex-col"><label className="w-full max-w-xs"><span className={ui.fieldLabel}>Actual cash received</span><input type="number" min="0" step="0.01" value={actual} onChange={(e) => setActual(e.target.value)} className="min-h-11 w-full rounded-lg border border-border-soft px-3" /></label><button type="button" disabled={saving} onClick={confirmRemittance} className={ui.adminActionPrimary}><FiCheck /> {saving ? 'Saving...' : 'Confirm Remittance'}</button></footer>
+            <div className="overflow-x-auto border-y border-border-soft"><table className={ui.adminTable}><thead><tr>{['Time','Vehicle','Device','Shift','Terminal','Category','Amount','Reference'].map(h => <th key={h} className={ui.tableTh}>{h}</th>)}</tr></thead><tbody>{selected.transactions.map(tx => <tr key={tx.id} className={ui.tableRow}><td className={ui.tableTd}>{formatTime(tx.offlineCapturedAt || tx.createdAt)}</td><td className={ui.tableTd}>{tx.plateNumber}</td><td className={ui.tableTd}>{tx.deviceId}</td><td className={ui.tableTd}>{tx.driverShiftId}</td><td className={ui.tableTd}>{tx.terminal || '—'}</td><td className={ui.tableTd}>{tx.fareCategory === 'REGULAR_CASH' ? 'Regular' : 'Discounted'}</td><td className={`${ui.tableTd} font-black`}>{peso(tx.finalFare)}</td><td className={`${ui.tableTd} ${ui.mono}`}>{tx.referenceNumber}</td></tr>)}</tbody></table></div>
+            {selected.summary.remittanceState !== 'PENDING' ? <RemittanceAdjustments key={`${selected.summary.staffId}:${selected.summary.date}`} summary={selected.summary} onUpdated={updated => { setSelected(updated); loadCollections(); }} /> : <footer className="flex items-end justify-end gap-3 p-5 max-[620px]:flex-col"><label className="w-full max-w-xs"><span className={ui.fieldLabel}>Actual cash received</span><input type="number" min="0" step="0.01" value={actual} onChange={(e) => setActual(e.target.value)} className="min-h-11 w-full rounded-lg border border-border-soft px-3" /></label><button type="button" disabled={saving} onClick={confirmRemittance} className={ui.adminActionPrimary}><FiCheck /> {saving ? 'Saving...' : 'Confirm Remittance'}</button></footer>}
         </section></div>}
     </div>;
 }

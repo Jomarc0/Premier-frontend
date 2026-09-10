@@ -11,7 +11,7 @@ import {
 } from 'react-icons/fi';
 import AdminSidebar from '../components/AdminSidebar';
 import adminAPI from '../api/adminAxios';
-import { useAdminAuth } from '../context/AdminAuthContext';
+import { useAdminAuth } from '../context/AdminAuthState';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
 
@@ -41,7 +41,7 @@ const DriversPage = () => {
     const [formErrors, setFormErrors] = useState({});
 
     const fetchDrivers = useCallback(async () => {
-        const token = auth.admin?.token || localStorage.getItem('adminToken');
+        const token = auth.admin?.token || sessionStorage.getItem('adminToken');
         if (!token) return;
 
         setLoading(true);
@@ -69,7 +69,8 @@ const DriversPage = () => {
 
     useEffect(() => {
         if (auth.loading) return;
-        fetchDrivers();
+        const initial = window.setTimeout(() => { fetchDrivers(); }, 0);
+        return () => window.clearTimeout(initial);
     }, [auth.loading, fetchDrivers]);
 
     const openAddModal = () => {
@@ -159,7 +160,6 @@ const DriversPage = () => {
             setDeletingId(null);
         }
     };
-
     const handleClose = () => {
         setShowModal(false);
         setEditingDriver(null);
@@ -237,7 +237,7 @@ const DriversPage = () => {
                             <table className={ui.adminTable}>
                                 <thead>
                                     <tr>
-                                        {['#', 'Driver', 'License', 'Phone', 'Status', 'Joined', 'Actions'].map(header => (
+                                        {['#', 'Driver', 'License', 'Phone', 'Assigned Vehicle', 'Status', 'Joined', 'Actions'].map(header => (
                                             <th key={header} className={ui.tableTh}>{header}</th>
                                         ))}
                                     </tr>
@@ -259,6 +259,7 @@ const DriversPage = () => {
                                             </td>
                                             <td className={`${ui.tableTd} ${ui.mono}`}>{driver.licenseNumber || '-'}</td>
                                             <td className={`${ui.tableTd} ${ui.mono}`}>{driver.phoneNumber || '-'}</td>
+                                            <td className={`${ui.tableTd} ${ui.mono}`}>{assignments.find(item => item.driverId === driver.id)?.plateNumber || '-'}</td>
                                             <td className={ui.tableTd}>
                                                 <span className={ui.statusPillColor} style={{ background: statusColor(driver.status) }}>
                                                     {driver.status || 'UNKNOWN'}
@@ -268,7 +269,7 @@ const DriversPage = () => {
                                                 {driver.createdAt ? new Date(driver.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}
                                             </td>
                                             <td className={ui.tableTd}>
-                                                <div className="inline-flex flex-wrap gap-2">
+                                                <div className="inline-flex items-center gap-2 whitespace-nowrap">
                                                     <button
                                                         type="button"
                                                         onClick={() => openEditModal(driver)}
@@ -294,7 +295,6 @@ const DriversPage = () => {
                     </div>
                 </section>
             </main>
-
             {showModal && (
                 <div className="fixed inset-0 bg-[rgba(53,47,51,0.6)] flex items-center justify-center z-100 p-4 backdrop-blur-[2px]" onClick={handleClose}>
                     <div className="admin-modal-anim bg-white rounded-xl w-full max-w-140 max-h-[90vh] flex flex-col overflow-hidden shadow-[0_32px_80px_rgba(44,36,41,0.28)]" onClick={e => e.stopPropagation()}>

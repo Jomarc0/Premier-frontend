@@ -1,3 +1,5 @@
+import RecoveryIntake from '../components/RecoveryIntake';
+import PassengerMfaRecovery from '../components/PassengerMfaRecovery';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FiCheck, FiCreditCard, FiEdit3, FiEye, FiRefreshCw, FiShield, FiX } from 'react-icons/fi';
 import { toast } from 'react-toastify';
@@ -5,7 +7,7 @@ import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
 import { captureEvent } from '../lib/posthog';
-import { useRealtime } from '../context/RealtimeContext';
+import { useRealtime } from '../context/RealtimeState';
 import { formatDateTime } from '../lib/time';
 
 const filters = [
@@ -244,6 +246,7 @@ const SupportTicketsPage = () => {
                         <FiRefreshCw /> Refresh
                     </button>
                 </header>
+                <RecoveryIntake onCreated={ticket => { fetchTickets(); openTicket(ticket); }} />
 
                 <section className="grid grid-cols-3 gap-4 mb-5 max-[860px]:grid-cols-1">
                     <article className={ui.statCardVariant.maroon}><div><span className={ui.statLabel}>Total Tickets</span><span className={ui.statValue}>{tickets.length}</span></div><span className={ui.statIconVariant.maroon}><FiShield /></span></article>
@@ -325,9 +328,10 @@ const SupportTicketsPage = () => {
                                     </p>
                                 )}
                                 <label className={ui.fieldLabel}>Admin notes <span className="text-danger-muted">(required to reject)</span></label>
-                                <textarea className="w-full min-h-[7rem] rounded-lg border-2 border-[#d9dce2] p-3 outline-none focus:border-maroon" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Enter the resolution or rejection reason for the passenger" />
+                                <textarea className="w-full min-h-[7rem] rounded-lg border-2 border-[#d9dce2] p-3 outline-none focus:border-maroon" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Internal staff notes; do not enter identity-document numbers" />
                                 <button className={ui.adminActionPrimary} disabled={busy || isClosed} onClick={() => runAction('Notes saved', () => adminAPI.put(`/support-tickets/${selected.id}/notes`, { adminNotes: notes }), 'save_notes')}><FiEdit3 /> Save Notes</button>
 
+                                {!isClosed && <PassengerMfaRecovery key={selected.id} ticket={selected} />}
                                 <label className={ui.fieldLabel}>Replacement card RFID UID</label>
                                 <div className="grid grid-cols-[1fr_8.5rem] gap-2 max-[620px]:grid-cols-1">
                                     <input

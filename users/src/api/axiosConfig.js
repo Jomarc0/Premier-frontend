@@ -1,12 +1,14 @@
+import { clearAuthStorage } from '../lib/authStorage';
 import axios from 'axios';
 import { apiOrigin } from './apiOrigin';
 
 const API = axios.create({
+    timeout: 20000,
     baseURL: `${apiOrigin}/api/passenger`,
 });
 
 API.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
@@ -24,7 +26,7 @@ API.interceptors.response.use(
             requestUrl.includes('/chat/');
 
         if (error.response?.status === 401 && !isPublicAuthRequest) {
-            localStorage.clear();
+            clearAuthStorage();
             window.location.href = '/login';
         }
         return Promise.reject(error);

@@ -20,12 +20,6 @@ const BIOMETRIC_SECURE_OPTIONS = {
   authenticationPrompt: 'Verify your identity to use Premier biometric login',
 };
 
-function syncPushNotificationToken() {
-  registerPushNotifications().catch((error) => {
-    console.warn('Push notification registration failed:', error?.message || error);
-  });
-}
-
 function decodeJwt(token) {
   try {
     const payload = token.split('.')[1];
@@ -67,6 +61,12 @@ async function clearBiometricStorage() {
     AsyncStorage.removeItem(FINGERPRINT_ENABLED_KEY),
     AsyncStorage.removeItem(BIOMETRIC_REFRESH_READY_KEY),
   ]);
+}
+
+function syncPushNotificationToken() {
+  registerPushNotifications().catch((error) => {
+    console.warn('Push notification registration failed:', error?.message || error);
+  });
 }
 
 export function AuthProvider({ children }) {
@@ -278,6 +278,8 @@ export function AuthProvider({ children }) {
     },
     syncPushNotifications: syncPushNotificationToken,
     logout: async () => {
+      await clearHceToken();
+      clearSessionState();
       try {
         const deviceId = await getOrCreateDeviceId();
         await api.post('/auth/biometric/revoke-device', { deviceId });

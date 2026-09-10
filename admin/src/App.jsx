@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
+import { AdminAuthProvider } from './context/AdminAuthContext';
+import { useAdminAuth } from './context/AdminAuthState';
 import { RealtimeProvider } from './context/RealtimeContext';
 import { capturePageView } from './lib/posthog';
 import AdminLoginPage    from './pages/AdminLoginPage';
@@ -35,7 +36,7 @@ const AdminRoute = ({ children }) => {
         );
     }
 
-    const token = localStorage.getItem('adminToken');
+    const token = sessionStorage.getItem('adminToken');
     if (!admin && !token) {
         return <Navigate to="/admin/login" replace />;
     }
@@ -59,8 +60,8 @@ const SuperAdminRoute = ({ children }) => {
         );
     }
 
-    const token = localStorage.getItem('adminToken');
-    const role  = localStorage.getItem('adminRole');
+    const token = sessionStorage.getItem('adminToken');
+    const role  = sessionStorage.getItem('adminRole');
 
     if (!admin && !token) {
         return <Navigate to="/admin/login" replace />;

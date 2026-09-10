@@ -8,7 +8,7 @@ import DashboardPage from './pages/DashboardPage';
 
 // Guard – redirect to /login if no token found
 const PrivateRoute = ({ children }) => {
-    const token = localStorage.getItem('driverToken');
+    const token = sessionStorage.getItem('driverToken');
     return token ? children : <Navigate to="/login" replace />;
 };
 

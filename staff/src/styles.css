@@ -2,7 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  background: #f3f5f7;
+}
+
 body {
   margin: 0;
+  min-width: 320px;
+  overflow-x: hidden;
+  background: #f3f5f7;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #172438;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input {
+  font: inherit;
 }

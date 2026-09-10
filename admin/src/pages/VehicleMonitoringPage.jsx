@@ -1,3 +1,4 @@
+import { monitoringView, formatSpeed } from '../lib/telemetry';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     CircleMarker,
@@ -24,7 +25,7 @@ import {
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
 import adminAPI from '../api/adminAxios';
-import { useRealtime } from '../context/RealtimeContext';
+import { useRealtime } from '../context/RealtimeState';
 import { formatDateTime, formatTime, phtDateKey } from '../lib/time';
 
 const MAP_CENTER = [13.8557, 121.1107];
@@ -82,6 +83,7 @@ const pointAIcon = endpointIcon('SM Lipa', '#6f2f3c');
 const pointBIcon = endpointIcon('Grand Terminal', '#e8bd47');
 
 const validCoordinates = (item) => {
+    if (item?.latitude == null || item?.longitude == null) return false;
     const latitude = Number(item?.latitude);
     const longitude = Number(item?.longitude);
     return Number.isFinite(latitude) && Number.isFinite(longitude)
@@ -91,11 +93,11 @@ const validCoordinates = (item) => {
 };
 
 const formatCoordinate = (value) => {
+    if (value == null) return 'N/A';
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric.toFixed(5) : 'N/A';
 };
 
-const formatSpeed = (value) => `${Number(value || 0).toFixed(1)} km/h`;
 
 const relativeTime = (value) => {
     if (!value) return 'No GPS update';
@@ -175,7 +177,13 @@ const MapController = ({ focus, resetToken, route, markerRefs }) => {
 };
 
 const VehicleMonitoringPage = () => {
-    const [buses, setBuses] = useState([]);
+    const [busRecords, setBuses] = useState([]);
+    const [telemetryNow, setTelemetryNow] = useState(() => Date.now());
+    useEffect(() => {
+        const clock = setInterval(() => setTelemetryNow(Date.now()), 5000);
+        return () => clearInterval(clock);
+    }, []);
+    const buses = busRecords.map(bus => monitoringView(bus, telemetryNow));
     const [route, setRoute] = useState(DEFAULT_ROUTE);
     const [busSearch, setBusSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
@@ -256,7 +264,7 @@ const VehicleMonitoringPage = () => {
         } finally {
             setHistoryLoading(false);
         }
-    }, []);
+    }, [setPlaying, setPlaybackIndex]);
 
     const showHistory = (bus) => {
         setSelectedHistoryBus(bus);
@@ -379,7 +387,7 @@ const VehicleMonitoringPage = () => {
                             {selectedHistoryBus ? `Bus History — ${selectedHistoryBus.plateNumber}` : `Real-time Tracking — ${FIXED_ROUTE_LABEL}`}
                         </h2>
                         <span className="rounded-full bg-gold px-3 py-1 text-[0.72rem] font-black text-maroon">
-                            {selectedHistoryBus ? `${historyPoints.length} GPS records` : `${buses.filter(bus => bus.status === 'ONLINE').length} online`}
+                            {selectedHistoryBus ? `${historyPoints.length} GPS records` : `${buses.filter(bus => bus.online).length} online`}
                         </span>
                     </div>
 
@@ -455,12 +463,12 @@ const BusPopup = ({ bus }) => (
     <div style={{ minWidth: 210 }}>
         <strong style={{ color: '#6f2f3c' }}>BUS {bus.plateNumber}</strong><br />
         <span>Route: {FIXED_ROUTE_LABEL}</span><br />
-        <span>Status: <strong>{bus.status}</strong></span><br />
-        <span>GPS status: {bus.gpsStatus}</span><br />
+        <span>Device: <strong>{bus.deviceStatus}</strong></span><br />
+        <span>GPS: {bus.gpsState}{!bus.locationFresh && ' — last known position only'}</span><br />
         <span>Latitude: {formatCoordinate(bus.latitude)}</span><br />
         <span>Longitude: {formatCoordinate(bus.longitude)}</span><br />
         <span>Speed: {formatSpeed(bus.speed)}</span><br />
-        <span>Last GPS update: {relativeTime(bus.lastUpdated)}</span><br />
+        <span>Last GPS update: {relativeTime(bus.capturedAt)}</span><br />
         <span>Last seen: {formatDateTime(bus.lastSeen)}</span>
     </div>
 );
@@ -614,10 +622,10 @@ const VehicleTable = ({ buses, loading, onLocate, onHistory }) => (
                         <tr key={bus.plateNumber} className={ui.tableRow}>
                             <td className={`${ui.tableTd} font-black text-maroon`}>Bus {bus.plateNumber}</td>
                             <td className={ui.tableTd}>{FIXED_ROUTE_LABEL}</td>
-                            <td className={ui.tableTd}><span className={`rounded-full px-2 py-1 text-xs font-black ${statusTone[bus.status] || statusTone.OFFLINE}`}>{bus.status || 'OFFLINE'}</span></td>
+                            <td className={ui.tableTd}><span className={`rounded-full px-2 py-1 text-xs font-black ${statusTone[bus.status] || statusTone.OFFLINE}`}>{bus.deviceStatus || 'DEVICE_OFFLINE'}</span><br /><small>{bus.gpsState}</small></td>
                             <td className={`${ui.tableTd} ${ui.mono}`}>{validCoordinates(bus) ? `${formatCoordinate(bus.latitude)}, ${formatCoordinate(bus.longitude)}` : 'No GPS location available'}</td>
                             <td className={ui.tableTd}>{validCoordinates(bus) ? formatSpeed(bus.speed) : 'Not available'}</td>
-                            <td className={`${ui.tableTd} text-text-muted`}>{bus.lastUpdated ? `${formatDateTime(bus.lastUpdated)} (${relativeTime(bus.lastUpdated)})` : 'No GPS update'}</td>
+                            <td className={`${ui.tableTd} text-text-muted`}>{bus.lastUpdated ? `${formatDateTime(bus.lastUpdated)} (${relativeTime(bus.capturedAt)})` : 'No GPS update'}</td>
                             <td className={ui.tableTd}>
                                 <div className="inline-flex gap-2">
                                     <button type="button" onClick={() => onLocate(bus)} disabled={!validCoordinates(bus)}

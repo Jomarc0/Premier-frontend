@@ -8,7 +8,7 @@ const driverAPI = axios.create({
 
 driverAPI.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem('driverToken');
+        const token = sessionStorage.getItem('driverToken');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
@@ -21,8 +21,8 @@ driverAPI.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.response?.status === 401) {
-            localStorage.removeItem('driverToken');
-            localStorage.removeItem('driverInfo');
+            sessionStorage.removeItem('driverToken');
+            sessionStorage.removeItem('driverInfo');
             window.location.href = '/login';
         }
         return Promise.reject(error);

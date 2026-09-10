@@ -1,3 +1,4 @@
+import { csvEscape, safeSpreadsheetText } from '../lib/csv';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     FiActivity,
@@ -29,7 +30,7 @@ import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import * as ui from '../components/adminUI';
 import { captureEvent } from '../lib/posthog';
-import { useRealtime } from '../context/RealtimeContext';
+import { useRealtime } from '../context/RealtimeState';
 import { phtDateKey } from '../lib/time';
 
 const COLORS = ['#6f2f3c', '#e8bd47', '#2f6b3d', '#b24a52', '#58606f', '#9a7b21'];
@@ -232,10 +233,10 @@ const ReportsPage = () => {
         try {
             const stamp = phtDateKey();
             if (type === 'csv') {
-                const body = exportRows.map(row => row.map(cell => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+                const body = exportRows.map(row => row.map(csvEscape).join(',')).join('\n');
                 download(`admin-analytics-${stamp}.csv`, body, 'text/csv');
             } else if (type === 'excel') {
-                const body = exportRows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
+                const body = exportRows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(safeSpreadsheetText(cell))}</td>`).join('')}</tr>`).join('');
                 download(`admin-analytics-${stamp}.xls`, `<table>${body}</table>`, 'application/vnd.ms-excel');
             } else {
                 printPdfReport(analytics, exportRows);
@@ -994,7 +995,7 @@ const printPdfReport = (analytics, rows) => {
             <body>
                 <h1>Admin Analytics Dashboard</h1>
                 <p>Generated: ${escapeHtml(analytics.generatedAt || '')}</p>
-                <table>${rows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</table>
+                <table>${rows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(safeSpreadsheetText(cell))}</td>`).join('')}</tr>`).join('')}</table>
             </body>
         </html>
     `);

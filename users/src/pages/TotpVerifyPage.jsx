@@ -6,7 +6,7 @@ import TotpInput from '@/components/auth/TotpInput';
 import PrimaryButton from '@/components/auth/PrimaryButton';
 import BrandLogo from '@/components/auth/BrandLogo';
 import { BRAND_NAME, FOOTER_TEXT } from '@/constants/brand';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthState';
 import { captureEvent } from '../lib/posthog';
 import { apiOrigin } from '../api/apiOrigin';
 
@@ -29,7 +29,7 @@ const TotpVerifyPage = () => {
 
   useEffect(() => {
     if (loginCompletedRef.current) return;
-    const tempToken = localStorage.getItem('tempToken');
+    const tempToken = sessionStorage.getItem('tempToken');
     if (!tempToken) {
       toast.error('Session expired. Please login again.');
       navigate('/login');
@@ -65,7 +65,7 @@ const TotpVerifyPage = () => {
     verifyingRef.current = true;
     setVerifying(true);
     try {
-      const tempToken = localStorage.getItem('tempToken');
+      const tempToken = sessionStorage.getItem('tempToken');
       if (!tempToken) {
         toast.error('Session expired. Please login again.');
         navigate('/login');
@@ -91,13 +91,13 @@ const TotpVerifyPage = () => {
       const { token, passengerName } = data.data;
       login(token, passengerName);
       loginCompletedRef.current = true;
-      localStorage.removeItem('tempToken');
+      sessionStorage.removeItem('tempToken');
       captureEvent('passenger_web_login_success', {
         method: 'totp',
       });
 
-      const nextAction = localStorage.getItem('postLoginAction');
-      localStorage.removeItem('postLoginAction');
+      const nextAction = sessionStorage.getItem('postLoginAction');
+      sessionStorage.removeItem('postLoginAction');
       if (nextAction === 'REPORT_LOST_CARD') {
         navigate('/report-lost-card');
       } else {

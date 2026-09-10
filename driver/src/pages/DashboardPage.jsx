@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import driverAPI from '../api/driverAxios';
-import { useDriver } from '../context/DriverContext';
+import { useDriver } from '../context/DriverAuthState';
 import { toast } from 'react-toastify';
 import useGpsTracking from '../hooks/useGpsTracking';
 import GpsStatusBadge from '../components/GpsStatusBadge';
@@ -77,9 +77,9 @@ export default function DashboardPage() {
 
     useEffect(() => {
         if (!driverInfo) { navigate('/login', { replace: true }); return; }
-        fetchShiftInfo();
+        const initial = setTimeout(() => fetchShiftInfo(), 0);
         startPolling();
-        return () => stopPolling();
+        return () => { clearTimeout(initial); stopPolling(); };
     }, [driverInfo, fetchShiftInfo, startPolling, stopPolling, navigate]);
 
     // ─── DROP-OFF ────────────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ export default function DashboardPage() {
         stopPolling();
 
         // Step 3: stop GPS immediately
-        try { stopTracking(); } catch (_) {}
+        try { stopTracking(); } catch { /* Tracking cleanup must not prevent the end-shift request. */ }
 
         try {
             // Step 4: notify backend

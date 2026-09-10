@@ -1,28 +1,26 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+import { csvEscape } from '../lib/csv';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import API from '../api/axiosConfig';
-import { useAuth } from '../context/AuthContext';
+import useOwnedPendingTopups, { safeCheckoutUrl } from '../hooks/useOwnedPendingTopups';
+import { useAuth } from '../context/AuthState';
 import Navbar from '../components/Navbar';
 import { toast } from 'react-toastify';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   History, MapPin, Search, ArrowUp, ArrowDown, Bus,
-  Smartphone, CreditCard, X, QrCode, CheckCircle2, AlertTriangle, Download
+  Smartphone, CreditCard, X, QrCode, CheckCircle2, AlertTriangle, Download, Clock
 } from 'lucide-react';
 import gcash from '../assets/image/gcash.png';
 import maya from '../assets/image/maya.png';
 import { captureEvent } from '../lib/posthog';
 import { formatDateTime, phtDateKey } from '../lib/time';
-import { useRealtime } from '../context/RealtimeContext';
+import { useRealtime } from '../context/RealtimeState';
 
 const QUICK_AMOUNTS    = [20, 50, 100, 200];
 const PAYMENT_METHODS  = ['Gcash', 'Maya'];
 const QR_REFRESH_BUFFER_SECONDS = 8;
 
 
-const csvEscape = (value) => {
-    const text = value === null || value === undefined ? '' : String(value);
-    return `"${text.replace(/"/g, '""')}"`;
-};
 
 const transactionId = (tx) => tx?.referenceNumber || `TX-${tx?.id}`;
 
@@ -47,7 +45,7 @@ const DashboardPage = () => {
     const [selectedPayment, setSelectedPayment] = useState(null);
     const [showModal, setShowModal]           = useState(false);
     const [loading, setLoading]               = useState(true);
-    const [pendingPayment, setPendingPayment] = useState(null);
+    const { pendingPayment, setPendingPayment, pendingLoading, pendingError, morePending, refreshPending, nextPending } = useOwnedPendingTopups(API, passenger?.id);
     const [verifying, setVerifying]           = useState(false);
     const [qrData, setQrData]                 = useState(null);
     const [qrSeconds, setQrSeconds]           = useState(0);
@@ -73,7 +71,13 @@ const DashboardPage = () => {
         }
     }, []);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
+    useEffect(() => {
+        queueMicrotask(() => fetchData());
+        const timer = setInterval(() => { if (document.visibilityState === 'visible') fetchData(); }, 30000);
+        const refresh = () => { if (document.visibilityState === 'visible') { fetchData(); refreshPending(); } };
+        document.addEventListener('visibilitychange', refresh);
+        return () => { clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+    }, [fetchData, refreshPending]);
 
     useEffect(() => subscribe((event) => {
         if (event.entity === 'TRANSACTION' || event.entity === 'TOPUP' || event.entity === 'PASSENGER') {
@@ -135,7 +139,7 @@ const DashboardPage = () => {
             setQrError(err.response?.data?.message || 'Reader connection issue. Please try again.');
             setQrState('failed');
         }
-    }, [fetchData, loadQrToken, qrData?.payload, qrState]);
+    }, [fetchData, loadQrToken, qrData, qrState]);
 
     useEffect(() => {
         const refreshWhenVisible = () => {
@@ -155,6 +159,23 @@ const DashboardPage = () => {
             document.removeEventListener('visibilitychange', refreshWhenVisible);
         };
     }, [fetchData]);
+
+    // Top-up expiration countdown
+    useEffect(() => {
+        if (!pendingPayment?.expiresAt) return undefined;
+
+        const timer = window.setInterval(() => {
+            const expiresAt = new Date(pendingPayment.expiresAt).getTime();
+            const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+            if (remaining <= 0) {
+                // Expired - clear pending payment so user can create a new one
+                setPendingPayment(null);
+                window.clearInterval(timer);
+            }
+        }, 1000);
+
+        return () => window.clearInterval(timer);
+    }, [pendingPayment]);
 
     useEffect(() => {
         if (qrState !== 'ready') return undefined;
@@ -184,7 +205,7 @@ const DashboardPage = () => {
         setAllTransactions(res.data.data?.content || []);
         setShowModal(true);
         captureEvent('passenger_web_transactions_opened');
-        } catch (err) {
+        } catch {
         toast.error('Failed to load transactions');
         }
     };
@@ -240,7 +261,7 @@ const DashboardPage = () => {
         URL.revokeObjectURL(url);
         toast.success('Transactions downloaded.');
         captureEvent('passenger_web_transactions_downloaded');
-        } catch (err) {
+        } catch {
         toast.error('Failed to download transactions.');
         }
     };
@@ -285,6 +306,48 @@ const DashboardPage = () => {
         });
     };
 
+    const handleContinuePayment = async (referenceNumber, checkoutUrl) => {
+        try {
+            const res = await API.post(`/topup/verify/${encodeURIComponent(referenceNumber)}`);
+            const status = res.data?.data?.status;
+            if (res.data?.success === true && status === 'SUCCESS') {
+                toast.success('Payment already completed!');
+                setPendingPayment(null);
+                await refreshPending();
+                fetchData();
+                return;
+            }
+            if (status === 'EXPIRED' || status === 'CANCELLED') {
+                toast.info('This top-up has expired. You can create a new one.');
+                setPendingPayment(null);
+                await refreshPending();
+                return;
+            }
+            if (status === 'PENDING' || safeCheckoutUrl(checkoutUrl)) {
+                window.open(safeCheckoutUrl(checkoutUrl), '_blank', 'noopener,noreferrer');
+                toast.info('Complete your payment in the new tab, then click "Verify My Payment".');
+            }
+            return;
+        } catch (err) {
+            const status = err.response?.data?.data?.status || err.response?.data?.code;
+            if (status === 'EXPIRED' || status === 'CANCELLED') {
+                toast.info('This top-up has expired. You can create a new one.');
+                setPendingPayment(null);
+                await refreshPending();
+            } else if (status === 'SUCCESS') {
+                toast.success('Payment already completed!');
+                setPendingPayment(null);
+                await refreshPending();
+                fetchData();
+            } else if (status === 'PENDING' || status === 'PAYMENT_PENDING' || safeCheckoutUrl(checkoutUrl)) {
+                window.open(safeCheckoutUrl(checkoutUrl), '_blank', 'noopener,noreferrer');
+                toast.info('Complete your payment in the new tab, then click "Verify My Payment".');
+            } else {
+                toast.error(err.response?.data?.message || 'Unable to verify payment status. Please try again.');
+            }
+        }
+    };
+
     const handleTopUp = async () => {
         const amount = selectedAmount || parseFloat(customAmount);
         if (!amount || amount < 20) {
@@ -295,21 +358,24 @@ const DashboardPage = () => {
         toast.warning('Please select a payment method');
         return;
         }
+        if (pendingLoading || pendingError) { toast.warning(pendingError || 'Recovering pending payments. Please wait.'); return; }
         if (pendingPayment) {
-        toast.warning('You already have a pending payment. Complete it first or cancel it.');
+        toast.warning('Verify or resume your existing pending payment first.');
         return;
         }
         try {
         captureEvent('passenger_web_topup_started', {
             payment_method: selectedPayment,
         });
-        const res = await API.post('/topup/initiate', { amount });
+        const res = await API.post('/topup/initiate', { amount, paymentMethod: selectedPayment });
         const { checkoutUrl, referenceNumber, topUpId } = res.data.data;
-        setPendingPayment({ referenceNumber, amount, topUpId });
-        window.open(checkoutUrl, '_blank');
+        setPendingPayment({ referenceNumber, amount, topUpId, checkoutUrl, requiresReconciliation: !checkoutUrl });
+        if (safeCheckoutUrl(checkoutUrl)) window.open(safeCheckoutUrl(checkoutUrl), '_blank', 'noopener,noreferrer');
+        else toast.info('Payment creation is pending. Keep this reference for verification.');
         toast.info('Complete your payment in the new tab, then click "Verify My Payment".');
         } catch (err) {
-        toast.error(err.response?.data?.message || 'Top-up failed');
+        await refreshPending();
+        toast.error(err.response?.data?.message || 'Top-up status is unknown. Check pending payments before retrying.');
         }
     };
 
@@ -317,15 +383,12 @@ const DashboardPage = () => {
         if (!pendingPayment) return;
         setVerifying(true);
         try {
-        let res;
-        try {
-            res = await API.post(`/topup/verify/${pendingPayment.referenceNumber}`);
-        } catch {
-            res = await API.post('/topup/check-paid');
-        }
+        const res = await API.post(`/topup/verify/${encodeURIComponent(pendingPayment.referenceNumber)}`);
+        if (res.data?.success !== true || res.data?.data?.status !== 'SUCCESS') throw new Error('Payment has not settled yet.');
         const { newBalance, amount } = res.data.data;
         toast.success(`\u20B1${amount} added! New balance: \u20B1${newBalance}`);
         setPendingPayment(null);
+        await refreshPending();
         setSelectedAmount(null);
         setCustomAmount('');
         setSelectedPayment(null);
@@ -345,7 +408,7 @@ const DashboardPage = () => {
 
     const currentBalNum = parseFloat(balance?.balance || 0);
     const activeTopUpAmount = selectedAmount || Number.parseFloat(customAmount);
-    const canProceedToPayment = Boolean(activeTopUpAmount >= 20 && selectedPayment && !pendingPayment);
+    const canProceedToPayment = Boolean(activeTopUpAmount >= 20 && selectedPayment && !pendingPayment && !pendingLoading && !pendingError);
     const filteredHistory = allTransactions.filter((transaction) => {
         const query = historySearch.trim().toLowerCase();
         const matchesSearch = !query || transactionId(transaction).toLowerCase().includes(query);
@@ -458,15 +521,68 @@ const DashboardPage = () => {
                     <CreditCard size={18} /> Proceed to Payment
                 </button>
 
+                {(pendingLoading || pendingError) && <p role="status" className="mt-4 text-sm">{pendingError || 'Recovering pending payments...'} {pendingError && <button type="button" onClick={() => refreshPending()}>Retry</button>}</p>}
                 {pendingPayment && (
                     <div className="mt-6 border-t border-[#E5E7EB] pt-6 animate-in fade-in duration-200">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                        <p className="flex items-center gap-2 text-[13px] font-semibold text-[#1F2937]"><span className="h-2 w-2 rounded-full bg-[#D4AF37]" />Payment pending</p>
+                        {(() => {
+                            if (!pendingPayment.expiresAt) return <p className="flex items-center gap-2 text-[13px] font-semibold text-[#1F2937]"><span className="h-2 w-2 rounded-full bg-[#D4AF37]" />Payment pending</p>;
+                            const remaining = Math.max(0, Math.floor((new Date(pendingPayment.expiresAt).getTime() - Date.now()) / 1000));
+                            if (remaining <= 0) {
+                                return (
+                                    <div className="flex items-center gap-2 text-[13px] font-semibold text-[#DC2626]">
+                                        <AlertTriangle size={16} /> Payment expired
+                                    </div>
+                                );
+                            }
+                            const minutes = Math.floor(remaining / 60);
+                            const seconds = remaining % 60;
+                            return (
+                                <div className="flex items-center gap-2 text-[13px] font-semibold text-[#1F2937]">
+                                    <Clock size={16} />
+                                    Payment pending · Expires in {minutes}:{String(seconds).padStart(2, '0')}
+                                </div>
+                            );
+                        })()}
                         <p className="mt-1 text-[12px] text-[#6B7280]">Complete payment in the opened tab, then verify it here.</p>
                         </div>
                         <p className="font-mono text-[12px] text-[#6B7280]">Ref: <strong className="text-[#1F2937]">{pendingPayment.referenceNumber}</strong> <span className="mx-1 text-[#D1D5DB]">·</span> &#8369;{pendingPayment.amount}</p>
                     </div>
+                    {pendingPayment.requiresReconciliation && <p role="status">This payment needs verification or support review. Do not pay a replacement checkout.</p>}
+                    {(() => {
+                        if (!pendingPayment.expiresAt) return safeCheckoutUrl(pendingPayment.checkoutUrl) ? (
+                            <button
+                                type="button"
+                                onClick={() => handleContinuePayment(pendingPayment.referenceNumber, pendingPayment.checkoutUrl)}
+                                className="text-[#7A2635] hover:underline font-semibold cursor-pointer bg-transparent border-none px-0"
+                            >
+                                Continue Payment
+                            </button>
+                        ) : null;
+                        const remaining = Math.max(0, Math.floor((new Date(pendingPayment.expiresAt).getTime() - Date.now()) / 1000));
+                        if (remaining <= 0) {
+                            return (
+                                <button
+                                    type="button"
+                                    onClick={() => { setPendingPayment(null); refreshPending(); }}
+                                    className="mt-5 h-12 w-full rounded-xl text-white text-sm font-semibold transition-all cursor-pointer border-none bg-[#7A2635] hover:bg-[#651F2D]"
+                                >
+                                    Create New Top-Up
+                                </button>
+                            );
+                        }
+                        return safeCheckoutUrl(pendingPayment.checkoutUrl) ? (
+                            <button
+                                type="button"
+                                onClick={() => handleContinuePayment(pendingPayment.referenceNumber, pendingPayment.checkoutUrl)}
+                                className="text-[#7A2635] hover:underline font-semibold cursor-pointer bg-transparent border-none px-0"
+                            >
+                                Continue Payment
+                            </button>
+                        ) : null;
+                    })()}
+                    {morePending && <button type="button" onClick={nextPending}>Next pending payment</button>}
                     <button
                         onClick={handleCheckPayment}
                         disabled={verifying}
@@ -477,10 +593,10 @@ const DashboardPage = () => {
                         {verifying ? 'Verifying Payment...' : 'Verify My Payment'}
                     </button>
                     <button
-                        onClick={() => setPendingPayment(null)}
+                        onClick={() => refreshPending()}
                         className="mt-3 text-[12px] text-[#6B7280] hover:text-[#7A2635] underline underline-offset-2 transition-colors cursor-pointer bg-transparent border-none block mx-auto"
                     >
-                        Cancel Top-Up
+                        Refresh Pending Payments
                     </button>
                     </div>
                 )}

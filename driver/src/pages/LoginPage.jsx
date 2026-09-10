@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import driverAPI from '../api/driverAxios';
-import { useDriver } from '../context/DriverContext';
+import { useDriver } from '../context/DriverAuthState';
 import { toast } from 'react-toastify';
 import { Lock, Info } from 'lucide-react';
 import logo from '../assets/image/logo-premier.webp';
@@ -11,6 +11,7 @@ const LoginPage = () => {
     const navigate = useNavigate();
     const { loginDriver } = useDriver();
     const [plateNumber, setPlateNumber] = useState('');
+    const [shiftCode, setShiftCode] = useState('');
     const [loading, setLoading] = useState(false);
 
     const handleLogin = async (e) => {
@@ -19,10 +20,15 @@ const LoginPage = () => {
             toast.warning('Please enter your vehicle plate number');
             return;
         }
+        if (!shiftCode.trim()) {
+            toast.warning('Enter the one-time shift code from your dispatcher');
+            return;
+        }
         setLoading(true);
         try {
             const res = await driverAPI.post('/login', {
                 plateNumber: plateNumber.toUpperCase(),
+                shiftCode: shiftCode.toUpperCase(),
             });
             loginDriver(res.data.data);
             toast.success('Shift started! Drive safely.');
@@ -30,7 +36,7 @@ const LoginPage = () => {
         } catch (err) {
             toast.error(
                 err.response?.data?.message ||
-                'Login failed. Check plate number.'
+                'Login failed. Check plate number and shift code.'
             );
         } finally {
             setLoading(false);
@@ -61,9 +67,9 @@ const LoginPage = () => {
 
                         <form onSubmit={handleLogin} className="space-y-6">
                             <div className="text-center">
-                                <h2 className="text-slate-800 font-black text-lg">Enter Your Vehicle Number</h2>
+                                <h2 className="text-slate-800 font-black text-lg">Start Verified Shift</h2>
                                 <p className="text-slate-400 text-xs font-medium">
-                                    Please provide your assigned plate number to start shift.
+                                    Enter your assigned plate and the one-time shift code issued after dispatcher verification.
                                 </p>
                             </div>
 
@@ -82,7 +88,28 @@ const LoginPage = () => {
                                     />
                                 </div>
                                 <p className="text-[10px] text-slate-400 text-center font-bold italic">
-                                    Type the plate number from your vehicle
+                                    A plate number alone cannot start a shift.
+                                </p>
+                            </div>
+
+
+
+                            <div className="space-y-2">
+                                <label className="ml-1 text-sm font-semibold text-text-body">
+                                    One-time shift code
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        placeholder="DRV-ABCDEFGH"
+                                        value={shiftCode}
+                                        onChange={(e) => setShiftCode(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                                        required
+                                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 text-center text-xl font-black tracking-widest text-brand-primary focus:border-brand-accent focus:ring-0 outline-none transition-all placeholder:text-text-placeholder"
+                                    />
+                                </div>
+                                <p className="text-[10px] text-slate-400 text-center font-bold italic">
+                                    Ask the authorized dispatcher or Super Admin for today’s code.
                                 </p>
                             </div>
 
@@ -109,7 +136,7 @@ const LoginPage = () => {
                                     Automatic Shift Tracking
                                 </h4>
                                 <p className="text-green-700/70 text-[11px] font-medium leading-relaxed mt-1">
-                                    Your shift will start automatically when you log in.
+                                    Your shift starts only after your assigned vehicle and one-time code are verified.
                                     Make sure to log out when your shift ends.
                                 </p>
                             </div>

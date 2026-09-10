@@ -11,9 +11,11 @@ import {
     FiUser,
     FiLogOut,
 } from 'react-icons/fi';
-import { useAdminAuth } from '../context/AdminAuthContext';
+import { useAdminAuth } from '../context/AdminAuthState';
 import adminAPI from '../api/adminAxios';
 import logo from '../assets/image/logo-premier.webp';
+
+const noop = () => {};
 
 const AdminSidebar = () => {
     const navigate     = useNavigate();
@@ -24,7 +26,7 @@ const AdminSidebar = () => {
     const logout       = auth?.logout       || (() => {});
     const isSuperAdmin = auth?.isSuperAdmin || (() => false);
     const twoFactorEnabled = Boolean(auth?.twoFactorEnabled);
-    const setTwoFactorEnabled = auth?.setTwoFactorEnabled || (() => {});
+    const setTwoFactorEnabled = auth?.setTwoFactorEnabled || noop;
     const [supportBadge, setSupportBadge] = useState(0);
 
     useEffect(() => {
@@ -60,7 +62,7 @@ const AdminSidebar = () => {
             })
             .catch(() => {});
         return () => { active = false; };
-    }, [admin?.id, admin?.role, twoFactorEnabled]);
+    }, [admin, twoFactorEnabled, setTwoFactorEnabled]);
 
     const menu = [
         { label: 'Analytics',     icon: FiActivity,      path: '/admin/analytics',     superOnly: false },

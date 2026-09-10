@@ -41,11 +41,14 @@ export const useChatbot = ({ storageScope = 'guest' } = {}) => {
     const [isTyping, setIsTyping] = useState(false);
     const [error, setError] = useState(null);
     const sessionId = useRef(readSessionId(scopedSessionKey));
+    const sendMessageRef = useRef(null);
 
     useEffect(() => {
         sessionId.current = readSessionId(scopedSessionKey);
-        setMessages(readStoredMessages(scopedStorageKey));
-        setError(null);
+        queueMicrotask(() => {
+            setMessages(readStoredMessages(scopedStorageKey));
+            setError(null);
+        });
     }, [scopedStorageKey, scopedSessionKey]);
 
     useEffect(() => {
@@ -110,7 +113,7 @@ export const useChatbot = ({ storageScope = 'guest' } = {}) => {
 
             if (retryCount < MAX_RETRIES) {
                 await sleep(RETRY_DELAY_MS);
-                return sendMessage(trimmed, retryCount + 1);
+                return sendMessageRef.current?.(trimmed, retryCount + 1);
             }
 
             const errMsg =
@@ -123,6 +126,10 @@ export const useChatbot = ({ storageScope = 'guest' } = {}) => {
             setIsTyping(false);
         }
     }, [addMessage]);
+
+    useEffect(() => {
+        sendMessageRef.current = sendMessage;
+    }, [sendMessage]);
 
     const resetChat = useCallback(() => {
         const newSession = uuidv4();

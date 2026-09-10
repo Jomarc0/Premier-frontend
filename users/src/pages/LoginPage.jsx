@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { FiCreditCard, FiLogIn, FiShield } from 'react-icons/fi';
-import { useAuth } from '../context/AuthContext';
 import { BRAND_NAME, FOOTER_TEXT } from '../constants/brand';
 import BrandLogo from '../components/auth/BrandLogo';
 import PrivacyNoticeModal from '../components/PrivacyNoticeModal';
@@ -12,7 +11,6 @@ import { apiOrigin } from '../api/apiOrigin';
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
   const [cardNumber, setCardNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [lostCardFlow, setLostCardFlow] = useState(false);
@@ -35,9 +33,9 @@ const LoginPage = () => {
     captureEvent('passenger_web_login_started');
 
     if (lostCardFlow) {
-      localStorage.setItem('postLoginAction', 'REPORT_LOST_CARD');
+      sessionStorage.setItem('postLoginAction', 'REPORT_LOST_CARD');
     } else {
-      localStorage.removeItem('postLoginAction');
+      sessionStorage.removeItem('postLoginAction');
     }
 
     try {
@@ -51,13 +49,12 @@ const LoginPage = () => {
       if (!res.ok) throw new Error(data.message || 'Login failed');
 
       const { tempToken, requireSetup } = data.data;
-
       if (!tempToken) {
         toast.error('Login failed: no session token received.');
         return;
       }
 
-      localStorage.setItem('tempToken', tempToken);
+      sessionStorage.setItem('tempToken', tempToken);
 
       if (requireSetup) {
         captureEvent('passenger_web_login_totp_setup_required');
@@ -79,7 +76,7 @@ const LoginPage = () => {
   const beginLostCardReport = () => setLostCardFlow(true);
 
   const returnToNormalLogin = () => {
-    localStorage.removeItem('postLoginAction');
+    sessionStorage.removeItem('postLoginAction');
     setLostCardFlow(false);
   };
 

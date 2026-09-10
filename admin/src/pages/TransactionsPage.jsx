@@ -1,26 +1,50 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+    FiAlertCircle,
+    FiCalendar,
+    FiCreditCard,
     FiRefreshCw,
     FiSearch,
-    FiCheck,
-    FiX,
     FiFileText,
+    FiMinusCircle,
+    FiPlusCircle,
 } from 'react-icons/fi';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
-import { useRealtime } from '../context/RealtimeContext';
+import { useRealtime } from '../context/RealtimeState';
 import { formatTime, phtDateKey } from '../lib/time';
 
 const statusColor = {
-    SUCCESS: '#2f6b3d', PENDING: '#d97706', FAILED: '#b24a52',
+    SUCCESS: '#2f6b3d', COMPLETED: '#2f6b3d', PENDING: '#a66b12', PROCESSING: '#a66b12',
+    FAILED: '#a8434c', CANCELLED: '#6b7280', EXPIRED: '#a8434c',
 };
+
+const formatPeso = (value) => new Intl.NumberFormat('en-PH', {
+    style: 'currency', currency: 'PHP', minimumFractionDigits: 0, maximumFractionDigits: 2,
+}).format(Number(value || 0));
+
+const transactionTypeLabel = (type) => ({
+    TOPUP: 'Topup',
+    RIDE_FARE: 'Fare Deduction',
+    FARE_DEDUCTION: 'Fare Deduction',
+    REFUND: 'Refund',
+    ADMIN_ADJUSTMENT: 'Admin Adjustment',
+}[type] || String(type || '—').replaceAll('_', ' '));
+
+const transactionStatusLabel = (status) => ({
+    SUCCESS: 'Completed', COMPLETED: 'Completed', PROCESSING: 'Processing',
+    PENDING: 'Pending', FAILED: 'Failed', CANCELLED: 'Cancelled', EXPIRED: 'Expired',
+}[status] || String(status || '—').replaceAll('_', ' '));
+
+const isCreditTransaction = (type) => type === 'TOPUP' || type === 'REFUND';
 
 const TransactionsPage = () => {
     const [transactions, setTransactions] = useState([]);
     const [stats, setStats] = useState({});
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(false);
     const [search, setSearch] = useState('');
     const [filterStatus, setFilterStatus] = useState('All Status');
     const [filterType, setFilterType] = useState('ALL');
@@ -32,12 +56,12 @@ const TransactionsPage = () => {
     const [staffCashDate, setStaffCashDate] = useState(phtDateKey());
     const [staffCashSearch, setStaffCashSearch] = useState('');
     const [staffCashCategory, setStaffCashCategory] = useState('ALL');
+    const [summaryTransactions, setSummaryTransactions] = useState([]);
     const { subscribe } = useRealtime();
 
-    useEffect(() => { fetchData(); }, [page, staffCashDate]);
-
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
+        setLoadError(false);
         try {
             const [txRes, statsRes, staffCashRes] = await Promise.all([
                 adminAPI.get(`/transactions?page=${page}&size=25`),
@@ -50,45 +74,59 @@ const TransactionsPage = () => {
             setTotalElements(txData.totalElements || 0);
             setStats(statsRes.data.data || {});
             setStaffCashTransactions(staffCashRes.data.data || []);
-        } catch (err) {
+            let summaryRows = txData.content || [];
+            if ((txData.totalElements || 0) > summaryRows.length) {
+                try {
+                    const summaryRes = await adminAPI.get(`/transactions?page=0&size=${txData.totalElements}`);
+                    summaryRows = summaryRes.data.data?.content || summaryRows;
+                } catch {
+                    // The visible page remains usable if the optional aggregate request fails.
+                }
+            }
+            setSummaryTransactions(summaryRows);
+        } catch {
             toast.error('Failed to load transactions');
+            setLoadError(true);
         } finally {
             setLoading(false);
         }
-    };
+    }, [page, staffCashDate]);
+
+    useEffect(() => {
+        const initial = window.setTimeout(() => { fetchData(); }, 0);
+        return () => window.clearTimeout(initial);
+    }, [fetchData]);
+
+
 
     useEffect(() => subscribe((event) => {
         if (event.entity === 'TRANSACTION' || event.entity === 'TOPUP') fetchData();
-    }), [subscribe, page]);
-
-    const handleApprove = async (id) => {
-        try {
-            await adminAPI.post(`/transactions/${id}/approve`);
-            toast.success('Transaction approved!');
-            fetchData();
-        } catch (err) {
-            toast.error(err.response?.data?.message || 'Failed');
-        }
-    };
-
-    const handleReject = async (id) => {
-        try {
-            await adminAPI.post(`/transactions/${id}/reject`);
-            toast.success('Transaction rejected.');
-            fetchData();
-        } catch (err) {
-            toast.error(err.response?.data?.message || 'Failed');
-        }
-    };
+    }), [subscribe, fetchData]);
 
     const filtered = transactions.filter(tx => {
+        const query = search.trim().toLowerCase();
         const matchSearch = search === '' ||
-            String(tx.id).includes(search) ||
-            (tx.passenger?.rfidCardId || '').toLowerCase().includes(search.toLowerCase());
-        const matchStatus = filterStatus === 'All Status' || tx.status === filterStatus;
-        const matchType = filterType === 'ALL' || tx.type === filterType;
+            [tx.id, tx.referenceNumber, tx.userId, tx.passengerId, tx.passenger?.id, tx.passenger?.rfidCardId]
+                .some(value => String(value || '').toLowerCase().includes(query));
+        const matchStatus = filterStatus === 'All Status'
+            || (filterStatus === 'SUCCESS' ? tx.status === 'SUCCESS' || tx.status === 'COMPLETED' : tx.status === filterStatus);
+        const matchType = filterType === 'ALL'
+            || (filterType === 'FARE_DEDUCTION' ? tx.type === 'FARE_DEDUCTION' || tx.type === 'RIDE_FARE' : tx.type === filterType);
         return matchSearch && matchStatus && matchType;
     });
+
+    const summarySource = summaryTransactions.length ? summaryTransactions : transactions;
+    const topUpCount = summarySource.filter(tx => tx.type === 'TOPUP').length;
+    const fareDeductionCount = summarySource.filter(tx => tx.type === 'FARE_DEDUCTION' || tx.type === 'RIDE_FARE').length;
+    const todayAmount = summarySource
+        .filter(tx => tx.createdAt && phtDateKey(tx.createdAt) === phtDateKey()
+            && (tx.status === 'SUCCESS' || tx.status === 'COMPLETED'))
+        .reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+
+    const firstVisible = totalElements === 0 ? 0 : Math.min(page * 25 + 1, totalElements);
+    const lastVisible = Math.min((page + 1) * 25, totalElements);
+    const firstPageButton = Math.max(0, Math.min(page - 2, Math.max(totalPages - 5, 0)));
+    const visiblePages = Array.from({ length: Math.min(totalPages, 5) }, (_, index) => firstPageButton + index);
 
     const filteredStaffCashTransactions = staffCashTransactions.filter((transaction) => {
         const query = staffCashSearch.trim().toLowerCase();
@@ -102,23 +140,22 @@ const TransactionsPage = () => {
             <AdminSidebar />
             <main className={ui.workspace}>
 
-                {/* Header */}
-                <header className={ui.headerBar}>
+                <header className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-border-soft bg-white px-6 py-5 max-[560px]:flex-col max-[560px]:items-start max-[560px]:px-4 max-[560px]:py-4">
                     <div>
-                        <span className={ui.eyebrow}>Transaction Management</span>
-                        <h1 className={ui.headerTitle}>Transactions Dashboard</h1>
+                        <h1 className="m-0 text-[clamp(1.5rem,2.5vw,1.75rem)] font-extrabold leading-tight text-[#202b3a]">Transactions</h1>
+                        <p className="mt-1 text-sm text-text-muted">Manage and monitor all passenger account transactions.</p>
                     </div>
-                    <button type="button" onClick={fetchData} className={ui.adminActionRefresh}>
-                        <FiRefreshCw />
+                    <button type="button" onClick={fetchData} disabled={loading} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-maroon bg-white px-3.5 text-[0.82rem] font-extrabold text-maroon transition-colors hover:bg-maroon/5 disabled:cursor-wait disabled:opacity-60">
+                        <FiRefreshCw className={loading ? 'animate-spin' : ''} />
                         Refresh
                     </button>
                 </header>
 
-                <nav className="mb-5 flex items-end gap-1 border-b border-border-soft bg-white px-4 pt-2 shadow-[0_8px_22px_rgba(44,36,41,0.06)]" aria-label="Transaction views">
+                <nav className="mb-5 flex max-w-full items-end gap-1 overflow-x-auto border-b border-border-soft bg-white px-4 pt-1.5" aria-label="Transaction views">
                     <button
                         type="button"
                         onClick={() => setActiveTab('transactions')}
-                        className={`inline-flex min-h-12 items-center gap-2 border-b-2 px-4 text-sm font-black transition-colors ${activeTab === 'transactions' ? 'border-maroon text-maroon' : 'border-transparent text-text-muted hover:text-maroon'}`}
+                        className={`inline-flex min-h-11 items-center gap-2 border-b-2 px-4 text-sm font-extrabold transition-colors ${activeTab === 'transactions' ? 'border-maroon text-maroon' : 'border-transparent text-text-muted hover:text-maroon'}`}
                     >
                         <FiFileText /> Transactions
                         <span className={activeTab === 'transactions' ? ui.countPill : 'rounded-full bg-page-bg px-2 py-1 text-[0.68rem] font-black text-text-muted'}>{totalElements}</span>
@@ -126,7 +163,7 @@ const TransactionsPage = () => {
                     <button
                         type="button"
                         onClick={() => setActiveTab('staff-cash')}
-                        className={`inline-flex min-h-12 items-center gap-2 border-b-2 px-4 text-sm font-black transition-colors ${activeTab === 'staff-cash' ? 'border-maroon text-maroon' : 'border-transparent text-text-muted hover:text-maroon'}`}
+                        className={`inline-flex min-h-11 items-center gap-2 border-b-2 px-4 text-sm font-extrabold transition-colors ${activeTab === 'staff-cash' ? 'border-maroon text-maroon' : 'border-transparent text-text-muted hover:text-maroon'}`}
                     >
                         <FiFileText /> Staff Cash Transactions
                         <span className={activeTab === 'staff-cash' ? ui.countPill : 'rounded-full bg-gold px-2 py-1 text-[0.68rem] font-black text-maroon'}>{staffCashTransactions.length}</span>
@@ -134,53 +171,55 @@ const TransactionsPage = () => {
                 </nav>
 
                 {activeTab === 'transactions' && <>
-                {/* Stats Cards */}
-                <section className="grid grid-cols-4 gap-4 mb-5 max-[1060px]:grid-cols-2 max-[560px]:grid-cols-1">
+                <section className="mb-5 grid grid-cols-4 gap-4 max-[1180px]:grid-cols-2 max-[560px]:gap-3">
                     {[
-                        { label: 'All Transactions', value: stats.totalTransactions || 0,                          variant: 'maroon' },
-                        { label: 'Pending',          value: stats.pendingTransactions || 0,                        variant: 'gold'   },
-                        { label: 'Completed',        value: stats.completedTransactions || 0,                      variant: 'green'  },
-                        { label: 'Revenue (All)',    value: `₱${parseFloat(stats.totalRevenue || 0).toFixed(2)}`,  variant: 'maroon' },
-                    ].map((card, i) => (
-                        <article key={i} className={ui.statCardVariant[card.variant]}>
-                            <div>
-                                <span className={ui.statLabel}>{card.label}</span>
-                                <span className={ui.statValue}>{card.value}</span>
+                        { label: 'Total Transactions', value: stats.totalTransactions ?? totalElements, Icon: FiCreditCard },
+                        { label: 'Top Ups', value: topUpCount, Icon: FiPlusCircle },
+                        { label: 'Fare Deductions', value: fareDeductionCount, Icon: FiMinusCircle },
+                        { label: 'Today', value: formatPeso(todayAmount), Icon: FiCalendar },
+                    ].map(({ label, value, Icon }) => (
+                        <article key={label} className="flex min-h-[5.6rem] items-start justify-between gap-3 rounded-xl border border-border-soft bg-white px-4 py-3.5 shadow-[0_2px_8px_rgba(31,42,55,0.04)]">
+                            <div className="min-w-0">
+                                <span className="block text-[0.7rem] font-bold uppercase leading-tight tracking-[0.06em] text-text-muted">{label}</span>
+                                <span className="mt-2 block text-[1.45rem] font-extrabold leading-none text-[#202b3a]">{value}</span>
                             </div>
+                            {Icon ? <Icon className="mt-0.5 shrink-0 text-[1rem] text-maroon-soft" aria-hidden="true" /> : null}
                         </article>
                     ))}
                 </section>
 
-                {/* Filter */}
-                <section className={ui.filterPanel}>
-                    <h2 className={ui.filterPanelTitle}>Filter Transactions</h2>
-                    <div className={ui.filterBar}>
-                        <label className={ui.filterGroup}>
+                <section className="mb-5 rounded-xl border border-border-soft bg-white px-5 py-4 shadow-[0_2px_8px_rgba(31,42,55,0.04)] max-[560px]:px-4">
+                    <h2 className="m-0 mb-3 text-base font-bold text-[#202b3a]">Filter Transactions</h2>
+                    <div className="grid grid-cols-[minmax(9rem,0.8fr)_minmax(9rem,0.8fr)_minmax(13rem,1.5fr)_auto_auto] items-end gap-3 max-[1180px]:grid-cols-2 max-[560px]:grid-cols-1">
+                        <label className="flex min-w-0 flex-col">
                             <span className={ui.filterLabel}>Status</span>
                             <select
                                 value={filterStatus}
-                                onChange={(e) => setFilterStatus(e.target.value)}
+                                onChange={(e) => { setFilterStatus(e.target.value); setPage(0); }}
                                 className={ui.filterField}
                             >
                                 <option>All Status</option>
                                 <option value="SUCCESS">Completed</option>
                                 <option value="PENDING">Pending</option>
+                                <option value="PROCESSING">Processing</option>
                                 <option value="FAILED">Failed</option>
+                                <option value="CANCELLED">Cancelled</option>
+                                <option value="EXPIRED">Expired</option>
                             </select>
                         </label>
-                        <label className={ui.filterGroup}>
+                        <label className="flex min-w-0 flex-col">
                             <span className={ui.filterLabel}>Type</span>
-                            <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className={ui.filterField}>
+                            <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(0); }} className={ui.filterField}>
                                 <option value="ALL">All Types</option>
                                 <option value="TOPUP">Topup</option>
                                 <option value="FARE_DEDUCTION">Fare Deduction</option>
                             </select>
                         </label>
-                        <label className={ui.filterGroup}>
-                            <span className={ui.filterLabel}>User ID or reference</span>
+                        <label className="flex min-w-0 flex-col max-[1180px]:col-span-2 max-[560px]:col-span-1">
+                            <span className={ui.filterLabel}>Search</span>
                             <input
-                                type="text"
-                                placeholder="Enter User ID"
+                                type="search"
+                                placeholder="User ID / Reference"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 className={ui.filterField}
@@ -188,18 +227,17 @@ const TransactionsPage = () => {
                         </label>
                         <button
                             type="button"
-                            onClick={fetchData}
-                            className="inline-flex items-center gap-[0.4rem] min-h-[2.55rem] px-[1.1rem] rounded-lg bg-gold text-maroon font-black text-[0.85rem] cursor-pointer transition-colors hover:bg-[#f3cc6a]"
+                            onClick={() => setPage(0)}
+                            className="inline-flex min-h-[2.55rem] items-center justify-center gap-2 rounded-lg bg-maroon px-4 text-[0.84rem] font-extrabold text-white transition-colors hover:bg-maroon-dark"
                         >
                             <FiSearch />
                             Search
                         </button>
-                        <button type="button" onClick={() => { setSearch(''); setFilterStatus('All Status'); setFilterType('ALL'); }} className={ui.filterReset}>Reset</button>
+                        <button type="button" onClick={() => { setSearch(''); setFilterStatus('All Status'); setFilterType('ALL'); setPage(0); }} className="inline-flex min-h-[2.55rem] items-center justify-center rounded-lg border border-maroon bg-white px-4 text-[0.84rem] font-extrabold text-maroon transition-colors hover:bg-maroon/5">Reset</button>
                     </div>
                 </section>
 
-                {/* Table */}
-                <section className={ui.dataPanel}>
+                <section className="overflow-hidden rounded-xl border border-border-soft bg-white shadow-[0_2px_8px_rgba(31,42,55,0.04)]">
                     <div className={ui.dataPanelHeader}>
                         <span className={ui.dataPanelTitle}>
                             <FiFileText />
@@ -208,11 +246,20 @@ const TransactionsPage = () => {
                         </span>
                     </div>
 
-                    <div className={ui.tableWrap}>
-                        <table className={ui.adminTable}>
+                    {loadError ? (
+                        <div className="grid min-h-52 place-items-center px-4 py-8 text-center" role="alert">
+                            <div>
+                                <FiAlertCircle className="mx-auto text-2xl text-danger-muted" aria-hidden="true" />
+                                <p className="mt-3 text-sm font-bold text-[#303b49]">Transactions couldn&apos;t be loaded.</p>
+                                <button type="button" onClick={fetchData} className="mt-3 min-h-10 rounded-lg bg-maroon px-4 text-sm font-bold text-white transition-colors hover:bg-maroon-dark">Try Again</button>
+                            </div>
+                        </div>
+                    ) : <>
+                    <div className="overflow-x-auto" role="region" aria-label="Passenger account transactions" tabIndex="0">
+                        <table className="w-full min-w-[760px] border-collapse text-text-main">
                             <thead>
                                 <tr>
-                                    {['#', 'Txn ID', 'Amount', 'Type', 'Status', 'User Balance', 'Reference', 'Action'].map(h => (
+                                    {['Txn ID', 'Amount', 'Type', 'Status', 'User Balance', 'Reference'].map(h => (
                                         <th key={h} className={ui.tableTh}>{h}</th>
                                     ))}
                                 </tr>
@@ -220,65 +267,40 @@ const TransactionsPage = () => {
                             <tbody>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={8} className={ui.loadingRow}>Loading...</td>
+                                        <td colSpan={6} className={ui.loadingRow}>
+                                            <span className="inline-flex items-center gap-2"><FiRefreshCw className="animate-spin" /> Loading transactions…</span>
+                                        </td>
                                     </tr>
                                 ) : filtered.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} className={ui.emptyRow}>No transactions found.</td>
+                                        <td colSpan={6} className="px-4 py-12 text-center">
+                                            <strong className="block text-sm text-[#303b49]">No transactions found.</strong>
+                                            <span className="mt-1 block text-sm text-text-muted">Try adjusting your filters or check back later.</span>
+                                        </td>
                                     </tr>
                                 ) : (
-                                    filtered.map((tx, idx) => (
+                                    filtered.map((tx) => (
                                         <tr key={tx.id} className={ui.tableRow}>
-                                            <td className={`${ui.tableTd} text-text-muted`}>
-                                                {totalElements - (page * 25) - idx}
-                                            </td>
                                             <td className={ui.tableTd}><strong>{tx.id}</strong></td>
-                                            <td className={`${ui.tableTd} ${ui.balancePositive}`}>₱{tx.amount}</td>
+                                            <td className={`${ui.tableTd} font-extrabold ${isCreditTransaction(tx.type) ? 'text-green-brand' : 'text-maroon'}`}>
+                                                {isCreditTransaction(tx.type) ? '+' : '−'}{formatPeso(Math.abs(Number(tx.amount || 0)))}
+                                            </td>
                                             <td className={ui.tableTd}>
-                                                {tx.type === 'TOPUP' ? 'Topup' : 'Fare Deduction'}
+                                                <span className="inline-flex rounded-md bg-[#f4f5f7] px-2 py-1 text-xs font-semibold text-[#4b5563]">{transactionTypeLabel(tx.type)}</span>
                                             </td>
                                             <td className={ui.tableTd}>
                                                 <span
-                                                    className="inline-flex items-center gap-[0.4rem] font-extrabold status-dot-before"
+                                                    className="inline-flex items-center text-[0.82rem] font-bold status-dot-before"
                                                     style={{ color: statusColor[tx.status] || 'var(--text-muted)' }}
                                                 >
-                                                    {tx.status === 'SUCCESS' ? 'Completed' : tx.status}
+                                                    {transactionStatusLabel(tx.status)}
                                                 </span>
                                             </td>
-                                            <td className={ui.tableTd}><strong>₱{tx.balanceAfter || '—'}</strong></td>
-                                            <td className={`${ui.tableTd} ${ui.mono} max-w-36 overflow-hidden text-ellipsis whitespace-nowrap text-text-muted`}>
-                                                {tx.referenceNumber || '—'}
-                                            </td>
+                                            <td className={`${ui.tableTd} font-bold text-[#303b49]`}>{tx.balanceAfter == null ? '—' : formatPeso(tx.balanceAfter)}</td>
                                             <td className={ui.tableTd}>
-                                                {tx.status === 'PENDING' ? (
-                                                    <div className="inline-flex gap-[0.35rem]">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleApprove(tx.id)}
-                                                            className="inline-flex items-center gap-[0.3rem] min-h-[1.95rem] px-[0.7rem] rounded-md bg-green-brand text-white text-[0.74rem] font-black cursor-pointer hover:bg-[#245a30]"
-                                                        >
-                                                            <FiCheck />
-                                                            Approve
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleReject(tx.id)}
-                                                            className="inline-flex items-center gap-[0.3rem] min-h-[1.95rem] px-[0.7rem] rounded-md bg-danger-muted text-white text-[0.74rem] font-black cursor-pointer hover:bg-danger-muted-dark"
-                                                        >
-                                                            <FiX />
-                                                            Reject
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <span
-                                                        className={[
-                                                            'font-black text-[0.85rem]',
-                                                            tx.status === 'SUCCESS' ? 'text-green-brand' : 'text-danger-muted',
-                                                        ].join(' ')}
-                                                    >
-                                                        {tx.status === 'SUCCESS' ? 'Completed' : 'Failed'}
-                                                    </span>
-                                                )}
+                                                <span title={tx.referenceNumber || undefined} className={`${ui.mono} block max-w-[15rem] overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted`}>
+                                                    {tx.referenceNumber || '—'}
+                                                </span>
                                             </td>
                                         </tr>
                                     ))
@@ -290,10 +312,9 @@ const TransactionsPage = () => {
                     {/* Pagination */}
                     <div className={ui.paginationBar}>
                         <span>
-                            Showing {Math.min(page * 25 + 1, totalElements)} to{' '}
-                            {Math.min((page + 1) * 25, totalElements)} of {totalElements} entries
+                            Showing {firstVisible} to {lastVisible} of {totalElements} entries
                         </span>
-                        <div className={ui.paginationButtons}>
+                        <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
                             <button
                                 type="button"
                                 disabled={page === 0}
@@ -302,14 +323,15 @@ const TransactionsPage = () => {
                             >
                                 Previous
                             </button>
-                            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => (
+                            {visiblePages.map((pageNumber) => (
                                 <button
-                                    key={i}
+                                    key={pageNumber}
                                     type="button"
-                                    onClick={() => setPage(i)}
-                                    className={page === i ? ui.pageBtnActive : ui.pageBtn}
+                                    onClick={() => setPage(pageNumber)}
+                                    className={page === pageNumber ? ui.pageBtnActive : ui.pageBtn}
+                                    aria-current={page === pageNumber ? 'page' : undefined}
                                 >
-                                    {i + 1}
+                                    {pageNumber + 1}
                                 </button>
                             ))}
                             <button
@@ -322,6 +344,7 @@ const TransactionsPage = () => {
                             </button>
                         </div>
                     </div>
+                    </>}
                 </section>
 
                 </>}

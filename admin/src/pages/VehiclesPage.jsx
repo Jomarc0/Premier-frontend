@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
     FiRefreshCw,
     FiSearch,
@@ -16,10 +16,10 @@ import {
 } from 'react-icons/fi';
 import AdminSidebar from '../components/AdminSidebar';
 import adminAPI from '../api/adminAxios';
-import { useAdminAuth } from '../context/AdminAuthContext';
+import { useAdminAuth } from '../context/AdminAuthState';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
-import { useRealtime } from '../context/RealtimeContext';
+import { useRealtime } from '../context/RealtimeState';
 
 const VEHICLE_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'OUT_OF_SERVICE'];
 
@@ -46,6 +46,7 @@ const VehicleStatVariants = {
 
 const VehiclesPage = () => {
     const auth = useAdminAuth();
+    const { logout } = auth;
     const { subscribe } = useRealtime();
     const [vehicles, setVehicles] = useState([]);
     const [devices, setDevices] = useState([]);
@@ -67,12 +68,7 @@ const VehiclesPage = () => {
     const [deviceToken, setDeviceToken] = useState('');
     const [copiedToken, setCopiedToken] = useState(false);
 
-    useEffect(() => {
-        if (auth.loading) return;
-        fetchVehicles();
-    }, [auth.loading]);
-
-    const fetchVehicles = async () => {
+    const fetchVehicles = useCallback(async () => {
         setLoading(true);
         try {
             const [vehiclesRes, devicesRes, driversRes, assignmentsRes] = await Promise.all([
@@ -86,21 +82,28 @@ const VehiclesPage = () => {
             setDrivers(driversRes.data.data || []);
             setAssignments(assignmentsRes.data.data || []);
         } catch (err) {
-            console.error('Vehicles fetch error:', err);
             if (err.response?.status === 401) {
                 toast.error('Session expired. Logging out...');
-                auth.logout();
+                logout();
             } else {
                 toast.error('Failed to load vehicles');
             }
         } finally {
             setLoading(false);
         }
-    };
+    }, [logout]);
+
+    useEffect(() => {
+        if (auth.loading) return;
+        const initial = window.setTimeout(() => { fetchVehicles(); }, 0);
+        return () => window.clearTimeout(initial);
+    }, [auth.loading, fetchVehicles]);
+
+
 
     useEffect(() => subscribe((event) => {
         if (['VEHICLE', 'DRIVER', 'DEVICE', 'FLEET_ASSIGNMENT'].includes(event.entity)) fetchVehicles();
-    }), [subscribe]);
+    }), [subscribe, fetchVehicles]);
 
     const openAddModal = () => {
         setEditingVehicle(null);

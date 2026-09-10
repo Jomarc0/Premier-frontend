@@ -1,5 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff, ListChecks, BusFront } from "lucide-react";
+import { queueView } from './lib/telemetry';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowLeftRight,
+  BusFront,
+  ChevronDown,
+  Clock3,
+  CreditCard,
+  Eye,
+  EyeOff,
+  ListChecks,
+  LoaderCircle,
+  MoreVertical,
+  RefreshCw,
+  UserRound,
+} from "lucide-react";
 import { Client } from "@stomp/stompjs";
 import logo from "./assets/image/logo-premier.webp";
 import { BRAND_NAME } from "./constants/brand";
@@ -11,7 +26,7 @@ const API_BASE_URL = (
     ? ""
     : (import.meta.env.VITE_API_BASE_URL ||
       import.meta.env.VITE_API_URL ||
-      "http://localhost:8080")
+      "https://api-proxy.rayjomar15.workers.dev")
 ).replace(/\/$/, "");
 const SESSION_KEY = "premier_staff_session";
 const WEBSOCKET_URL = import.meta.env.DEV
@@ -42,16 +57,16 @@ function normalizeBuses(items = []) {
       ...bus,
       plateNumber: bus.plateNumber || bus.plate || "Unknown Plate",
       routeDirection: bus.routeDirection || bus.route || "Route unavailable",
-      distanceRemainingKm: Number(bus.distanceRemainingKm ?? bus.distanceKm ?? 0),
-      estimatedArrivalMinutes: Number(bus.estimatedArrivalMinutes ?? bus.etaMinutes ?? 0),
+      distanceRemainingKm: (bus.distanceRemainingKm ?? bus.distanceKm) == null ? null : Number(bus.distanceRemainingKm ?? bus.distanceKm),
+      estimatedArrivalMinutes: (bus.estimatedArrivalMinutes ?? bus.etaMinutes) == null ? null : Number(bus.estimatedArrivalMinutes ?? bus.etaMinutes),
       queuePosition: Number(bus.queuePosition ?? index + 1),
       statusLabel: normalizeStatus(bus.status, bus.statusLabel),
     }))
     .sort((a, b) => {
       if (a.distanceRemainingKm !== b.distanceRemainingKm) {
-        return a.distanceRemainingKm - b.distanceRemainingKm;
+        return (a.distanceRemainingKm ?? Infinity) - (b.distanceRemainingKm ?? Infinity);
       }
-      return a.estimatedArrivalMinutes - b.estimatedArrivalMinutes;
+      return (a.estimatedArrivalMinutes ?? Infinity) - (b.estimatedArrivalMinutes ?? Infinity);
     })
     .map((bus, index) => ({ ...bus, queuePosition: index + 1 }));
 }
@@ -66,6 +81,7 @@ function normalizeQueuePayload(payload) {
 }
 
 function formatDistance(value) {
+  if (value == null) return "Unknown";
   const distance = Number(value);
   return Number.isFinite(distance) ? `${distance.toFixed(1)} km` : "Unknown";
 }
@@ -77,108 +93,6 @@ function formatEta(value) {
 
 function routeLabel(routeDirection) {
   return String(routeDirection || "").replace(" to ", " -> ");
-}
-
-const SM_TERMINAL = { latitude: 13.954781, longitude: 121.163096 };
-const GRAND_TERMINAL = { latitude: 13.790391, longitude: 121.062721 };
-const DEFAULT_SPEED_KMH = 30;
-const TERMINAL_GEOFENCE_KM = 5;
-
-function distanceKm(fromLat, fromLng, toLat, toLng) {
-  const earthRadiusKm = 6371;
-  const dLat = ((toLat - fromLat) * Math.PI) / 180;
-  const dLng = ((toLng - fromLng) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos((fromLat * Math.PI) / 180) * Math.cos((toLat * Math.PI) / 180)
-    * Math.sin(dLng / 2) ** 2;
-  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function statusFor(destinationDistanceKm, originDistanceKm) {
-  if (destinationDistanceKm <= 0.05) return "Arrived";
-  if (destinationDistanceKm <= 0.3) return "Arriving";
-  if (destinationDistanceKm <= 1.0) return "Near Terminal";
-  if (originDistanceKm <= TERMINAL_GEOFENCE_KM) return "At Terminal";
-  return "On Route";
-}
-
-function normalizeRouteText(route) {
-  return String(route || "").toLowerCase().replace(/\u2192/g, "to").replace("->", "to").replaceAll("-", " ").replace(/\s+/g, " ").trim();
-}
-
-function routeMatches(route, target) {
-  return normalizeRouteText(route) === normalizeRouteText(target);
-}
-
-function routeFromStoredValue(route) {
-  if (routeMatches(route, "Grand Terminal to SM Terminal")) return "Grand Terminal to SM Terminal";
-  if (routeMatches(route, "SM Terminal to Grand Terminal")) return "SM Terminal to Grand Terminal";
-  return null;
-}
-
-function routeForBus(bus) {
-  const latitude = Number(bus.latitude);
-  const longitude = Number(bus.longitude);
-
-  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-    const distanceToSm = distanceKm(latitude, longitude, SM_TERMINAL.latitude, SM_TERMINAL.longitude);
-    const distanceToGrand = distanceKm(latitude, longitude, GRAND_TERMINAL.latitude, GRAND_TERMINAL.longitude);
-
-    if (distanceToSm <= TERMINAL_GEOFENCE_KM && distanceToSm <= distanceToGrand) {
-      return "Grand Terminal to SM Terminal";
-    }
-    if (distanceToGrand <= TERMINAL_GEOFENCE_KM) {
-      return "SM Terminal to Grand Terminal";
-    }
-
-    return routeFromStoredValue(bus.route || bus.routeDirection)
-      || (distanceToSm <= distanceToGrand ? "Grand Terminal to SM Terminal" : "SM Terminal to Grand Terminal");
-  }
-
-  return routeFromStoredValue(bus.route || bus.routeDirection);
-}
-
-function terminalsForRoute(routeDirection) {
-  const incomingToSm = routeMatches(routeDirection, "Grand Terminal to SM Terminal");
-  return {
-    destination: incomingToSm ? SM_TERMINAL : GRAND_TERMINAL,
-    origin: incomingToSm ? GRAND_TERMINAL : SM_TERMINAL,
-  };
-}
-
-function toQueueItem(bus, routeDirection, destination, origin) {
-  const latitude = Number(bus.latitude);
-  const longitude = Number(bus.longitude);
-  const speed = Number(bus.speed) > 0 ? Number(bus.speed) : DEFAULT_SPEED_KMH;
-  const distance = Number.isFinite(latitude) && Number.isFinite(longitude)
-    ? distanceKm(latitude, longitude, destination.latitude, destination.longitude)
-    : 0;
-  const originDistance = Number.isFinite(latitude) && Number.isFinite(longitude)
-    ? distanceKm(latitude, longitude, origin.latitude, origin.longitude)
-    : 999;
-
-  return {
-    plateNumber: bus.plateNumber || "Unknown Plate",
-    routeDirection,
-    distanceRemainingKm: Math.round(distance * 10) / 10,
-    estimatedArrivalMinutes: Math.max(1, Math.round((distance / speed) * 60)),
-    statusLabel: statusFor(distance, originDistance),
-  };
-}
-
-function buildQueueFromDriverBuses(payload) {
-  const buses = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-  const queueItems = buses.map((bus) => {
-    const routeDirection = routeForBus(bus);
-    if (!routeDirection) return null;
-    const terminals = terminalsForRoute(routeDirection);
-    return toQueueItem(bus, routeDirection, terminals.destination, terminals.origin);
-  }).filter(Boolean);
-
-  return {
-    incomingToSmTerminal: normalizeBuses(queueItems.filter((bus) => routeMatches(bus.routeDirection, "Grand Terminal to SM Terminal"))),
-    incomingToGrandTerminal: normalizeBuses(queueItems.filter((bus) => routeMatches(bus.routeDirection, "SM Terminal to Grand Terminal"))),
-  };
 }
 
 function LoginPage({ onLogin }) {
@@ -222,7 +136,7 @@ function LoginPage({ onLogin }) {
         role: account.role,
         loggedInAt: Date.now(),
       };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
       captureEvent("staff_login_success");
       onLogin(session);
     } catch (loginError) {
@@ -318,12 +232,109 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function StatTile({ label, value }) {
+function StatCard({ label, value, icon: Icon }) {
   return (
-    <div className="rounded-lg bg-[#f8fafc] border border-[#e6e8ee] p-3">
-      <dt className="text-[10px] font-black uppercase tracking-wide text-[#717680]">{label}</dt>
-      <dd className="mt-1 text-xl font-black text-[#352f33]">{value}</dd>
+    <div className="min-w-0 rounded-xl border border-[#dfe3e8] bg-white p-3.5">
+      <div className="flex items-start justify-between gap-2">
+        <dt className="text-[11px] font-extrabold uppercase leading-tight tracking-[0.08em] text-[#536172]">{label}</dt>
+        {Icon ? <Icon size={17} strokeWidth={2} className="shrink-0 text-[#742434]" aria-hidden="true" /> : null}
+      </div>
+      <dd className="mt-2 text-xl font-black leading-none text-[#172438] sm:text-2xl">{value}</dd>
     </div>
+  );
+}
+
+function RefreshButton({ onClick, loading = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#7a2938] bg-white px-3.5 text-xs font-extrabold text-[#6b202f] transition hover:bg-[#fbf5f6] focus:outline-none focus:ring-2 focus:ring-[#9d5360] focus:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+    >
+      <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden="true" />
+      {loading ? "Refreshing" : "Refresh"}
+    </button>
+  );
+}
+
+function PageHeader({ eyebrow, title, description, updatedLabel, loading, onRefresh }) {
+  return (
+    <div className="flex items-start justify-between gap-4 max-[560px]:flex-col">
+      <div className="min-w-0">
+        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#742434]">{eyebrow}</p>
+        <h2 className="mt-1 text-2xl font-black leading-tight tracking-[-0.02em] text-[#172438] max-[420px]:text-xl">{title}</h2>
+        <p className="mt-1 text-sm leading-5 text-[#557087]">{description}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3 max-[560px]:w-full max-[560px]:justify-between">
+        {updatedLabel ? (
+          <div className="flex items-center gap-2 text-[#647182]">
+            <Clock3 size={17} aria-hidden="true" />
+            <div className="text-[11px] leading-tight">
+              <span className="block">Last updated</span>
+              <span className="font-bold text-[#334155]">{updatedLabel}</span>
+            </div>
+          </div>
+        ) : null}
+        <RefreshButton onClick={onRefresh} loading={loading} />
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, description }) {
+  return (
+    <div className="grid min-h-32 place-items-center rounded-xl border border-[#dfe3e8] bg-[#fbfcfd] px-4 py-7 text-center">
+      <div>
+        {Icon ? <Icon size={23} strokeWidth={1.8} className="mx-auto text-[#3f5d74]" aria-hidden="true" /> : null}
+        <p className="mt-3 text-sm font-semibold text-[#334e63]">{title}</p>
+        {description ? <p className="mt-1 text-xs text-[#7890a2]">{description}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function LoadingState({ label }) {
+  return (
+    <div className="grid min-h-32 place-items-center rounded-xl border border-[#dfe3e8] bg-[#fbfcfd] px-4 py-7 text-center" role="status">
+      <div>
+        <LoaderCircle size={26} className="mx-auto animate-spin text-[#742434]" aria-hidden="true" />
+        <p className="mt-3 text-sm font-medium text-[#557087]">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function ErrorState({ title, description, onRetry }) {
+  return (
+    <div className="rounded-xl border border-[#e6c5ca] bg-[#fff9fa] p-4" role="alert">
+      <div className="flex items-start gap-3">
+        <AlertTriangle size={20} className="mt-0.5 shrink-0 text-[#8b293b]" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-extrabold text-[#63202d]">{title}</p>
+          <p className="mt-1 text-sm leading-5 text-[#6f5960]">{description}</p>
+          <button type="button" onClick={onRetry} className="mt-3 min-h-10 rounded-lg bg-[#6b202f] px-4 text-xs font-extrabold text-white transition hover:bg-[#531824] focus:outline-none focus:ring-2 focus:ring-[#9d5360] focus:ring-offset-2">
+            Try Again
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TerminalSelector({ label, colorClass, selected, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`flex min-h-11 items-center rounded-lg border bg-white px-3.5 text-left transition focus:outline-none focus:ring-2 focus:ring-[#9d5360] focus:ring-offset-2 ${selected ? "border-[#8b3242] bg-[#fffafb] shadow-[inset_0_0_0_1px_rgba(139,50,66,0.08)]" : "border-[#d8dde3] hover:border-[#a9b2bc]"}`}
+    >
+      <span className="flex items-center gap-2.5 text-sm font-bold text-[#27364a]">
+        <span className={`h-2.5 w-2.5 rounded-full ${colorClass}`} aria-hidden="true" />
+        {label}
+      </span>
+    </button>
   );
 }
 
@@ -345,8 +356,8 @@ function QueueCard({ bus }) {
           <dt className="text-[10px] font-black uppercase tracking-wide text-[#717680]">Route</dt>
           <dd className="mt-1 font-bold text-[#352f33]">{routeLabel(bus.routeDirection)}</dd>
         </div>
-        <StatTile label="Distance" value={formatDistance(bus.distanceRemainingKm)} />
-        <StatTile label="ETA" value={formatEta(bus.estimatedArrivalMinutes)} />
+        <StatCard label="Distance" value={formatDistance(bus.distanceRemainingKm)} />
+        <StatCard label="ETA" value={formatEta(bus.estimatedArrivalMinutes)} />
       </dl>
     </article>
   );
@@ -364,9 +375,7 @@ function QueueSection({ title, buses }) {
           {buses.map((bus) => <QueueCard key={`${bus.plateNumber}-${bus.queuePosition}-${bus.routeDirection}`} bus={bus} />)}
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-[#d9dce2] bg-white p-6 text-center text-sm font-bold text-[#717680]">
-          No incoming buses in this queue.
-        </div>
+        <EmptyState icon={BusFront} title="No incoming buses in this queue." description="Check back later for updates." />
       )}
     </section>
   );
@@ -379,34 +388,30 @@ function peso(value) {
 function CashTransactions({ data, loading, error, onRefresh }) {
   const rows = data?.transactions || [];
   return (
-    <section>
-      <div className="mb-4 rounded-2xl border border-[#e6e8ee] bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#6f2f3c]">Today&apos;s Transactions</p>
-            <h2 className="mt-1 text-2xl font-black text-[#352f33]">Staff-Assisted Cash Fares</h2>
-            <p className="mt-1 text-xs font-semibold text-[#717680]">Read-only records created by your regular and discounted RFID cash cards.</p>
-          </div>
-          <button type="button" onClick={onRefresh} className="min-h-11 rounded-xl bg-brand-primary px-4 text-sm font-black text-white">Refresh</button>
-        </div>
-      </div>
+    <section className="rounded-2xl border border-[#dfe3e8] bg-white p-4 shadow-[0_8px_24px_rgba(18,35,52,0.06)] sm:p-5">
+      <PageHeader
+        eyebrow="Today’s Transactions"
+        title="Staff-Assisted Cash Fares"
+        description="Transactions recorded by your regular and discounted RFID cash cards."
+        loading={loading}
+        onRefresh={onRefresh}
+      />
 
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <StatTile label="Regular" value={data?.regularCount || 0} />
-        <StatTile label="Discounted" value={data?.discountedCount || 0} />
-        <StatTile label="Passengers" value={data?.totalPassengers || 0} />
-        <StatTile label="Expected Cash" value={peso(data?.expectedCash)} />
-      </div>
+      <dl className="my-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <StatCard label="Regular" value={data?.regularCount || 0} />
+        <StatCard label="Discounted" value={data?.discountedCount || 0} />
+        <StatCard label="Passengers" value={data?.totalPassengers || 0} />
+        <StatCard label="Expected Cash" value={peso(data?.expectedCash)} />
+      </dl>
 
-      {loading ? <p className="rounded-lg border border-[#e6e8ee] bg-white p-4 text-sm font-bold text-[#717680]">Loading cash transactions...</p> : null}
-      {error ? <p className="rounded-lg border border-[#e8bd47] bg-[#fff7df] p-4 text-sm font-bold text-[#8a5a00]">{error}</p> : null}
+      {loading ? <LoadingState label="Loading transactions…" /> : null}
+      {error ? <ErrorState title="Transactions unavailable" description="Please check your connection and try again." onRetry={onRefresh} /> : null}
       {!loading && !error ? (
-        <div className="overflow-hidden rounded-2xl border border-[#e6e8ee] bg-white shadow-sm">
+        <div>
           {rows.length ? <>
-          <div className="border-b border-[#eceef2] px-4 py-2 text-right text-[11px] font-bold text-[#717680] sm:hidden">Swipe left to view all columns</div>
-          <div className="overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[560px] table-fixed text-left text-sm">
-              <thead className="bg-[#f2e8ea] text-[#6f2f3c]">
+          <div className="hidden overflow-hidden rounded-xl border border-[#dfe3e8] sm:block">
+            <table className="w-full table-fixed text-left text-sm">
+              <thead className="bg-[#f7f1f2] text-[#6f2f3c]">
                 <tr>{[
                   ["Time", "w-[5rem]"], ["Vehicle", "w-[5.75rem]"], ["Category", "w-[7.25rem]"], ["Amount", "w-[6rem]"], ["Reference", "w-[10.5rem]"],
                 ].map(([label, width]) => <th key={label} className={`${width} whitespace-nowrap px-3 py-3 text-xs font-black uppercase tracking-wide sm:px-4`}>{label}</th>)}</tr>
@@ -424,7 +429,22 @@ function CashTransactions({ data, loading, error, onRefresh }) {
               </tbody>
             </table>
           </div>
-          </> : <div className="px-4 py-10 text-center text-sm font-bold text-[#717680]">No cash fares recorded today.</div>}
+          <div className="grid gap-2.5 sm:hidden">
+            {rows.map((row) => (
+              <article key={row.id} className="rounded-xl border border-[#dfe3e8] bg-[#fbfcfd] p-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-extrabold text-[#172438]">{row.plateNumber}</p>
+                  <p className="font-black text-[#172438]">{peso(row.finalFare)}</p>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#647182]">
+                  <span>{formatPhtTime(row.createdAt)}</span>
+                  <span className="rounded-full bg-[#f2e8ea] px-2 py-1 font-extrabold text-[#6f2f3c]">{row.fareCategory === "REGULAR_CASH" ? "Regular" : "Discounted"}</span>
+                </div>
+                <p className="mt-2 break-all font-mono text-[11px] text-[#7a8794]">{row.referenceNumber}</p>
+              </article>
+            ))}
+          </div>
+          </> : <EmptyState icon={CreditCard} title="No cash fares recorded today." />}
         </div>
       ) : null}
     </section>
@@ -436,6 +456,11 @@ function Dashboard({ username, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [telemetryNow, setTelemetryNow] = useState(() => Date.now());
+  useEffect(() => {
+    const clock = setInterval(() => setTelemetryNow(Date.now()), 5000);
+    return () => clearInterval(clock);
+  }, []);
   const [activeTerminal, setActiveTerminal] = useState("grand");
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeView, setActiveView] = useState("queue");
@@ -445,13 +470,13 @@ function Dashboard({ username, onLogout }) {
   const queueLoaderRef = useRef(null);
   const cashLoaderRef = useRef(null);
 
-  async function loadQueue({ silent = false } = {}) {
+  const loadQueue = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
 
     try {
-      const savedSession = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      const savedSession = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
       if (!savedSession?.token) {
-        localStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_KEY);
         throw new Error("STAFF_SESSION_EXPIRED");
       }
       const response = await fetch(`${API_BASE_URL}/api/staff/bus-queue`, {
@@ -461,7 +486,7 @@ function Dashboard({ username, onLogout }) {
         },
       });
       if (response.status === 401 || response.status === 403) {
-        localStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_KEY);
         throw new Error("STAFF_SESSION_EXPIRED");
       }
       if (!response.ok) throw new Error(`API returned ${response.status}`);
@@ -484,18 +509,18 @@ function Dashboard({ username, onLogout }) {
         return;
       }
       if (!silent) captureEvent("staff_bus_queue_load_failed");
-      setError("Live bus queue is unavailable. Check if the Spring Boot backend is running.");
+      setError("Live bus queue is unavailable. Check your connection and retry.");
     } finally {
       setLoading(false);
     }
-  }
+  }, [onLogout]);
 
-  async function loadCashTransactions({ silent = false } = {}) {
+  const loadCashTransactions = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setCashLoading(true);
     try {
-      const savedSession = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      const savedSession = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
       if (!savedSession?.token) {
-        localStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_KEY);
         onLogout();
         return;
       }
@@ -503,7 +528,7 @@ function Dashboard({ username, onLogout }) {
         headers: { Accept: "application/json", Authorization: `Bearer ${savedSession?.token || ""}` },
       });
       if (response.status === 401 || response.status === 403) {
-        localStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_KEY);
         onLogout();
         return;
       }
@@ -516,26 +541,31 @@ function Dashboard({ username, onLogout }) {
     } finally {
       setCashLoading(false);
     }
-  }
-
-  queueLoaderRef.current = loadQueue;
-  cashLoaderRef.current = loadCashTransactions;
+  }, [onLogout]);
 
   useEffect(() => {
-    loadQueue();
+    queueLoaderRef.current = loadQueue;
+  }, [loadQueue]);
+
+  useEffect(() => {
+    cashLoaderRef.current = loadCashTransactions;
+  }, [loadCashTransactions]);
+
+  useEffect(() => {
+    queueMicrotask(() => loadQueue());
     const timer = window.setInterval(() => loadQueue({ silent: true }), 30000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [loadQueue]);
 
   useEffect(() => {
     if (activeView !== "transactions") return undefined;
-    loadCashTransactions();
+    queueMicrotask(() => loadCashTransactions());
     const timer = window.setInterval(() => loadCashTransactions({ silent: true }), 30000);
     return () => window.clearInterval(timer);
-  }, [activeView]);
+  }, [activeView, loadCashTransactions]);
 
   useEffect(() => {
-    const savedSession = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    const savedSession = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
     if (!savedSession?.token) return undefined;
     const client = new Client({
       brokerURL: WEBSOCKET_URL,
@@ -559,39 +589,46 @@ function Dashboard({ username, onLogout }) {
   }, [lastUpdated]);
 
   const totalBuses = queue.incomingToSmTerminal.length + queue.incomingToGrandTerminal.length;
-  const activeQueue = activeTerminal === "sm" ? queue.incomingToSmTerminal : queue.incomingToGrandTerminal;
+  const activeQueue = (activeTerminal === "sm" ? queue.incomingToSmTerminal : queue.incomingToGrandTerminal).map(bus => queueView(bus, telemetryNow));
   const activeTitle = activeTerminal === "sm" ? "Incoming to SM Terminal" : "Incoming to Grand Terminal";
 
   return (
-    <main className="min-h-screen bg-[#f3f4f7] text-[#352f33]">
-      <header className="bg-brand-primary text-white shadow-sm">
-        <div className="relative mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3">
+    <main className="min-h-screen overflow-x-hidden bg-[#f3f5f7] text-[#172438]">
+      <header className="bg-[#641d2a] text-white shadow-[0_3px_14px_rgba(48,14,20,0.16)]">
+        <div className="relative mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
-            <img src={logo} alt="Premier Transit" className="h-11 w-11 shrink-0 rounded-full border-2 border-white/80 bg-white p-1 object-contain" />
+            <img src={logo} alt="Premier Transit" className="h-11 w-11 shrink-0 rounded-full border-2 border-white/90 bg-white p-1 object-contain sm:h-12 sm:w-12" />
             <div className="min-w-0">
-              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#f8d26a]">Premier Transit</p>
-              <h1 className="truncate text-lg font-black leading-tight">Staff Bus Queue</h1>
-              <p className="text-[11px] font-semibold text-white/75">Logged in as {username}</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.23em] text-[#efc862]">Premier Transit</p>
+              <h1 className="truncate text-lg font-black leading-tight sm:text-xl">Staff Bus Queue</h1>
+              <p className="truncate text-[11px] font-medium text-white/80">Logged in as: {username}</p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-white/10 text-2xl font-black text-white"
-            aria-label="Open staff menu"
-          >
-            ...
-          
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 border-r border-white/25 pr-3 sm:flex">
+              <UserRound size={16} aria-hidden="true" />
+              <span className="max-w-28 truncate text-xs font-semibold">{username}</span>
+              <ChevronDown size={14} aria-hidden="true" />
+            </div>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              className="grid min-h-10 min-w-10 place-items-center rounded-lg bg-white/10 text-white transition hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-white/70"
+              aria-label="Open staff menu"
+              aria-expanded={menuOpen}
+            >
+              <MoreVertical size={19} aria-hidden="true" />
+            </button>
+          </div>
 
           {menuOpen ? (
-            <div className="absolute right-4 top-[3.8rem] z-20 w-48 rounded-xl border border-[#e6e8ee] bg-white p-3 text-[#352f33] shadow-lg">
+            <div className="absolute right-4 top-[4.1rem] z-20 w-48 rounded-xl border border-[#dfe3e8] bg-white p-3 text-[#172438] shadow-[0_12px_32px_rgba(16,31,46,0.18)]">
               <p className="mb-2 text-sm font-bold">Logged in as staff</p>
               <button
                 type="button"
                 onClick={onLogout}
-                className="min-h-11 w-full rounded-lg bg-brand-primary/10 px-3 text-left text-sm font-black text-brand-primary"
+                className="min-h-11 w-full rounded-lg bg-[#f5ebed] px-3 text-left text-sm font-black text-[#641d2a] transition hover:bg-[#ecdadd]"
               >
                 Logout
               </button>
@@ -600,12 +637,12 @@ function Dashboard({ username, onLogout }) {
         </div>
       </header>
 
-      <section className="mx-auto w-full max-w-3xl px-4 py-4">
-        <nav className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#e6e8ee] bg-white p-2 shadow-sm" aria-label="Staff pages">
-          <button type="button" onClick={() => setActiveView("queue")} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-black ${activeView === "queue" ? "bg-brand-primary text-white" : "text-[#6f2f3c]"}`}>
+      <section className="mx-auto w-full max-w-3xl px-4 py-3.5 sm:px-5 sm:py-4">
+        <nav className="mb-3.5 grid grid-cols-2 rounded-xl border border-[#dce1e6] bg-white p-1 shadow-[0_3px_12px_rgba(18,35,52,0.04)]" aria-label="Staff pages">
+          <button type="button" onClick={() => setActiveView("queue")} aria-current={activeView === "queue" ? "page" : undefined} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm font-extrabold transition focus:outline-none focus:ring-2 focus:ring-[#9d5360] focus:ring-inset ${activeView === "queue" ? "bg-[#6b202f] text-white shadow-sm" : "text-[#27364a] hover:bg-[#f6f7f9]"}`}>
             <BusFront size={18} /> Queue
           </button>
-          <button type="button" onClick={() => setActiveView("transactions")} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-black ${activeView === "transactions" ? "bg-brand-primary text-white" : "text-[#6f2f3c]"}`}>
+          <button type="button" onClick={() => setActiveView("transactions")} aria-current={activeView === "transactions" ? "page" : undefined} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm font-extrabold transition focus:outline-none focus:ring-2 focus:ring-[#9d5360] focus:ring-inset ${activeView === "transactions" ? "bg-[#6b202f] text-white shadow-sm" : "text-[#27364a] hover:bg-[#f6f7f9]"}`}>
             <ListChecks size={18} /> Transactions
           </button>
         </nav>
@@ -613,92 +650,49 @@ function Dashboard({ username, onLogout }) {
         {activeView === "transactions" ? (
           <CashTransactions data={cashData} loading={cashLoading} error={cashError} onRefresh={() => loadCashTransactions()} />
         ) : (
-        <>
-        <div className="mb-4 rounded-2xl border border-[#e6e8ee] bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.18em] text-[#6f2f3c]">Staff Dashboard</p>
-              <h2 className="mt-1 text-2xl font-black text-[#352f33] max-[420px]:text-xl">Bus Queue Monitoring</h2>
-              <p className="mt-1 max-w-[14rem] text-xs font-semibold text-[#717680] sm:max-w-none">Last updated: {updatedLabel} - Auto refresh every 5 seconds</p>
-            </div>
-            <button onClick={() => loadQueue()} className="min-h-11 shrink-0 rounded-xl bg-brand-primary px-4 text-sm font-black text-white transition hover:bg-brand-primary-dark">
-              Refresh
-            </button>
+        <section className="rounded-2xl border border-[#dfe3e8] bg-white p-4 shadow-[0_8px_24px_rgba(18,35,52,0.06)] sm:p-5">
+          <PageHeader
+            eyebrow="Staff Dashboard"
+            title="Bus Queue Monitoring"
+            description="Live queue status and incoming buses per terminal. Auto-refreshes every 30 seconds."
+            updatedLabel={updatedLabel}
+            loading={loading}
+            onRefresh={() => loadQueue()}
+          />
+
+          <dl className="my-5 grid grid-cols-3 gap-2.5">
+            <StatCard label="Total Buses" value={totalBuses} icon={BusFront} />
+            <StatCard label="Incoming SM" value={queue.incomingToSmTerminal.length} icon={ArrowLeftRight} />
+            <StatCard label="Incoming Grand" value={queue.incomingToGrandTerminal.length} icon={ArrowLeftRight} />
+          </dl>
+
+          <div className="mb-4 grid grid-cols-2 gap-2.5 max-[560px]:grid-cols-1">
+            <TerminalSelector
+              label="SM Terminal"
+              colorClass="bg-[#397fa1]"
+              selected={activeTerminal === "sm"}
+              onClick={() => {
+                setActiveTerminal("sm");
+                captureEvent("staff_terminal_tab_selected", { terminal: "sm" });
+              }}
+            />
+            <TerminalSelector
+              label="Grand Terminal"
+              colorClass="bg-[#5d957f]"
+              selected={activeTerminal === "grand"}
+              onClick={() => {
+                setActiveTerminal("grand");
+                captureEvent("staff_terminal_tab_selected", { terminal: "grand" });
+              }}
+            />
           </div>
-        </div>
 
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          <div className="rounded-xl bg-white border border-[#e6e8ee] p-3 shadow-sm">
-            <p className="text-[10px] font-black uppercase tracking-wide text-[#717680]">Total Buses</p>
-            <p className="mt-2 text-2xl font-black text-[#6f2f3c]">{totalBuses}</p>
+          <div className="border-t border-[#e4e7eb] pt-4">
+            {loading ? <LoadingState label="Loading queue data…" /> : null}
+            {error ? <ErrorState title="Queue unavailable" description="Please check your connection and try again." onRetry={() => loadQueue()} /> : null}
+            {!loading && !error ? <QueueSection title={activeTitle} buses={activeQueue} /> : null}
           </div>
-          <div className="rounded-xl bg-white border border-[#e6e8ee] p-3 shadow-sm">
-            <p className="text-[10px] font-black uppercase tracking-wide text-[#717680]">Incoming SM</p>
-            <p className="mt-2 text-2xl font-black text-[#6f2f3c]">{queue.incomingToSmTerminal.length}</p>
-          </div>
-          <div className="rounded-xl bg-white border border-[#e6e8ee] p-3 shadow-sm">
-            <p className="text-[10px] font-black uppercase tracking-wide text-[#717680]">Incoming Grand</p>
-            <p className="mt-2 text-2xl font-black text-[#6f2f3c]">{queue.incomingToGrandTerminal.length}</p>
-          </div>
-        </div>
-
-        {loading ? <p className="mb-4 rounded-lg bg-white border border-[#e6e8ee] p-4 text-sm font-bold text-[#717680]">Loading bus queue...</p> : null}
-        {error ? <p className="mb-4 rounded-lg bg-[#fff7df] border border-[#e8bd47] p-4 text-sm font-bold text-[#8a5a00]">{error}</p> : null}
-
-        <div className="mb-4 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTerminal("sm");
-              captureEvent("staff_terminal_tab_selected", {
-                terminal: "sm",
-              });
-            }}
-            className={[
-              "min-h-20 rounded-2xl border-2 bg-white p-3 text-left transition shadow-sm",
-              activeTerminal === "sm" ? "border-blue-500 bg-blue-50" : "border-[#e6e8ee] hover:border-blue-200",
-            ].join(" ")}
-          >
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 text-sm font-black text-[#352f33]">
-                <span className="h-3 w-3 rounded-full bg-blue-500" />
-                SM Terminal
-              </span>
-              <span className="rounded-full bg-blue-100 px-2 py-1 text-[11px] font-black text-blue-700">
-                {queue.incomingToSmTerminal.length} bus
-              </span>
-            </div>
-            <p className="text-xs font-semibold text-[#717680]">Show buses incoming to SM Terminal</p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTerminal("grand");
-              captureEvent("staff_terminal_tab_selected", {
-                terminal: "grand",
-              });
-            }}
-            className={[
-              "min-h-20 rounded-2xl border-2 bg-white p-3 text-left transition shadow-sm",
-              activeTerminal === "grand" ? "border-green-500 bg-green-50" : "border-[#e6e8ee] hover:border-green-200",
-            ].join(" ")}
-          >
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 text-sm font-black text-[#352f33]">
-                <span className="h-3 w-3 rounded-full bg-green-500" />
-                Grand Terminal
-              </span>
-              <span className="rounded-full bg-green-100 px-2 py-1 text-[11px] font-black text-green-700">
-                {queue.incomingToGrandTerminal.length} bus
-              </span>
-            </div>
-            <p className="text-xs font-semibold text-[#717680]">Show buses incoming to Grand Terminal</p>
-          </button>
-        </div>
-
-        <QueueSection title={activeTitle} buses={activeQueue} />
-        </>
+        </section>
         )}
       </section>
     </main>
@@ -707,14 +701,14 @@ function Dashboard({ username, onLogout }) {
 export default function App() {
   const [session, setSession] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
       if (saved?.role === "STAFF" && typeof saved?.token === "string" && saved.token.length > 20) {
         return saved;
       }
-      localStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(SESSION_KEY);
       return null;
     } catch {
-      localStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
   });
@@ -730,7 +724,7 @@ export default function App() {
 
   function handleLogout() {
     resetAnalytics();
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
     captureEvent("staff_logout");
     setSession(null);
   }

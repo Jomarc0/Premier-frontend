@@ -1,27 +1,28 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FiCheck, FiCopy, FiRefreshCw, FiShield } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
 import TotpInput from '../components/auth/TotpInput';
 import * as ui from '../components/adminUI';
-import { useAdminAuth } from '../context/AdminAuthContext';
+import { useAdminAuth } from '../context/AdminAuthState';
 
 const AdminSecurityPage = () => {
-    const { setTwoFactorEnabled } = useAdminAuth();
+    const { admin, login, setTwoFactorEnabled } = useAdminAuth();
     const [setup, setSetup] = useState(null);
     const [code, setCode] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     const qrImageUrl = useMemo(() => {
-        if (!setup?.qrCodeUrl) return '';
-        return `https://api.qrserver.com/v1/create-qr-code/?size=190x190&data=${encodeURIComponent(setup.qrCodeUrl)}`;
+        return setup?.qrImageDataUri || '';
     }, [setup]);
 
     const isEnabled = Boolean(setup?.is2FaEnabled ?? setup?.twoFactorEnabled ?? setup?.['2FaEnabled']);
 
-    const loadSetup = async () => {
+
+
+    const loadSetup = useCallback(async () => {
         setLoading(true);
         try {
             const res = await adminAPI.get('/auth/totp/setup');
@@ -33,15 +34,18 @@ const AdminSecurityPage = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [setTwoFactorEnabled]);
 
-    useEffect(() => { loadSetup(); }, []);
+    useEffect(() => {
+        const initial = window.setTimeout(() => { loadSetup(); }, 0);
+        return () => window.clearTimeout(initial);
+    }, [loadSetup]);
 
     const copySecret = async () => {
         try {
             await navigator.clipboard.writeText(setup?.manualEntryKey || '');
             toast.success('Manual key copied');
-        } catch (_) {
+        } catch {
             toast.info('Copy failed. Select and copy the key manually.');
         }
     };
@@ -53,7 +57,10 @@ const AdminSecurityPage = () => {
         }
         setSaving(true);
         try {
-            await adminAPI.post('/auth/totp/verify', { totpCode: code.trim() });
+            const response = await adminAPI.post('/auth/totp/verify', { totpCode: code.trim() });
+            const token = response.data?.data?.token;
+            if (!token) throw new Error('Please log in again to complete enrollment.');
+            login(token, admin?.fullName, admin?.username, admin?.role, true);
             toast.success('Google Authenticator enabled');
             setTwoFactorEnabled(true);
             setCode('');

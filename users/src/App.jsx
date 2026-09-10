@@ -3,8 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation }
     from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { AuthProvider, useAuth }
-    from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './context/AuthState';
 import { RealtimeProvider } from './context/RealtimeContext';
 import LoginPage from './pages/LoginPage';
 import TotpSetupPage from './pages/TotpSetupPage';

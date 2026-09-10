@@ -16,14 +16,14 @@ import {
     FiMoreVertical,
 } from 'react-icons/fi';
 import adminAPI from '../api/adminAxios';
+import { useRef } from 'react';
 import AdminSidebar from '../components/AdminSidebar';
-import { useAdminAuth } from '../context/AdminAuthContext';
+import ConfirmModal from '../components/ConfirmModal';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
 import { formatDateTime } from '../lib/time';
 
 const ManageAdminsPage = () => {
-    const { isSuperAdmin } = useAdminAuth();
     const [admins, setAdmins] = useState([]);
     const [accountSearch, setAccountSearch] = useState('');
     const [roleFilter, setRoleFilter] = useState('ALL');
@@ -46,8 +46,18 @@ const ManageAdminsPage = () => {
         fullName: '', email: '',
         phoneNumber: '', role: 'ADMIN'
     });
+    const [resetTotpModalOpen, setResetTotpModalOpen] = useState(false);
+    const [resetTotpAdmin, setResetTotpAdmin] = useState(null);
+    const [resetTotpLoading, setResetTotpLoading] = useState(false);
+    const [deactivateModalOpen, setDeactivateModalOpen] = useState(false);
+    const [deactivateAdmin, setDeactivateAdmin] = useState(null);
+    const [deactivateLoading, setDeactivateLoading] = useState(false);
+    const actionMenuTriggerRef = useRef(null);
 
-    useEffect(() => { fetchAdmins(); fetchCashCards(); }, []);
+    useEffect(() => {
+        const initial = window.setTimeout(() => { fetchAdmins(); fetchCashCards(); }, 0);
+        return () => window.clearTimeout(initial);
+    }, []);
 
     const filteredAdmins = admins.filter((admin) => {
         const query = accountSearch.trim().toLowerCase();
@@ -67,14 +77,14 @@ const ManageAdminsPage = () => {
             && (cashCardStatusFilter === 'ALL' || card.status === cashCardStatusFilter);
     });
 
-    const fetchCashCards = async () => {
+    async function fetchCashCards() {
         try {
             const res = await adminAPI.get('/staff-cash-cards');
             setCashCards(res.data.data || []);
-        } catch (err) {
+        } catch {
             toast.error('Failed to load staff cash cards');
         }
-    };
+    }
 
     const readCashCardUid = async () => {
         setCapturingCard(true);
@@ -142,17 +152,17 @@ const ManageAdminsPage = () => {
         }
     };
 
-    const fetchAdmins = async () => {
+    async function fetchAdmins() {
         setLoading(true);
         try {
             const res = await adminAPI.get('/admins');
             setAdmins(res.data.data || []);
-        } catch (err) {
+        } catch {
             toast.error('Failed to load admins');
         } finally {
             setLoading(false);
         }
-    };
+    }
 
     const handleCreate = async () => {
         if (!form.username || !form.password ||
@@ -198,8 +208,26 @@ const ManageAdminsPage = () => {
             toast.success(
                 !active ? 'Admin activated' : 'Admin deactivated');
             fetchAdmins();
-        } catch (err) {
+        } catch {
             toast.error('Failed to update admin');
+        }
+    };
+
+    const handleDeactivate = (adminAccount) => {
+        if (deactivateLoading) return;
+        setDeactivateAdmin(adminAccount);
+        setDeactivateModalOpen(true);
+    };
+
+    const handleDeactivateConfirm = async () => {
+        if (!deactivateAdmin) return;
+        setDeactivateLoading(true);
+        try {
+            await handleToggleActive(deactivateAdmin.id, deactivateAdmin.active);
+        } finally {
+            setDeactivateLoading(false);
+            setDeactivateModalOpen(false);
+            setDeactivateAdmin(null);
         }
     };
 
@@ -229,27 +257,35 @@ const ManageAdminsPage = () => {
         }
     };
 
-    const handleResetTotp = async (adminAccount) => {
+    const handleResetTotp = (adminAccount) => {
+        if (resetTotpLoading) return;
         if (adminAccount.role === 'STAFF') {
             toast.info('Staff accounts do not use Google Authenticator');
             return;
         }
 
-        const confirmed = window.confirm(
-            `Reset Google Authenticator for ${adminAccount.username}? This lets the admin log in with username and password and set up a new authenticator.`
-        );
-        if (!confirmed) return;
+        setResetTotpAdmin(adminAccount);
+        setResetTotpModalOpen(true);
+    };
 
+    const handleResetTotpConfirm = async () => {
+        if (!resetTotpAdmin) return;
+        setResetTotpLoading(true);
         try {
-            await adminAPI.put(`/admins/${adminAccount.id}/reset-totp`);
+            await adminAPI.put(`/admins/${resetTotpAdmin.id}/reset-totp`);
             toast.success('Google Authenticator reset');
             fetchAdmins();
         } catch (err) {
             toast.error(err.response?.data?.message || 'Failed to reset Google Authenticator');
+        } finally {
+            setResetTotpLoading(false);
+            setResetTotpModalOpen(false);
+            setResetTotpAdmin(null);
         }
     };
 
     const openActionMenu = (event, account) => {
+        actionMenuTriggerRef.current = event.currentTarget;
         const rect = event.currentTarget.getBoundingClientRect();
         const menuWidth = 245;
         setActionMenu({
@@ -428,6 +464,47 @@ const ManageAdminsPage = () => {
                     </div>
                 )}
 
+                {resetTotpModalOpen && (
+                    <ConfirmModal
+                        isOpen={resetTotpModalOpen}
+                        onClose={() => setResetTotpModalOpen(false)}
+                        onConfirm={handleResetTotpConfirm}
+                        title="Reset Google Authenticator?"
+                        message="This will allow the admin to log in with their username and password and set up a new authenticator."
+                        warning="The current Google Authenticator setup will be reset. The admin will need to configure a new authenticator after logging in."
+                        confirmText="Reset Authenticator"
+                        loadingText="Resetting..."
+                        returnFocusRef={actionMenuTriggerRef}
+                        cancelText="Cancel"
+                        variant="primary"
+                        loading={resetTotpLoading}
+                        confirmDisabled={!resetTotpAdmin}
+                    />
+                )}
+
+                {deactivateModalOpen && (
+                    <ConfirmModal
+                        isOpen={deactivateModalOpen}
+                        onClose={() => {
+                            setDeactivateModalOpen(false);
+                            setDeactivateAdmin(null);
+                        }}
+                        onConfirm={handleDeactivateConfirm}
+                        title="Deactivate Admin Account?"
+                        message="Are you sure you want to deactivate this admin account?"
+                        warning="Once deactivated, this admin account will no longer be able to log in or access the admin dashboard."
+                        confirmText="Deactivate Account"
+                        loadingText="Deactivating..."
+                        returnFocusRef={actionMenuTriggerRef}
+                        cancelText="Cancel"
+                        variant="danger"
+                        loading={deactivateLoading}
+                        confirmDisabled={!deactivateAdmin}
+                        ariaLabelledBy="deactivate-admin-modal-title"
+                        ariaDescribedBy="deactivate-admin-modal-description"
+                    />
+                )}
+
                 {/* Stats */}
                 <section className={ui.statsGrid} aria-label="Admin summary">
                     {[
@@ -566,7 +643,14 @@ const ManageAdminsPage = () => {
                     <>
                         <button type="button" className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={() => setActionMenu(null)} aria-label="Close account actions" />
                         <div className="fixed z-50 w-[245px] overflow-hidden rounded-xl border border-border-soft bg-white py-2 shadow-[0_18px_48px_rgba(35,24,29,0.22)]" style={{ top: actionMenu.top, left: actionMenu.left }} role="menu">
-                            <button type="button" role="menuitem" onClick={() => { handleToggleActive(actionMenu.account.id, actionMenu.account.active); setActionMenu(null); }} className="flex min-h-11 w-full items-center gap-3 px-4 text-left text-sm font-bold text-text-main hover:bg-page-bg">
+                            <button type="button" role="menuitem" onClick={() => {
+                                if (actionMenu.account.active) {
+                                    handleDeactivate(actionMenu.account);
+                                } else {
+                                    handleToggleActive(actionMenu.account.id, actionMenu.account.active);
+                                }
+                                setActionMenu(null);
+                            }} className="flex min-h-11 w-full items-center gap-3 px-4 text-left text-sm font-bold text-text-main hover:bg-page-bg">
                                 {actionMenu.account.active ? <FiLock className="text-amber-600" /> : <FiUnlock className="text-green-700" />}
                                 {actionMenu.account.active ? 'Deactivate Account' : 'Activate Account'}
                             </button>
@@ -672,4 +756,3 @@ const ManageAdminsPage = () => {
 };
 
 export default ManageAdminsPage;
-

@@ -1,4 +1,4 @@
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthState';
 import { useNavigate, Link } from 'react-router-dom';
 import { useState } from 'react';
 import { FiLogOut, FiShield, FiUser } from 'react-icons/fi';
@@ -6,7 +6,7 @@ import NotificationBell from './NotificationBell';
 import PrivacyNoticeModal from './PrivacyNoticeModal';
 import logo from '../assets/image/logo-premier.webp';
 const Navbar = () => {
-  const { logout, passenger } = useAuth();
+  const { logout } = useAuth();
   const navigate = useNavigate();
   const [privacyNoticeOpen, setPrivacyNoticeOpen] = useState(false);
 
@@ -15,7 +15,6 @@ const Navbar = () => {
     navigate('/login');
   };
 
-  const passengerName = passenger?.name || 'Maria';
 
   return (
     <nav className="fixed top-0 inset-x-0 z-50 flex h-16 items-center justify-between border-b border-[#651F2D] bg-[#7A2635] px-3 md:px-8">

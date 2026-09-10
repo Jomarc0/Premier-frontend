@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { withAndroidManifest, withDangerousMod } = require('@expo/config-plugins');
+const { withAndroidManifest, withDangerousMod, withAppBuildGradle } = require('@expo/config-plugins');
 
 const HCE_AID = 'F0010203040506';
 const SERVICE_NAME = '.PremierHceService';
@@ -59,7 +59,7 @@ function createHceServiceManifestItem() {
 function createApduServiceXml() {
   return `<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/app_name"
-    android:requireDeviceUnlock="false">
+    android:requireDeviceUnlock="true">
   <!-- This AID must exactly match the ESP32 SELECT APDU payload: ${HCE_AID}. -->
   <aid-group android:category="other" android:description="@string/app_name">
     <aid-filter android:name="${HCE_AID}" />
@@ -68,114 +68,11 @@ function createApduServiceXml() {
 `;
 }
 
-function createKotlinService(packageName) {
-  return `package ${packageName}
-
-import android.nfc.cardemulation.HostApduService
-import android.os.Bundle
-import android.util.Log
-import java.nio.charset.StandardCharsets
-
-class PremierHceService : HostApduService() {
-    override fun processCommandApdu(commandApdu: ByteArray?, extras: Bundle?): ByteArray {
-        val command = commandApdu ?: return STATUS_AID_NOT_FOUND
-        Log.d(TAG, "Received APDU: \${command.toHex()}")
-
-        // The AID must exactly match the ESP32 SELECT APDU:
-        // 00 A4 04 00 07 F0 01 02 03 04 05 06 00.
-        if (!command.contentEquals(SELECT_PREMIER_AID)) {
-            Log.w(TAG, "AID not recognized for APDU: \${command.toHex()}")
-            return STATUS_AID_NOT_FOUND
-        }
-
-        Log.i(TAG, "Premier HCE service selected successfully")
-
-        val token = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .getString(KEY_MOBILE_NFC_TOKEN, null)
-            ?.takeIf { it.isNotBlank() }
-
-        if (token == null) {
-            Log.w(TAG, "No mobile NFC token saved. Open Mobile NFC Payment first.")
-            return STATUS_CONDITIONS_NOT_SATISFIED
-        }
-
-        return token.toByteArray(StandardCharsets.UTF_8) + STATUS_SUCCESS
-    }
-
-    override fun onDeactivated(reason: Int) {
-        Log.i(TAG, "Premier HCE deactivated from NFC field. reason=$reason")
-    }
-
-    private fun ByteArray.toHex(): String = joinToString("") { "%02X".format(it) }
-
-    companion object {
-        private const val TAG = "PremierHceService"
-        private const val PREFS_NAME = "premier_hce"
-        private const val KEY_MOBILE_NFC_TOKEN = "mobile_nfc_token"
-        private val SELECT_PREMIER_AID = byteArrayOf(
-            0x00.toByte(),
-            0xA4.toByte(),
-            0x04.toByte(),
-            0x00.toByte(),
-            0x07.toByte(),
-            0xF0.toByte(),
-            0x01.toByte(),
-            0x02.toByte(),
-            0x03.toByte(),
-            0x04.toByte(),
-            0x05.toByte(),
-            0x06.toByte(),
-            0x00.toByte(),
-        )
-        private val STATUS_SUCCESS = byteArrayOf(0x90.toByte(), 0x00.toByte())
-        private val STATUS_AID_NOT_FOUND = byteArrayOf(0x6A.toByte(), 0x82.toByte())
-        private val STATUS_CONDITIONS_NOT_SATISFIED = byteArrayOf(0x69.toByte(), 0x85.toByte())
-    }
+function readKotlinTemplate(name, packageName) {
+  return fs.readFileSync(path.join(__dirname, 'android-hce', name), 'utf8').replaceAll('__PACKAGE__', packageName);
 }
-`;
-}
-
-function createTokenModule(packageName) {
-  return `package ${packageName}
-
-import android.content.Context
-import com.facebook.react.bridge.Promise
-import com.facebook.react.bridge.ReactApplicationContext
-import com.facebook.react.bridge.ReactContextBaseJavaModule
-import com.facebook.react.bridge.ReactMethod
-
-class PremierHceTokenModule(private val reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext) {
-
-    override fun getName(): String = "PremierHceTokenModule"
-
-    @ReactMethod
-    fun setToken(token: String, promise: Promise) {
-        reactContext
-            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_MOBILE_NFC_TOKEN, token)
-            .apply()
-        promise.resolve(true)
-    }
-
-    @ReactMethod
-    fun clearToken(promise: Promise) {
-        reactContext
-            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .remove(KEY_MOBILE_NFC_TOKEN)
-            .apply()
-        promise.resolve(true)
-    }
-
-    companion object {
-        private const val PREFS_NAME = "premier_hce"
-        private const val KEY_MOBILE_NFC_TOKEN = "mobile_nfc_token"
-    }
-}
-`;
-}
+function createKotlinService(packageName) { return readKotlinTemplate('PremierHceService.kt', packageName); }
+function createTokenModule(packageName) { return readKotlinTemplate('PremierHceTokenModule.kt', packageName); }
 
 function createHcePackage(packageName) {
   return `package ${packageName}
@@ -213,7 +110,25 @@ function ensurePremierPackageRegistered(mainApplicationPath) {
   fs.writeFileSync(mainApplicationPath, updated);
 }
 
+const releaseSigningBlock = "// PREMIER_RELEASE_SIGNING_BEGIN\nandroid.buildTypes.release.signingConfig = null\nandroid.buildTypes.release.debuggable = false\ndef premierSigning = [\n    store: System.getenv(\"PREMIER_UPLOAD_KEYSTORE\"),\n    password: System.getenv(\"PREMIER_UPLOAD_STORE_PASSWORD\"),\n    alias: System.getenv(\"PREMIER_UPLOAD_KEY_ALIAS\"),\n    keyPassword: System.getenv(\"PREMIER_UPLOAD_KEY_PASSWORD\")\n]\nif (premierSigning.values().every { it != null && !it.isBlank() }) {\n    android.signingConfigs.create(\"premierRelease\") {\n        storeFile file(premierSigning.store)\n        storePassword premierSigning.password\n        keyAlias premierSigning.alias\n        keyPassword premierSigning.keyPassword\n    }\n    android.buildTypes.release.signingConfig = android.signingConfigs.premierRelease\n}\ndef verifyPremierReleaseSigning = tasks.register(\"verifyPremierReleaseSigning\") {\n    doLast {\n        if (!premierSigning.values().every { it != null && !it.isBlank() } ||\n                !file(premierSigning.store).isFile() ||\n                file(premierSigning.store).name == \"debug.keystore\" || premierSigning.alias == \"androiddebugkey\") {\n            throw new GradleException(\"Release signing requires the approved Premier upload keystore and signing environment variables. Debug signing is forbidden.\")\n        }\n    }\n}\ntasks.configureEach { task ->\n    if (task.name.toLowerCase().contains(\"release\") &&\n            [\"assemble\", \"bundle\", \"package\", \"validatesigning\"].any { task.name.toLowerCase().startsWith(it) }) {\n        task.dependsOn(verifyPremierReleaseSigning)\n    }\n}\n// PREMIER_RELEASE_SIGNING_END\n";
+
+const effectiveReleaseSigningBlock = releaseSigningBlock
+  .replace(
+    'android.buildTypes.release.signingConfig = null\n',
+    '',
+  )
+  .replace(
+    '        if (!premierSigning.values().every { it != null && !it.isBlank() } ||\n                !file(premierSigning.store).isFile() ||\n                file(premierSigning.store).name == "debug.keystore" || premierSigning.alias == "androiddebugkey") {',
+    '        def releaseSigning = android.buildTypes.release.signingConfig\n        if (releaseSigning == null ||\n                releaseSigning.storeFile == null ||\n                !releaseSigning.storeFile.isFile() ||\n                releaseSigning.storeFile.name == "debug.keystore" ||\n                releaseSigning.keyAlias == "androiddebugkey") {',
+  );
+
 function withAndroidHce(config) {
+  config = withAppBuildGradle(config, (modConfig) => {
+    if (!modConfig.modResults.contents.includes('// PREMIER_RELEASE_SIGNING_BEGIN')) {
+      modConfig.modResults.contents += '\n' + effectiveReleaseSigningBlock;
+    }
+    return modConfig;
+  });
   config = withAndroidManifest(config, (modConfig) => {
     const manifest = modConfig.modResults.manifest;
 
@@ -229,7 +144,7 @@ function withAndroidHce(config) {
       () => ({
         $: {
           'android:name': 'android.hardware.nfc.hce',
-          'android:required': 'true',
+          'android:required': 'false',
         },
       }),
     );
@@ -239,6 +154,8 @@ function withAndroidHce(config) {
       return modConfig;
     }
 
+    application.$['android:allowBackup'] = 'false';
+    application.$['android:usesCleartextTraffic'] = 'false';
     application.service = removeManifestItems(application.service, [
       SERVICE_NAME,
       'com.reactnativehce.services.CardService',
@@ -263,6 +180,7 @@ function withAndroidHce(config) {
       fs.mkdirSync(serviceDir, { recursive: true });
       fs.writeFileSync(path.join(serviceDir, SERVICE_CLASS_NAME), createKotlinService(packageName));
       fs.writeFileSync(path.join(serviceDir, TOKEN_MODULE_CLASS_NAME), createTokenModule(packageName));
+      fs.writeFileSync(path.join(serviceDir, 'PremierHceTokenStore.kt'), readKotlinTemplate('PremierHceTokenStore.kt', packageName));
       fs.writeFileSync(path.join(serviceDir, HCE_PACKAGE_CLASS_NAME), createHcePackage(packageName));
       ensurePremierPackageRegistered(path.join(serviceDir, 'MainApplication.kt'));
 

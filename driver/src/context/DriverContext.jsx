@@ -1,7 +1,8 @@
-import { createContext, useContext, useState } from 'react';
+import { DriverContext } from './DriverAuthState';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const DriverContext = createContext(null);
+
 
 export const DriverProvider = ({ children }) => {
     const navigate = useNavigate();
@@ -9,7 +10,7 @@ export const DriverProvider = ({ children }) => {
     // Hydrate from localStorage so state survives a page refresh
     const [driverInfo, setDriverInfo] = useState(() => {
         try {
-            const raw = localStorage.getItem('driverInfo');
+            const raw = sessionStorage.getItem('driverInfo');
             return raw ? JSON.parse(raw) : null;
         } catch {
             return null;
@@ -19,15 +20,15 @@ export const DriverProvider = ({ children }) => {
 
     const loginDriver = (data) => {
 
-        localStorage.setItem('driverToken', data.token);
+        sessionStorage.setItem('driverToken', data.token);
         // Persist the rest of the login payload
-        localStorage.setItem('driverInfo', JSON.stringify(data));
+        sessionStorage.setItem('driverInfo', JSON.stringify(data));
         setDriverInfo(data);
     };
 
     const logoutDriver = () => {
-        localStorage.removeItem('driverToken');
-        localStorage.removeItem('driverInfo');
+        sessionStorage.removeItem('driverToken');
+        sessionStorage.removeItem('driverInfo');
         setDriverInfo(null);
         navigate('/login');
     };
@@ -40,10 +41,3 @@ export const DriverProvider = ({ children }) => {
 };
 
 
-export const useDriver = () => {
-    const ctx = useContext(DriverContext);
-    if (!ctx) throw new Error('useDriver must be used within DriverProvider');
-    return ctx;
-};
-
-export default DriverContext;
