@@ -60,8 +60,7 @@ export async function registerPushNotifications() {
 
     await api.put('/notifications/fcm-token', { fcmToken });
     return fcmToken;
-  } catch (error) {
-    console.warn('Push notification registration failed:', error?.message || error);
+  } catch {
     return null;
   }
 }

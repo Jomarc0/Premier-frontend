@@ -93,7 +93,8 @@ export default function TotpSetupScreen({ navigation }) {
       }
 
       const { token, passengerName } = data.data || {};
-      await login(token, passengerName);
+      const pendingCardNumber = await SecureStore.getItemAsync('pendingCardNumber');
+      await login(token, passengerName, pendingCardNumber);
       await SecureStore.deleteItemAsync('tempToken');
       await SecureStore.deleteItemAsync('pendingCardNumber');
       captureMobileEvent(posthog, 'mobile_login_success', {

@@ -89,9 +89,11 @@ const TotpVerifyPage = () => {
       }
 
       const { token, passengerName } = data.data;
-      login(token, passengerName);
+      const authenticatedCardNumber = sessionStorage.getItem('pendingCardNumber');
+      login(token, passengerName, authenticatedCardNumber);
       loginCompletedRef.current = true;
       sessionStorage.removeItem('tempToken');
+      sessionStorage.removeItem('pendingCardNumber');
       captureEvent('passenger_web_login_success', {
         method: 'totp',
       });

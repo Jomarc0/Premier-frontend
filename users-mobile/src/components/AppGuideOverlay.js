@@ -4,6 +4,7 @@ import {
   Animated,
   InteractionManager,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -19,20 +20,29 @@ import handTapAnimation from '../../assets/animations/hand-tap.json';
 
 const OVERLAY_COLOR = 'rgba(8, 13, 26, 0.76)';
 const EDGE_GAP = 16;
+const CONTENT_GAP = 14;
+const ARROW_SIZE = 44;
+const ARROW_EDGE_GAP = 4;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-export function calculateGuidePlacement({ target, cardHeight, screen, insets, preferred }) {
+export function calculateGuidePlacement({ target, cardHeight, screen, insets, preferred, pointerType }) {
   const safeTop = insets.top + 12;
   const safeBottom = screen.height - insets.bottom - 12;
-  const gap = 16;
+  const gap = pointerType === 'arrow'
+    ? ARROW_SIZE + ARROW_EDGE_GAP * 2
+    : CONTENT_GAP;
   const below = safeBottom - (target.y + target.height);
   const above = target.y - safeTop;
-  const useBelow = preferred === 'below'
-    ? below >= cardHeight + gap || below >= above
-    : preferred === 'above'
-      ? !(above >= cardHeight + gap || above >= below)
-      : below >= cardHeight + gap || below >= above;
+  const requiredSpace = cardHeight + gap;
+  const belowFits = below >= requiredSpace;
+  const aboveFits = above >= requiredSpace;
+
+  let useBelow;
+  if (preferred === 'below' && belowFits) useBelow = true;
+  else if (preferred === 'above' && aboveFits) useBelow = false;
+  else if (belowFits !== aboveFits) useBelow = belowFits;
+  else useBelow = below >= above;
 
   return clamp(
     useBelow ? target.y + target.height + gap : target.y - cardHeight - gap,
@@ -82,10 +92,10 @@ function GesturePointer({ rect, screen, insets, reduceMotion, animationAvailable
   const tapAnchorX = 32 / 64;
   const tapAnchorY = 22 / 64;
 
-  const verticalOffset = 25; 
-
   const minTop = insets.top + 4;
-  const maxTop = screen.height - insets.bottom - size - 4;
+  // Keep the fingertip inside the safe area instead of forcing the complete
+  // animation above it. This lets the hand reach bottom-navigation buttons.
+  const maxTop = screen.height - insets.bottom - size * tapAnchorY;
 
   const position = {
     left: clamp(
@@ -94,7 +104,7 @@ function GesturePointer({ rect, screen, insets, reduceMotion, animationAvailable
       screen.width - size - 8,
     ),
     top: clamp(
-      rect.y + rect.height / 2 - size * tapAnchorY + verticalOffset,
+      rect.y + rect.height / 2 - size * tapAnchorY,
       minTop,
       maxTop,
     ),
@@ -119,19 +129,34 @@ function GesturePointer({ rect, screen, insets, reduceMotion, animationAvailable
   );
 }
 
-function ArrowPointer({ rect, screen, insets, bounce }) {
-  const size = 44;
-  const canFitAbove = rect.y - size > insets.top;
-  const top = canFitAbove ? rect.y - size : rect.y + rect.height;
-  const icon = canFitAbove ? 'arrow-down' : 'arrow-up';
+function ArrowPointer({ rect, screen, insets, bounce, cardTop, cardHeight }) {
+  const cardIsBelowTarget = cardTop >= rect.y + rect.height;
+  const top = cardIsBelowTarget
+    ? rect.y + rect.height + ARROW_EDGE_GAP
+    : rect.y - ARROW_SIZE - ARROW_EDGE_GAP;
+  const icon = cardIsBelowTarget ? 'arrow-up' : 'arrow-down';
+  const cardBottom = cardTop + cardHeight;
+  const minTop = cardIsBelowTarget
+    ? rect.y + rect.height
+    : cardBottom;
+  const maxTop = cardIsBelowTarget
+    ? cardTop - ARROW_SIZE
+    : rect.y - ARROW_SIZE;
+  const safeMinTop = insets.top + 4;
+  const safeMaxTop = screen.height - insets.bottom - ARROW_SIZE - 4;
+  const betweenMinTop = Math.max(safeMinTop, Math.min(minTop, maxTop));
+  const betweenMaxTop = Math.min(safeMaxTop, Math.max(minTop, maxTop));
+  const resolvedTop = betweenMinTop <= betweenMaxTop
+    ? clamp(top, betweenMinTop, betweenMaxTop)
+    : clamp(top, safeMinTop, safeMaxTop);
   return (
     <Animated.View
       pointerEvents="none"
       style={[
         styles.arrow,
         {
-          left: clamp(rect.x + rect.width / 2 - size / 2, 8, screen.width - size - 8),
-          top: clamp(top, insets.top + 4, screen.height - insets.bottom - size - 4),
+          left: clamp(rect.x + rect.width / 2 - ARROW_SIZE / 2, 8, screen.width - ARROW_SIZE - 8),
+          top: resolvedTop,
           transform: [{ translateY: bounce }],
         },
       ]}
@@ -191,7 +216,7 @@ export default function AppGuideOverlay({ visible, steps, onBeforeMeasure, onBac
   useEffect(() => {
     if (!visible || reduceMotion) return undefined;
     const loop = Animated.loop(Animated.sequence([
-      Animated.timing(bounceValue, { toValue: 6, duration: 600, useNativeDriver: true }),
+      Animated.timing(bounceValue, { toValue: 4, duration: 600, useNativeDriver: true }),
       Animated.timing(bounceValue, { toValue: 0, duration: 600, useNativeDriver: true }),
     ]));
     loop.start();
@@ -216,21 +241,25 @@ export default function AppGuideOverlay({ visible, steps, onBeforeMeasure, onBac
           if (attempts++ < 12) timer = setTimeout(measure, 80);
           return;
         }
-      const visualYOffset = 40; 
-      const padding = clamp(step.spotlightPadding ?? 8, 6, 12);
+        const padding = clamp(step.spotlightPadding ?? 8, 6, 12);
 
-      const left = clamp(x - padding, 0, screen.width);
-      const top = clamp(
-        y - padding + visualYOffset,
-        insets.top,
-        screen.height - insets.bottom,
-      );
-      const right = clamp(x + width + padding, 0, screen.width);
-      const bottom = clamp(
-        y + height + padding + visualYOffset,
-        insets.top,
-        screen.height - insets.bottom,
-      );
+        // Android's translucent modal starts above the status bar while the
+        // measured app content starts below it. Translate between those coordinate
+        // spaces once so every guide element shares the same target rectangle.
+        const modalOffsetY = Platform.OS === 'android' ? insets.top : 0;
+        const targetY = y + modalOffsetY;
+        const left = clamp(x - padding, 0, screen.width);
+        const top = clamp(
+          targetY - padding,
+          insets.top,
+          screen.height - insets.bottom,
+        );
+        const right = clamp(x + width + padding, 0, screen.width);
+        const bottom = clamp(
+          targetY + height + padding,
+          insets.top,
+          screen.height - insets.bottom,
+        );
         setTargetRect({
           x: left,
           y: top,
@@ -253,7 +282,14 @@ export default function AppGuideOverlay({ visible, steps, onBeforeMeasure, onBac
 
   const cardWidth = Math.min(360, screen.width - EDGE_GAP * 2);
   const cardTop = targetRect
-    ? calculateGuidePlacement({ target: targetRect, cardHeight, screen, insets, preferred: step.preferredCardPlacement })
+    ? calculateGuidePlacement({
+      target: targetRect,
+      cardHeight,
+      screen,
+      insets,
+      preferred: step.preferredCardPlacement,
+      pointerType: step.pointerType,
+    })
     : insets.top + 24;
   const cardLeft = targetRect
     ? clamp(targetRect.x + targetRect.width / 2 - cardWidth / 2, EDGE_GAP, screen.width - cardWidth - EDGE_GAP)
@@ -267,7 +303,14 @@ export default function AppGuideOverlay({ visible, steps, onBeforeMeasure, onBac
       <View style={styles.root} pointerEvents="box-none">
         {targetRect ? <SpotlightMask rect={targetRect} screen={screen} /> : <View style={styles.fullDim} />}
         {targetRect && step.pointerType === 'arrow' && (
-          <ArrowPointer rect={targetRect} screen={screen} insets={insets} bounce={reduceMotion ? 0 : bounceValue} />
+          <ArrowPointer
+            rect={targetRect}
+            screen={screen}
+            insets={insets}
+            bounce={reduceMotion ? 0 : bounceValue}
+            cardTop={cardTop}
+            cardHeight={cardHeight}
+          />
         )}
         {targetRect && step.pointerType === 'hand' && (
           <GesturePointer

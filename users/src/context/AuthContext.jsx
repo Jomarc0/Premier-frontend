@@ -24,7 +24,8 @@ export const AuthProvider = ({ children }) => {
                         setPassenger({
                             id: decoded.sub,
                             name: sessionStorage.getItem('passengerName'),
-                            token: token
+                            token: token,
+                            cardNumber: sessionStorage.getItem('passengerCardNumber')
                         });
                         identifyUser(decoded.sub, { role: 'passenger' });
                         //console.log('Passenger set from token');
@@ -43,17 +44,22 @@ export const AuthProvider = ({ children }) => {
         initAuth();
     }, []);
 
-    const login = (token, name) => {
+    const login = (token, name, cardNumber) => {
         //console.log('login called:', { token: !!token, name });
         sessionStorage.setItem('token', token);
         sessionStorage.setItem('passengerName', name);
+        const normalizedCardNumber = String(cardNumber || '').trim().replace(/\s+/g, '');
+        if (normalizedCardNumber && !normalizedCardNumber.includes('*')) {
+            sessionStorage.setItem('passengerCardNumber', normalizedCardNumber);
+        }
         
         try {
             const decoded = jwtDecode(token);
             setPassenger({
                 id: decoded.sub,
                 name: name,
-                token: token
+                token: token,
+                cardNumber: normalizedCardNumber || sessionStorage.getItem('passengerCardNumber')
             });
             identifyUser(decoded.sub, { role: 'passenger' });
            // console.log('login set passenger:', decoded.sub);
@@ -77,4 +83,3 @@ export const AuthProvider = ({ children }) => {
         </AuthContext.Provider>
     );
 };
-

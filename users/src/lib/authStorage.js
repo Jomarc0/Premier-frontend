@@ -1,4 +1,11 @@
-const AUTH_KEYS = ['token', 'tempToken', 'passengerName', 'postLoginAction'];
+const AUTH_KEYS = [
+  'token',
+  'tempToken',
+  'passengerName',
+  'passengerCardNumber',
+  'pendingCardNumber',
+  'postLoginAction',
+];
 const PRIVATE_PREFIXES = ['premier_chat_history', 'premier_chat_session', 'premier:passenger-notifications:'];
 export function clearPrivateStorage(storage) {
   const remove = [];

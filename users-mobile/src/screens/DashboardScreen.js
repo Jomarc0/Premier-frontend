@@ -36,6 +36,11 @@ import PrivacyNoticeModal from '../components/PrivacyNoticeModal';
 import { useAuth } from '../context/AuthContext';
 import { useRealtime } from '../context/RealtimeContext';
 import { formatPhtDateTime, phtDateKey } from '../utils/time';
+import {
+  generateTransactionReceiptPdf,
+  saveTransactionReceiptPdf,
+  shareTransactionReceiptPdf,
+} from '../utils/receiptPdf';
 import { colors, shadow } from '../theme';
 
 const QUICK_AMOUNTS = [20, 40, 50, 100, 200, 500];
@@ -98,9 +103,21 @@ const maskCardNumber = (cardNumber) => {
   return `Card **** ${String(cardNumber).slice(-4)}`;
 };
 
+const withReceiptTimeout = (promise, timeoutMs = 20000) => {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error('Receipt generation timed out.');
+      error.receiptStage = 'timeout';
+      reject(error);
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+};
+
 const displayCardNumber = (cardNumber) => {
   if (!cardNumber) return '-';
-  return String(cardNumber).replace(/(.{4})/g, '$1 ').trim();
+  return String(cardNumber).replace(/\s+/g, '').match(/.{1,4}/g)?.join(' ') || '-';
 };
 
 
@@ -187,6 +204,29 @@ function txMethodLabel(tx) {
   if (method === 'TOP_UP') return 'Top Up';
   if (method === 'FARE') return 'Fare';
   return method.replace('_', ' ');
+}
+
+function receiptPaymentMethod(tx) {
+  const raw = String(tx?.paymentMethod || txMethodLabel(tx) || '').toUpperCase();
+  const labels = {
+    PAYMONGO: 'PayMongo',
+    TOP_UP: 'Top Up',
+    TOPUP: 'Top Up',
+    RFID: 'RFID',
+    QR: 'QR',
+    NFC: 'NFC',
+    CASH: 'Cash',
+  };
+  return labels[raw] || raw.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) || 'N/A';
+}
+
+function receiptPaymentSource(tx) {
+  if (tx?.paymentProvider) return String(tx.paymentProvider);
+  if (tx?.provider) return String(tx.provider);
+  if (tx?.source) return String(tx.source);
+  if (String(tx?.paymentMethod || '').toUpperCase() === 'PAYMONGO') return 'PayMongo';
+  if (/\bvia\b/i.test(String(tx?.description || ''))) return String(tx.description);
+  return null;
 }
 
 function txVisual(tx) {
@@ -336,8 +376,7 @@ function TransactionRow({ tx, onPress }) {
       </View>
 
       <View style={styles.txMeta}>
-        <Text style={styles.txTitle}>{txTitle(tx)}</Text>
-        <Text style={styles.txId}>ID: {transactionId(tx)}</Text>
+        <Text numberOfLines={1} style={styles.txTitle}>{txTitle(tx)}</Text>
         <Text style={styles.txDate}>
           {formatDate(tx.createdAt)} • {txMethodLabel(tx)}
         </Text>
@@ -387,6 +426,7 @@ export default function DashboardScreen({ navigation }) {
   const [notificationFilter, setNotificationFilter] = useState('All');
   const [readNotificationIds, setReadNotificationIds] = useState([]);
   const [exportingTransactions, setExportingTransactions] = useState(false);
+  const [isGeneratingReceipt, setIsGeneratingReceipt] = useState(false);
   const [dashboardError, setDashboardError] = useState(null);
 
   const [selectedAmount, setSelectedAmount] = useState(100);
@@ -399,6 +439,7 @@ export default function DashboardScreen({ navigation }) {
   const [verifying, setVerifying] = useState(false);
 
   const [nfcSupported, setNfcSupported] = useState(null);
+  const [revealedCardNumber, setRevealedCardNumber] = useState(null);
 
   const [qrOpen, setQrOpen] = useState(false);
   const [qrLoading, setQrLoading] = useState(false);
@@ -535,6 +576,14 @@ export default function DashboardScreen({ navigation }) {
   const passengerName =
     String(rawPassengerName).replace(/\s*#\d+$/, '').trim() || 'Passenger';
 
+  const assignedCardNumber =
+    revealedCardNumber || balance?.cardNumber || passenger?.cardNumber;
+  const visibleAssignedCardNumber = [
+    revealedCardNumber,
+    passenger?.cardNumber,
+    balance?.cardNumber,
+  ].find((value) => value && !String(value).includes('*'));
+
   const profileCardStatus = String(
     balance?.cardStatus || balance?.status || 'Active',
   ).replace(/_/g, ' ');
@@ -656,25 +705,6 @@ export default function DashboardScreen({ navigation }) {
     ]);
   }, [notificationItems, readNotificationIds, saveReadNotificationIds]);
 
-  const transactionTotals = useMemo(
-    () =>
-      transactionSource.reduce(
-        (totals, tx) => {
-          const amount = Number(tx.amount || 0);
-
-          if (isMoneyIn(tx)) {
-            totals.in += amount;
-          } else if (txStatus(tx) !== 'FAILED') {
-            totals.out += amount;
-          }
-
-          return totals;
-        },
-        { in: 0, out: 0 },
-      ),
-    [transactionSource],
-  );
-
   const focusRecentActivity = useCallback(() => {
     setActiveTab('Home');
 
@@ -753,7 +783,7 @@ export default function DashboardScreen({ navigation }) {
     {
       id: 'balance', targetRef: balanceGuideRef, scrollRef: homeScrollRef,
       scrollOffsetRef: homeScrollOffsetRef, title: 'Available Balance',
-      description: 'View your current RFID card balance, card status, and masked card number before making a fare payment.',
+      description: 'View your current RFID card balance and card status before making a fare payment.',
       targetType: 'card', pointerType: 'arrow', preferredCardPlacement: 'below', spotlightPadding: 10, spotlightRadius: 24,
     },
     {
@@ -875,7 +905,7 @@ export default function DashboardScreen({ navigation }) {
         scrollRef: topUpScrollRef,
         scrollOffsetRef: topUpScrollOffsetRef,
         title: 'Card Balance',
-        description: 'Check your RFID card and current balance here before adding load.',
+        description: 'Check your current balance here before adding load.',
         targetType: 'card', pointerType: 'arrow', preferredCardPlacement: 'below', spotlightPadding: 10, spotlightRadius: 24,
       },
       {
@@ -950,6 +980,41 @@ export default function DashboardScreen({ navigation }) {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadFullCardNumber = async () => {
+      const sessionCardNumber = String(passenger?.cardNumber || '').trim();
+      const storedCardNumber = String(
+        await SecureStore.getItemAsync('passengerCardNumber') || '',
+      ).trim();
+      let fullCardNumber = [sessionCardNumber, storedCardNumber]
+        .find((value) => value && !value.includes('*')) || '';
+
+      if (!fullCardNumber) {
+        try {
+          const response = await api.get('/card-number', {
+            skipUnauthorizedHandler: true,
+          });
+          fullCardNumber = String(response.data?.data?.cardNumber || '').trim();
+          if (fullCardNumber && !fullCardNumber.includes('*')) {
+            await SecureStore.setItemAsync('passengerCardNumber', fullCardNumber);
+          }
+        } catch {
+          // A verified card number is also saved securely during the next login.
+        }
+      }
+
+      if (active && fullCardNumber && !fullCardNumber.includes('*')) {
+        setRevealedCardNumber(fullCardNumber);
+      }
+    };
+
+    setRevealedCardNumber(null);
+    loadFullCardNumber();
+    return () => { active = false; };
+  }, [passenger?.cardNumber, passenger?.id]);
 
   useEffect(() => {
     fetchData();
@@ -1349,60 +1414,63 @@ export default function DashboardScreen({ navigation }) {
   };
 
   const downloadReceipt = async (tx) => {
-    if (!tx) return;
+    if (!tx || isGeneratingReceipt) {
+      if (!tx) {
+        Alert.alert('Receipt unavailable', 'Select a transaction before downloading a receipt.');
+      }
+      return;
+    }
 
+    setIsGeneratingReceipt(true);
     try {
       const amountSign = isMoneyIn(tx) ? '+' : '-';
-      const receipt = [
-        'PREMIER TRANSPORT',
-        'Transaction Receipt',
-        '',
-        `Type: ${txTitle(tx)}`,
-        `Status: ${txStatus(tx)}`,
-        `Transaction ID: ${tx.id || '-'}`,
-        `Reference Number: ${tx.referenceNumber || transactionId(tx)}`,
-        `Payment Method: ${txMethodLabel(tx)}`,
-        `Card Number: ${maskCardNumber(balance?.cardNumber || passenger?.cardNumber)}`,
-        `Date & Time: ${formatFullDate(tx.createdAt) || '-'}`,
-        `Amount: ${amountSign}PHP ${formatCurrency(tx.amount)}`,
-        tx.balanceBefore !== undefined && tx.balanceBefore !== null
-          ? `Balance Before: PHP ${formatCurrency(tx.balanceBefore)}`
+      const source = receiptPaymentSource(tx);
+      const pdf = await withReceiptTimeout(generateTransactionReceiptPdf({
+        transactionType: txTitle(tx),
+        amount: `${amountSign}PHP ${formatCurrency(tx.amount)}`,
+        status: txStatus(tx),
+        transactionId: String(tx.id || '-'),
+        referenceNumber: tx.referenceNumber || transactionId(tx),
+        paymentMethod: receiptPaymentMethod(tx),
+        dateTime: formatFullDate(tx.createdAt) || '-',
+        cardNumber: maskCardNumber(assignedCardNumber),
+        balanceBefore: tx.balanceBefore !== undefined && tx.balanceBefore !== null
+          ? `PHP ${formatCurrency(tx.balanceBefore)}`
           : null,
-        tx.balanceAfter !== undefined && tx.balanceAfter !== null
-          ? `Balance After: PHP ${formatCurrency(tx.balanceAfter)}`
+        balanceAfter: tx.balanceAfter !== undefined && tx.balanceAfter !== null
+          ? `PHP ${formatCurrency(tx.balanceAfter)}`
           : null,
-        tx.busNumber ? `Bus Number: ${tx.busNumber}` : null,
-        tx.terminalName || tx.terminal ? `Terminal: ${tx.terminalName || tx.terminal}` : null,
-        tx.description ? `Description: ${tx.description}` : null,
-        tx.notes || tx.reason ? `Notes: ${tx.notes || tx.reason}` : null,
-        '',
-        'Thank you for using Premier Transport.',
-      ]
-        .filter(Boolean)
-        .join('\n');
+        source,
+        busNumber: tx.busNumber || tx.busCode || tx.plateNumber || null,
+        terminal: tx.terminalName || tx.terminal || null,
+        description: source === tx.description ? null : tx.description || null,
+        notes: tx.notes || tx.reason || null,
+      }));
 
-      const safeId = transactionId(tx).replace(/[^a-zA-Z0-9_-]/g, '-');
-      const fileName = `premier-receipt-${safeId}.txt`;
-      const fileUri = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}${fileName}`;
+      const saved = await saveTransactionReceiptPdf(pdf);
+      if (saved) {
+        Alert.alert(
+          'Receipt downloaded',
+          `${pdf.fileName} was saved to the folder you selected.`,
+        );
+        return;
+      }
 
-      await FileSystem.writeAsStringAsync(fileUri, receipt, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: 'text/plain',
-          dialogTitle: 'Download Premier receipt',
-          UTI: 'public.plain-text',
-        });
-      } else {
-        Alert.alert('Receipt exported', `Saved to ${fileUri}`);
+      const shared = await shareTransactionReceiptPdf(pdf);
+      if (!shared) {
+        Alert.alert('Receipt PDF generated', `${pdf.fileName} was saved successfully.`);
       }
     } catch (error) {
-      Alert.alert(
-        'Receipt download failed',
-        error.message || 'Please try again.',
-      );
+      const message = error?.receiptStage === 'save'
+        ? 'Android could not save the PDF in the selected folder. Please select another folder and try again.'
+        : error?.receiptStage === 'timeout'
+          ? 'PDF generation took too long. Please close other apps and try again.'
+        : error?.receiptStage === 'share'
+          ? 'The PDF was generated, but Android could not open the save or share options. Please try again.'
+          : 'Unable to generate receipt. Please try again.';
+      Alert.alert('Receipt download failed', message);
+    } finally {
+      setIsGeneratingReceipt(false);
     }
   };
 
@@ -1910,11 +1978,6 @@ export default function DashboardScreen({ navigation }) {
         </View>
       </View>
 
-      <View style={styles.securePill}>
-        <Feather name="shield" size={14} color={colors.maroon} />
-        <Text style={styles.secureText}>Secure Session Active</Text>
-      </View>
-
       {dashboardError && (
         <View style={styles.inlineError}>
           <View style={{ flex: 1 }}>
@@ -1962,14 +2025,10 @@ export default function DashboardScreen({ navigation }) {
         <View style={styles.balanceDivider} />
 
         <View style={styles.cardMiniRow}>
-          <View>
+          <View style={styles.cardMiniDetails}>
             <Text style={styles.cardMiniLabel}>RFID Card</Text>
-            <Text style={styles.cardMini}>
-              {maskCardNumber(balance?.cardNumber).replace('Card ', '')}
-            </Text>
+            <Text style={styles.cardMini}>Ready for fare payments</Text>
           </View>
-
-          <Feather name="credit-card" size={20} color={colors.navy} />
 
           <Text style={styles.activeBadge}>Active</Text>
         </View>
@@ -2070,15 +2129,22 @@ export default function DashboardScreen({ navigation }) {
         </View>
 
         <Text style={styles.cardArtName}>{passengerName}</Text>
-        <Text style={styles.cardArtNumber}>
-          {displayCardNumber(balance?.cardNumber)}
+        <Text
+          style={[styles.cardArtNumber, styles.cardArtNumberRow]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+        >
+          {visibleAssignedCardNumber
+            ? displayCardNumber(visibleAssignedCardNumber)
+            : balance?.cardNumber || 'Card number unavailable'}
         </Text>
 
         <Text style={styles.cardArtLabel}>Balance</Text>
         <Text style={styles.cardArtBalance}>
           PHP {formatCurrency(currentBalance)}
         </Text>
-        <Text style={styles.cardArtActive}>Active</Text>
+        <Text style={styles.cardArtActive}>{profileCardStatus}</Text>
       </View>
 
       <View style={styles.walletActions}>
@@ -2177,13 +2243,10 @@ export default function DashboardScreen({ navigation }) {
         style={styles.infoCard}
       >
         <InfoRow
-          label="Assigned Card Number"
-          value={balance?.cardNumber || '-'}
-        />
-        <InfoRow
           label="Current Ledger Reserve"
           value={`PHP ${formatCurrency(currentBalance)}`}
           green
+          last
         />
       </View>
     </ScrollView>
@@ -2218,9 +2281,7 @@ export default function DashboardScreen({ navigation }) {
         collapsable={false}
         style={styles.topupCard}
       >
-        <Text style={styles.topupCardNo}>
-          {maskCardNumber(balance?.cardNumber)}
-        </Text>
+        <Text style={styles.topupCardNo}>Top Up</Text>
 
         <View>
           <Text style={styles.topupBalanceLabel}>Balance</Text>
@@ -2417,38 +2478,12 @@ export default function DashboardScreen({ navigation }) {
           onRightPress={downloadTransactions}
         />
 
-        <View style={styles.totalGrid}>
-          <View style={[styles.totalCard, styles.totalIn]}>
-            <MaterialCommunityIcons
-              name="cellphone"
-              size={20}
-              color="#DCFCE7"
-            />
-            <Text style={styles.totalLabel}>Total In</Text>
-            <Text style={styles.totalValue}>
-              +PHP {formatCurrency(transactionTotals.in)}
-            </Text>
-          </View>
-
-          <View style={[styles.totalCard, styles.totalOut]}>
-            <MaterialCommunityIcons
-              name="map-marker-outline"
-              size={20}
-              color="#FFE5EA"
-            />
-            <Text style={styles.totalLabel}>Total Out</Text>
-            <Text style={styles.totalValue}>
-              -PHP {formatCurrency(transactionTotals.out)}
-            </Text>
-          </View>
-        </View>
-
         <View style={styles.transactionSearchBox}>
           <Feather name="search" size={17} color="#8AA0BF" />
           <TextInput
             value={transactionSearch}
             onChangeText={setTransactionSearch}
-            placeholder="Search transaction ID or reference number"
+            placeholder="Search transactions"
             placeholderTextColor="#94A3B8"
             style={styles.transactionSearchInput}
           />
@@ -2809,9 +2844,7 @@ export default function DashboardScreen({ navigation }) {
 
         <View style={styles.profileSummaryText}>
           <Text numberOfLines={1} style={styles.profileName}>{passengerName}</Text>
-          <Text style={styles.profileCardNumber}>
-            {maskCardNumber(balance?.cardNumber || passenger?.cardNumber)}
-          </Text>
+          <Text style={styles.profileCardNumber}>Passenger account</Text>
         </View>
 
         <View style={[styles.profileActiveBadge, !profileCardActive && styles.profileInactiveBadge]}>
@@ -2826,7 +2859,7 @@ export default function DashboardScreen({ navigation }) {
         <ProfileSettingRow
           icon="card-account-details-outline"
           title="Card Information"
-          subtitle={`${maskCardNumber(balance?.cardNumber || passenger?.cardNumber)} • ${profileCardStatus}${balance?.cardType ? ` • ${balance.cardType}` : ''}`}
+          subtitle={`${profileCardStatus}${balance?.cardType ? ` • ${balance.cardType}` : ''}`}
           onPress={() => setActiveTab('Wallet')}
         />
       </ProfileSection>
@@ -2952,8 +2985,6 @@ export default function DashboardScreen({ navigation }) {
               />
             </Pressable>
 
-            <Text style={styles.scanNavLabel}>Scan</Text>
-
             <NavItem
               ref={activityNavGuideRef}
               icon="history"
@@ -3056,7 +3087,12 @@ export default function DashboardScreen({ navigation }) {
             </View>
 
             {!!selectedReceipt && (
-              <View style={styles.receiptBody}>
+              <>
+              <ScrollView
+                style={styles.receiptScroll}
+                contentContainerStyle={styles.receiptBody}
+                showsVerticalScrollIndicator={false}
+              >
                 <View style={styles.receiptSummary}>
                   <View>
                     <Text style={styles.receiptType}>
@@ -3086,12 +3122,19 @@ export default function DashboardScreen({ navigation }) {
                 <View style={styles.receiptDetails}>
                   <InfoRow label="Transaction ID" value={String(selectedReceipt.id || '-')} />
                   <InfoRow label="Reference No." value={selectedReceipt.referenceNumber || transactionId(selectedReceipt)} />
-                  <InfoRow label="Payment Method" value={txMethodLabel(selectedReceipt)} />
+                  <InfoRow label="Payment Method" value={receiptPaymentMethod(selectedReceipt)} />
                   <InfoRow label="Date & Time" value={formatFullDate(selectedReceipt.createdAt) || '-'} />
                   <InfoRow
                     label="Card Number"
-                    value={maskCardNumber(balance?.cardNumber || passenger?.cardNumber)}
+                    value={maskCardNumber(assignedCardNumber)}
                   />
+
+                  {!!receiptPaymentSource(selectedReceipt) && (
+                    <InfoRow
+                      label="Payment Source"
+                      value={receiptPaymentSource(selectedReceipt)}
+                    />
+                  )}
 
                   {!!(selectedReceipt.busNumber || selectedReceipt.busCode) && (
                     <InfoRow
@@ -3142,12 +3185,23 @@ export default function DashboardScreen({ navigation }) {
                   )}
                 </View>
 
+              </ScrollView>
+
                 <View style={styles.receiptActions}>
                   <Pressable
-                    style={styles.receiptDownloadButton}
+                    style={[
+                      styles.receiptDownloadButton,
+                      isGeneratingReceipt && styles.receiptButtonDisabled,
+                    ]}
                     onPress={() => downloadReceipt(selectedReceipt)}
+                    disabled={isGeneratingReceipt}
                   >
-                    <Text style={styles.receiptDownloadText}>Download</Text>
+                    {isGeneratingReceipt && (
+                      <ActivityIndicator size="small" color={colors.maroon} />
+                    )}
+                    <Text style={styles.receiptDownloadText}>
+                      {isGeneratingReceipt ? 'Generating PDF...' : 'Download PDF'}
+                    </Text>
                   </Pressable>
 
                   <Pressable
@@ -3157,7 +3211,7 @@ export default function DashboardScreen({ navigation }) {
                     <Text style={styles.receiptDoneText}>Close</Text>
                   </Pressable>
                 </View>
-              </View>
+              </>
             )}
           </View>
         </View>
@@ -3209,10 +3263,6 @@ export default function DashboardScreen({ navigation }) {
                     <View style={styles.qrLiveDot} />
                     <Text style={styles.qrReadyText}>Ready to scan</Text>
                   </View>
-
-                  <Text style={styles.qrCardNumber}>
-                    Card No. {qrData.cardNumber}
-                  </Text>
 
                   <Text style={styles.qrCountdown}>
                     Refreshes in {formatCountdown(qrSeconds)}
@@ -3424,9 +3474,9 @@ function BackTitle({
   );
 }
 
-function InfoRow({ label, value, green }) {
+function InfoRow({ label, value, green, last = false }) {
   return (
-    <View style={styles.infoRow}>
+    <View style={[styles.infoRow, last && styles.infoRowLast]}>
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={[styles.infoValue, green && styles.infoGreen]}>
         {value}
@@ -3570,25 +3620,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gold,
   },
 
-  securePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    alignSelf: 'flex-start',
-    backgroundColor: '#FFF8E7',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    marginBottom: 20,
-  },
-
-  secureText: {
-    color: colors.maroon,
-    fontSize: 11,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-
   balancePanel: {
     backgroundColor: colors.maroon,
     borderRadius: 20,
@@ -3630,6 +3661,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
+  },
+
+  cardMiniDetails: {
+    flex: 1,
+    minWidth: 0,
   },
 
   cardMiniLabel: {
@@ -3756,13 +3792,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 
-  txId: {
-    color: colors.maroon,
-    fontSize: 10,
-    fontWeight: '900',
-    marginTop: 3,
-  },
-
   txDate: {
     color: '#7186A5',
     fontSize: 12,
@@ -3809,6 +3838,7 @@ const styles = StyleSheet.create({
   receiptCard: {
     width: '90%',
     maxWidth: 380,
+    maxHeight: '88%',
     alignSelf: 'center',
     backgroundColor: '#fff',
     borderRadius: 22,
@@ -3854,6 +3884,11 @@ const styles = StyleSheet.create({
 
   receiptBody: {
     padding: 18,
+    paddingBottom: 14,
+  },
+
+  receiptScroll: {
+    flexShrink: 1,
   },
 
   receiptSummary: {
@@ -3931,7 +3966,11 @@ const styles = StyleSheet.create({
   receiptActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 18,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 18,
+    borderTopWidth: 1,
+    borderTopColor: '#EDF1F6',
   },
 
   receiptDownloadButton: {
@@ -3940,9 +3979,15 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E7CCD1',
+    flexDirection: 'row',
+    gap: 7,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fff',
+  },
+
+  receiptButtonDisabled: {
+    opacity: 0.6,
   },
 
   receiptDownloadText: {
@@ -4018,12 +4063,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
+  cardArtNumberRow: {
+    alignSelf: 'flex-start',
+    maxWidth: '78%',
+    marginTop: 12,
+  },
+
   cardArtNumber: {
+    flexShrink: 1,
     color: '#fff',
     fontSize: 16,
     fontWeight: '900',
     letterSpacing: 1,
-    marginTop: 12,
   },
 
   cardArtLabel: {
@@ -4145,6 +4196,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#EDF1F6',
   },
 
+  infoRowLast: {
+    borderBottomWidth: 0,
+  },
+
   infoLabel: {
     color: '#7186A5',
     fontSize: 12,
@@ -4212,6 +4267,7 @@ const styles = StyleSheet.create({
   },
 
   profileCardNumber: {
+    flexShrink: 1,
     color: '#7186A5',
     fontSize: 11,
     fontWeight: '700',
@@ -4634,41 +4690,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',
-  },
-
-  totalGrid: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-
-  totalCard: {
-    flex: 1,
-    borderRadius: 18,
-    padding: 16,
-  },
-
-  totalIn: {
-    backgroundColor: colors.green,
-  },
-
-  totalOut: {
-    backgroundColor: colors.maroon,
-  },
-
-  totalLabel: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    marginTop: 11,
-  },
-
-  totalValue: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '900',
-    marginTop: 7,
   },
 
   transactionSearchBox: {
@@ -5287,16 +5308,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
   },
 
-  scanNavLabel: {
-    position: 'absolute',
-    bottom: 7,
-    left: '50%',
-    marginLeft: -15,
-    color: colors.green,
-    fontSize: 9,
-    fontWeight: '900',
-  },
-
   centerModalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(8,13,26,0.65)',
@@ -5378,12 +5389,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '900',
     textTransform: 'uppercase',
-  },
-
-  qrCardNumber: {
-    color: '#1C2A44',
-    fontSize: 13,
-    fontWeight: '900',
   },
 
   qrCountdown: {

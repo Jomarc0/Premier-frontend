@@ -24,6 +24,12 @@ const QR_REFRESH_BUFFER_SECONDS = 8;
 
 const transactionId = (tx) => tx?.referenceNumber || `TX-${tx?.id}`;
 
+const displayCardNumber = (cardNumber) => {
+    if (!cardNumber) return '—';
+    const normalized = String(cardNumber).replace(/\s+/g, '');
+    return normalized.match(/.{1,4}/g)?.join(' ') || normalized;
+};
+
 const formatCountdown = (seconds) => {
     const safeSeconds = Math.max(0, Number(seconds || 0));
     const minutes = Math.floor(safeSeconds / 60);
@@ -432,7 +438,7 @@ const DashboardPage = () => {
                         <p className="mb-2 text-[14px] font-semibold text-white/90">Passenger dashboard</p>
                         <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-white/70">Available balance</p>
                         <h1 className="mt-2 font-mono text-[48px] font-black leading-none tracking-tight text-white md:text-[56px]">&#8369;{currentBalNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h1>
-                        <div className="mt-3 flex items-center gap-3 text-[14px] text-white/80"><span>Card ••••{balance?.cardNumber ? String(balance.cardNumber).slice(-4) : '—'}</span><span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" /><span className="font-semibold text-[#22C55E]">Active</span></div>
+                        <div className="mt-3 flex items-center gap-3 text-[14px] text-white/80"><span>Card {displayCardNumber(passenger?.cardNumber || balance?.cardNumber)}</span><span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" /><span className="font-semibold text-[#22C55E]">Active</span></div>
                     </div>
                     <div className="flex w-full flex-nowrap gap-4 md:w-auto md:justify-self-end">
                         <button type="button" onClick={() => document.getElementById('recharge-section')?.scrollIntoView({ behavior: 'smooth' })} className="inline-flex h-14 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-[#D4AF37] px-3 text-base font-semibold text-[#651F2D] transition hover:bg-[#e4c65d] cursor-pointer border-none md:w-[132px] md:flex-none md:px-5"><CreditCard size={16} /> Top Up</button>

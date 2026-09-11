@@ -6,17 +6,23 @@ export const POSTHOG_HOST =
   'https://us.i.posthog.com';
 
 export function captureMobileEvent(posthog, name, properties = {}) {
-  posthog?.capture(name, {
-    app: 'premier-users-mobile',
-    ...properties,
-  });
+  try {
+    posthog?.capture(name, {
+      app: 'premier-users-mobile',
+      ...properties,
+    });
+  } catch {}
 }
 
 export function identifyMobileUser(posthog, userId) {
   if (!posthog || userId === null || userId === undefined || userId === '') return;
-  posthog.identify(String(userId), { app: 'premier-users-mobile' });
+  try {
+    posthog.identify(String(userId), { app: 'premier-users-mobile' });
+  } catch {}
 }
 
 export function resetMobileAnalytics(posthog) {
-  posthog?.reset();
+  try {
+    posthog?.reset();
+  } catch {}
 }

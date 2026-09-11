@@ -79,8 +79,10 @@ const TotpSetupPage = () => {
       const { token, passengerName, passengerId } = data.data;
       if (!token) throw new Error('No authentication token received from server');
 
-      login(token, passengerName);
+      const authenticatedCardNumber = sessionStorage.getItem('pendingCardNumber');
+      login(token, passengerName, authenticatedCardNumber);
       sessionStorage.removeItem('tempToken');
+      sessionStorage.removeItem('pendingCardNumber');
       captureEvent('passenger_web_login_success', {
         method: 'totp_setup',
       });

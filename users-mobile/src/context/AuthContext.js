@@ -15,6 +15,7 @@ const FINGERPRINT_ENABLED_KEY = 'premier_fingerprint_enabled';
 const BIOMETRIC_REFRESH_TOKEN_KEY = 'premier_biometric_refresh_token';
 const BIOMETRIC_DEVICE_ID_KEY = 'premier_biometric_device_id';
 const BIOMETRIC_REFRESH_READY_KEY = 'premier_biometric_refresh_ready';
+const PASSENGER_CARD_NUMBER_KEY = 'passengerCardNumber';
 const BIOMETRIC_SECURE_OPTIONS = {
   requireAuthentication: true,
   authenticationPrompt: 'Verify your identity to use Premier biometric login',
@@ -64,9 +65,7 @@ async function clearBiometricStorage() {
 }
 
 function syncPushNotificationToken() {
-  registerPushNotifications().catch((error) => {
-    console.warn('Push notification registration failed:', error?.message || error);
-  });
+  registerPushNotifications().catch(() => {});
 }
 
 export function AuthProvider({ children }) {
@@ -104,9 +103,10 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const init = async () => {
       try {
-        const [token, name, secureEnabled, storedEnabled] = await Promise.all([
+        const [token, name, cardNumber, secureEnabled, storedEnabled] = await Promise.all([
           SecureStore.getItemAsync('token'),
           SecureStore.getItemAsync('passengerName'),
+          SecureStore.getItemAsync(PASSENGER_CARD_NUMBER_KEY),
           SecureStore.getItemAsync('biometricEnabled'),
           AsyncStorage.getItem(FINGERPRINT_ENABLED_KEY),
         ]);
@@ -116,11 +116,12 @@ export function AuthProvider({ children }) {
 
         if (isUnexpiredToken(token) && available) {
           const decoded = decodeJwt(token);
-          setLockedPassenger({ id: decoded?.sub, name, token });
+          setLockedPassenger({ id: decoded?.sub, name, token, cardNumber });
           setBiometricUnlockAvailable(true);
         } else if (!isUnexpiredToken(token)) {
           await SecureStore.deleteItemAsync('token');
           await SecureStore.deleteItemAsync('tempToken');
+          await SecureStore.deleteItemAsync(PASSENGER_CARD_NUMBER_KEY);
           await clearHceToken();
           setBiometricUnlockAvailable(available);
         }
@@ -148,11 +149,15 @@ export function AuthProvider({ children }) {
     loading,
     biometricEnabled,
     biometricUnlockAvailable,
-    login: async (token, name) => {
+    login: async (token, name, cardNumber) => {
       await SecureStore.setItemAsync('token', token);
       await SecureStore.setItemAsync('passengerName', name || '');
+      const normalizedCardNumber = String(cardNumber || '').trim();
+      if (normalizedCardNumber && !normalizedCardNumber.includes('*')) {
+        await SecureStore.setItemAsync(PASSENGER_CARD_NUMBER_KEY, normalizedCardNumber);
+      }
       const decoded = decodeJwt(token);
-      setPassenger({ id: decoded?.sub, name, token });
+      setPassenger({ id: decoded?.sub, name, token, cardNumber: normalizedCardNumber || null });
       setLockedPassenger(null);
       setBiometricUnlockAvailable(false);
     },
@@ -263,8 +268,9 @@ export function AuthProvider({ children }) {
         );
         await SecureStore.setItemAsync('token', data.token);
         await SecureStore.setItemAsync('passengerName', data.passengerName || '');
+        const cardNumber = await SecureStore.getItemAsync(PASSENGER_CARD_NUMBER_KEY);
         const decoded = decodeJwt(data.token);
-        setPassenger({ id: decoded?.sub, name: data.passengerName, token: data.token });
+        setPassenger({ id: decoded?.sub, name: data.passengerName, token: data.token, cardNumber });
         setLockedPassenger(null);
         setBiometricUnlockAvailable(false);
       } catch (error) {
@@ -290,6 +296,7 @@ export function AuthProvider({ children }) {
         SecureStore.deleteItemAsync('token'),
         SecureStore.deleteItemAsync('passengerName'),
         SecureStore.deleteItemAsync('tempToken'),
+        SecureStore.deleteItemAsync(PASSENGER_CARD_NUMBER_KEY),
         clearBiometricStorage(),
       ]);
       await clearHceToken();

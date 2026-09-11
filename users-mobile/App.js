@@ -1,7 +1,7 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, LogBox, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PostHogProvider } from 'posthog-react-native';
 
@@ -18,6 +18,9 @@ import TotpVerifyScreen from './src/screens/TotpVerifyScreen';
 import { POSTHOG_HOST, POSTHOG_KEY } from './src/analytics/posthog';
 import { colors } from './src/theme';
 
+// PostHog transport failures are non-critical and are already handled by its SDK.
+// Keep the development error overlay from exposing the SDK's raw flush message.
+LogBox.ignoreLogs(['Error while flushing PostHog']);
 
 Text.defaultProps = Text.defaultProps || {};
 Text.defaultProps.allowFontScaling = false;

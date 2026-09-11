@@ -55,6 +55,10 @@ const LoginPage = () => {
       }
 
       sessionStorage.setItem('tempToken', tempToken);
+      sessionStorage.setItem(
+        'pendingCardNumber',
+        String(cardNumber).trim().replace(/\s+/g, ''),
+      );
 
       if (requireSetup) {
         captureEvent('passenger_web_login_totp_setup_required');
