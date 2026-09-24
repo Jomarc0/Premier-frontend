@@ -638,8 +638,8 @@ const TransactionSection = ({ data = {}, loading }) => (
             <h3 className="m-0 mb-4 text-maroon font-black">Recent Failed Transactions</h3>
             {loading ? <TableSkeleton /> : data.failedTransactions?.length
                 ? <DataTable rows={data.failedTransactions.slice(0, 20)} columns={[
-                    ['transactionId', 'Transaction ID'], ['dateTime', 'Date / Time', dateTime], ['bus', 'Bus', unavailable],
-                    ['directionLabel', 'Direction', unavailable], ['paymentMethod', 'Payment'], ['failureReason', 'Reason'], ['terminal', 'Terminal', unavailable],
+                    ['transactionId', 'Attempt ID'], ['dateTime', 'Date / Time', dateTime], ['bus', 'Bus', unavailable],
+                    ['directionLabel', 'Direction', unavailable], ['paymentMethod', 'Payment'], ['failureReason', 'Reason'], ['terminal', 'Device ID', unavailable],
                 ]} />
                 : <AnalyticsEmptyState title="No failed transactions" text="No failed fare attempts match the selected filters." />}
         </section>
