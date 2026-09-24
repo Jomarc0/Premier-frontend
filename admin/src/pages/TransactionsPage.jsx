@@ -106,7 +106,7 @@ const TransactionsPage = () => {
     const filtered = transactions.filter(tx => {
         const query = search.trim().toLowerCase();
         const matchSearch = search === '' ||
-            [tx.id, tx.referenceNumber, tx.userId, tx.passengerId, tx.passenger?.id, tx.passenger?.rfidCardId]
+            [tx.id, tx.referenceNumber, tx.passengerId, tx.plateNumber]
                 .some(value => String(value || '').toLowerCase().includes(query));
         const matchStatus = filterStatus === 'All Status'
             || (filterStatus === 'SUCCESS' ? tx.status === 'SUCCESS' || tx.status === 'COMPLETED' : tx.status === filterStatus);
@@ -219,7 +219,7 @@ const TransactionsPage = () => {
                             <span className={ui.filterLabel}>Search</span>
                             <input
                                 type="search"
-                                placeholder="User ID / Reference"
+                                placeholder="User ID / Reference / Bus Plate"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 className={ui.filterField}
@@ -259,7 +259,7 @@ const TransactionsPage = () => {
                         <table className="w-full min-w-[760px] border-collapse text-text-main">
                             <thead>
                                 <tr>
-                                    {['Txn ID', 'Amount', 'Type', 'Status', 'User Balance', 'Reference'].map(h => (
+                                    {['Txn ID', 'Amount', 'Type', 'Bus Plate', 'Status', 'User Balance', 'Reference'].map(h => (
                                         <th key={h} className={ui.tableTh}>{h}</th>
                                     ))}
                                 </tr>
@@ -267,13 +267,13 @@ const TransactionsPage = () => {
                             <tbody>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={6} className={ui.loadingRow}>
+                                        <td colSpan={7} className={ui.loadingRow}>
                                             <span className="inline-flex items-center gap-2"><FiRefreshCw className="animate-spin" /> Loading transactions…</span>
                                         </td>
                                     </tr>
                                 ) : filtered.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="px-4 py-12 text-center">
+                                        <td colSpan={7} className="px-4 py-12 text-center">
                                             <strong className="block text-sm text-[#303b49]">No transactions found.</strong>
                                             <span className="mt-1 block text-sm text-text-muted">Try adjusting your filters or check back later.</span>
                                         </td>
@@ -287,6 +287,13 @@ const TransactionsPage = () => {
                                             </td>
                                             <td className={ui.tableTd}>
                                                 <span className="inline-flex rounded-md bg-[#f4f5f7] px-2 py-1 text-xs font-semibold text-[#4b5563]">{transactionTypeLabel(tx.type)}</span>
+                                            </td>
+                                            <td className={ui.tableTd}>
+                                                {tx.plateNumber ? (
+                                                    <span className="inline-flex rounded-md border border-[#d9dde3] bg-[#f7f8fa] px-2 py-1 font-mono text-xs font-bold tracking-wide text-[#4b5563]">
+                                                        {tx.plateNumber}
+                                                    </span>
+                                                ) : '—'}
                                             </td>
                                             <td className={ui.tableTd}>
                                                 <span

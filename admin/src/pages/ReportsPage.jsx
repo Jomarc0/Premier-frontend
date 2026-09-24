@@ -557,8 +557,8 @@ const DailyBusPerformance = ({ loading, rows, onSelectBus }) => {
                         <DataTable rows={visible} columns={[
                             ['date', 'Date'], ['bus', 'Bus', value => <button className="font-black text-maroon hover:text-gold" onClick={() => onSelectBus(value)}>{value}</button>],
                             ['smToGrandPassengers', 'SM → Grand', number], ['grandToSmPassengers', 'Grand → SM', number],
-                            ['totalPassengers', 'Total Pax', number], ['trips', 'Trips', unavailable],
-                            ['revenue', 'Revenue', money], ['passengersPerTrip', 'Pax / Trip', unavailable], ['revenuePerTrip', 'Revenue / Trip', unavailable],
+                            ['totalPassengers', 'Total Pax', number], ['trips', 'Trips', number],
+                            ['revenue', 'Revenue', money], ['passengersPerTrip', 'Pax / Trip', number], ['revenuePerTrip', 'Revenue / Trip', money],
                         ]} />
                         <div className="mt-4 flex items-center justify-between text-xs font-bold text-text-muted">
                             <span>Page {page + 1} of {pages} · {filtered.length} rows</span>
@@ -582,7 +582,18 @@ const TripAvailability = ({ data, loading }) => (
                     <FiInfo className="mt-1 shrink-0 text-maroon" />
                     <div><strong className="text-maroon">Trip data is not yet available</strong><p className="m-0 mt-1 text-sm text-text-muted">{data?.message}</p></div>
                 </div>
-            ) : <DataTable rows={data.byBus || []} columns={[]} />}
+            ) : <>
+                <div className="mb-5 grid grid-cols-4 gap-3 max-[900px]:grid-cols-2 max-[520px]:grid-cols-1">
+                    <MiniMetric label="Completed Trips" value={number(data.completedTrips)} />
+                    <MiniMetric label="Cancelled Trips" value={number(data.cancelledTrips)} />
+                    <MiniMetric label="Average Pax / Trip" value={number(data.averagePassengersPerTrip)} />
+                    <MiniMetric label="Average Revenue / Trip" value={money(data.averageRevenuePerTrip)} />
+                </div>
+                {(data.byBus || []).length ? <DataTable rows={data.byBus} columns={[
+                    ['bus', 'Bus'], ['trips', 'Completed Trips', number], ['passengers', 'Passengers', number],
+                    ['revenue', 'Revenue', money], ['passengersPerTrip', 'Pax / Trip', number], ['revenuePerTrip', 'Revenue / Trip', money],
+                ]} /> : <AnalyticsEmptyState title="No completed trips" text="No completed terminal-to-terminal trips match the selected filters." />}
+            </>}
         </section>
     </DashboardSection>
 );
@@ -643,7 +654,7 @@ const FleetSection = ({ data = {}, loading, onSelectBus }) => (
                 {loading ? <TableSkeleton /> : data.topPerformingBuses?.length
                     ? <DataTable rows={data.topPerformingBuses} columns={[
                         ['bus', 'Bus', value => <button className="font-black text-maroon" onClick={() => onSelectBus(value)}>{value}</button>],
-                        ['passengers', 'Passengers', number], ['revenue', 'Revenue', money], ['trips', 'Trips', unavailable],
+                        ['passengers', 'Passengers', number], ['revenue', 'Revenue', money], ['trips', 'Trips', number],
                     ]} />
                     : <AnalyticsEmptyState title="No bus performance data" text="No bus-linked successful fares match the selected filters." />}
             </section>

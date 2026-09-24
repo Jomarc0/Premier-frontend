@@ -4,7 +4,6 @@ import {
   Animated,
   InteractionManager,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -227,36 +226,33 @@ export default function AppGuideOverlay({ visible, steps, onBeforeMeasure, onBac
     setTargetRect(null);
     if (!visible || !step) return undefined;
     let cancelled = false;
-    let timer;
+    let retryTimer;
+    let settleTimer;
+    let firstFrame;
+    let secondFrame;
     let attempts = 0;
     const measure = () => {
       const target = step.targetRef?.current;
       if (cancelled || !target) {
-        if (!cancelled && attempts++ < 12) timer = setTimeout(measure, 80);
+        if (!cancelled && attempts++ < 12) retryTimer = setTimeout(measure, 80);
         return;
       }
       target.measureInWindow((x, y, width, height) => {
         if (cancelled) return;
         if (width <= 0 || height <= 0) {
-          if (attempts++ < 12) timer = setTimeout(measure, 80);
+          if (attempts++ < 12) retryTimer = setTimeout(measure, 80);
           return;
         }
         const padding = clamp(step.spotlightPadding ?? 8, 6, 12);
-
-        // Android's translucent modal starts above the status bar while the
-        // measured app content starts below it. Translate between those coordinate
-        // spaces once so every guide element shares the same target rectangle.
-        const modalOffsetY = Platform.OS === 'android' ? insets.top : 0;
-        const targetY = y + modalOffsetY;
         const left = clamp(x - padding, 0, screen.width);
         const top = clamp(
-          targetY - padding,
+          y - padding,
           insets.top,
           screen.height - insets.bottom,
         );
         const right = clamp(x + width + padding, 0, screen.width);
         const bottom = clamp(
-          targetY + height + padding,
+          y + height + padding,
           insets.top,
           screen.height - insets.bottom,
         );
@@ -271,12 +267,23 @@ export default function AppGuideOverlay({ visible, steps, onBeforeMeasure, onBac
     };
     const interaction = InteractionManager.runAfterInteractions(async () => {
       await onBeforeMeasure?.(step);
-      if (!cancelled) requestAnimationFrame(() => requestAnimationFrame(measure));
+      if (cancelled) return;
+      firstFrame = requestAnimationFrame(() => {
+        secondFrame = requestAnimationFrame(() => {
+          measure();
+          // Verify once more after native layout and any guide-triggered scroll
+          // have settled. This avoids retaining a stale rectangle on reopen.
+          settleTimer = setTimeout(measure, 180);
+        });
+      });
     });
     return () => {
       cancelled = true;
       interaction.cancel?.();
-      clearTimeout(timer);
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+      clearTimeout(retryTimer);
+      clearTimeout(settleTimer);
     };
   }, [currentIndex, insets.bottom, insets.top, onBeforeMeasure, screen.height, screen.width, step, visible]);
 
@@ -299,7 +306,14 @@ export default function AppGuideOverlay({ visible, steps, onBeforeMeasure, onBac
   const isLast = currentIndex === steps.length - 1;
 
   return (
-    <Modal transparent visible={visible} animationType="fade" statusBarTranslucent onRequestClose={onSkip}>
+    <Modal
+      transparent
+      visible={visible}
+      animationType="fade"
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onSkip}
+    >
       <View style={styles.root} pointerEvents="box-none">
         {targetRect ? <SpotlightMask rect={targetRect} screen={screen} /> : <View style={styles.fullDim} />}
         {targetRect && step.pointerType === 'arrow' && (

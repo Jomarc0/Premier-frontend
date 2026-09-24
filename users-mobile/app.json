@@ -18,6 +18,7 @@
       "permissions": [
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.NFC"
       ],
       "allowBackup": false
@@ -53,10 +54,10 @@
       "apiUrl": "https://premiertranspo.onrender.com",
       "authBaseUrl": "https://premiertranspo.onrender.com",
       "eas": {
-        "projectId": "3d3d9e8b-dcd6-47de-821f-82032043e12f"
+        "projectId": "0471fbd5-e9a9-479e-9864-2918c73262e3"
       }
     },
-    "owner": "luffy2",
+    "owner": "togi012322",
     "runtimeVersion": {
       "policy": "appVersion"
     }

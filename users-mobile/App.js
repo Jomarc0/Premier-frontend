@@ -1,7 +1,8 @@
-import { NavigationContainer } from '@react-navigation/native';
+import { createNavigationContainerRef, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, LogBox, Text, TextInput, View } from 'react-native';
+import { useEffect } from 'react';
+import { ActivityIndicator, BackHandler, LogBox, Platform, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PostHogProvider } from 'posthog-react-native';
 
@@ -27,6 +28,7 @@ Text.defaultProps.allowFontScaling = false;
 TextInput.defaultProps = TextInput.defaultProps || {};
 TextInput.defaultProps.allowFontScaling = false;
 const Stack = createNativeStackNavigator();
+const navigationRef = createNavigationContainerRef();
 
 function Routes() {
   const { passenger, loading } = useAuth();
@@ -61,9 +63,26 @@ function Routes() {
 }
 
 export default function App() {
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // Android sends both the system Back button and the edge-swipe gesture
+      // through this event. Let React Navigation pop real stack history, but
+      // consume Back at the root so the launcher activity stays open.
+      if (navigationRef.isReady() && navigationRef.canGoBack()) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, []);
+
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST, captureNavigation: true }}>
           <AuthProvider>
             <RealtimeProvider>

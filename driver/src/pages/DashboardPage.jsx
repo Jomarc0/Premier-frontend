@@ -7,7 +7,7 @@ import useGpsTracking from '../hooks/useGpsTracking';
 import GpsStatusBadge from '../components/GpsStatusBadge';
 import {
     MapPin, LogOut,
-    Radio, User, ShieldCheck, RefreshCw,
+    Radio, User, ShieldCheck, RefreshCw, PlayCircle, CheckCircle,
 } from 'lucide-react';
 
 const POLL_INTERVAL = 5000;
@@ -24,6 +24,7 @@ export default function DashboardPage() {
     const [refreshing,       setRefreshing]       = useState(false);
     const [showLogout,       setShowLogout]       = useState(false);
     const [logoutSending,    setLogoutSending]    = useState(false);
+    const [tripSending,      setTripSending]      = useState(false);
 
     const plateNumber = driverInfo?.plateNumber;
     const shiftId     = driverInfo?.shiftId;
@@ -93,6 +94,35 @@ export default function DashboardPage() {
         }
     };
 
+    const handleStartTrip = async (direction) => {
+        if (tripSending) return;
+        setTripSending(true);
+        try {
+            await driverAPI.post('/trips/start', { direction });
+            toast.success('Trip started. Passenger fares will now be assigned to this run.');
+            await fetchShiftInfo();
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Trip could not be started. Confirm that the bus is at the origin terminal and GPS is active.');
+        } finally {
+            setTripSending(false);
+        }
+    };
+
+    const handleCompleteTrip = async () => {
+        const tripId = shiftInfo?.activeTrip?.id;
+        if (!tripId || tripSending) return;
+        setTripSending(true);
+        try {
+            await driverAPI.post(`/trips/${tripId}/complete`);
+            toast.success('Trip completed. Select the return direction before accepting more fares.');
+            await fetchShiftInfo();
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Trip could not be completed. Confirm that the bus is at the destination terminal and GPS is active.');
+        } finally {
+            setTripSending(false);
+        }
+    };
+
     // ─── END SHIFT ───────────────────────────────────────────────────────────
     // Fix order:
     // 1. Set isLoggingOutRef = true  → fetchShiftInfo ignores all 400s immediately
@@ -134,6 +164,7 @@ export default function DashboardPage() {
     const availableSeats    = shiftInfo?.availableSeats    ?? 0;
     const totalCapacity     = shiftInfo?.totalCapacity     ?? 25;
     const capacityPct       = fmtPct(passengersOnboard, totalCapacity);
+    const activeTrip        = shiftInfo?.activeTrip ?? null;
 
     // ─── LOADING SCREEN ───────────────────────────────────────────────────────
     if (loading) {
@@ -229,7 +260,7 @@ export default function DashboardPage() {
                 {/* Route deviation warning */}
                 {deviated && (
                     <div className="bg-[#FEF2F2] border border-[#FCA5A5] rounded-2xl px-4 py-3 text-sm font-semibold text-[#991B1B] flex items-center gap-2">
-                        Route deviation! Return to SM Lipa ↔ SM Batangas route.
+                        Route deviation! Return to the SM Terminal ↔ Grand Terminal route.
                     </div>
                 )}
 
@@ -339,10 +370,47 @@ export default function DashboardPage() {
                     </div>
                     <div className="mt-2 pt-2 border-t border-white/10 flex justify-between items-center">
                         <span className="text-[10px] font-bold italic">
-                            {shiftInfo?.route || driverInfo?.route || 'SM Lipa ↔ SM Batangas'}
+                            {shiftInfo?.route || driverInfo?.route || 'SM Terminal ↔ Grand Terminal'}
                         </span>
                         <span className="text-[9px] font-black text-yellow-300">● ACTIVE</span>
                     </div>
+                </div>
+
+                {/* Explicit terminal-to-terminal trip lifecycle */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm mb-4 shrink-0">
+                    <p className="uppercase tracking-[0.15em] text-[#991B1B] font-black text-[8px] mb-3 text-center">
+                        Current Trip
+                    </p>
+                    {activeTrip ? (
+                        <div>
+                            <div className="rounded-2xl bg-green-50 border border-green-200 px-3 py-3 mb-3">
+                                <p className="text-[9px] font-black uppercase text-green-700">Trip in progress</p>
+                                <p className="mt-1 text-sm font-black text-slate-800">
+                                    {activeTrip.originTerminal} → {activeTrip.destinationTerminal}
+                                </p>
+                            </div>
+                            <button onClick={handleCompleteTrip} disabled={tripSending}
+                                className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#991B1B] px-3 py-3 text-xs font-black uppercase text-white hover:bg-[#7F1D1D] disabled:opacity-50">
+                                <CheckCircle size={16} /> {tripSending ? 'Checking terminal…' : 'Complete at destination'}
+                            </button>
+                        </div>
+                    ) : (
+                        <div>
+                            <p className="mb-3 text-center text-[10px] font-semibold text-slate-500">
+                                Choose the direction only when the bus is at that origin terminal. GPS verifies the location.
+                            </p>
+                            <div className="grid gap-2">
+                                <button onClick={() => handleStartTrip('SM_TO_GRAND')} disabled={tripSending}
+                                    className="flex items-center justify-center gap-2 rounded-xl bg-[#991B1B] px-3 py-3 text-[10px] font-black uppercase text-white hover:bg-[#7F1D1D] disabled:opacity-50">
+                                    <PlayCircle size={15} /> SM Terminal → Grand Terminal
+                                </button>
+                                <button onClick={() => handleStartTrip('GRAND_TO_SM')} disabled={tripSending}
+                                    className="flex items-center justify-center gap-2 rounded-xl border border-[#991B1B] bg-white px-3 py-3 text-[10px] font-black uppercase text-[#991B1B] hover:bg-red-50 disabled:opacity-50">
+                                    <PlayCircle size={15} /> Grand Terminal → SM Terminal
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Live occupancy */}

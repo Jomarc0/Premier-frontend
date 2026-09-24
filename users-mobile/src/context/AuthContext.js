@@ -1,4 +1,5 @@
-﻿import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { useRef } from 'react';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -7,7 +8,7 @@ import { usePostHog } from 'posthog-react-native';
 
 import api, { setUnauthorizedHandler } from '../api/api';
 import { clearHceToken } from '../api/hceTokenStore';
-import { registerPushNotifications } from '../notifications/pushNotifications';
+import { activatePushSession, registerPushNotifications, unregisterPushNotifications } from '../notifications/pushNotifications';
 import { identifyMobileUser, resetMobileAnalytics } from '../analytics/posthog';
 
 const AuthContext = createContext(null);
@@ -143,6 +144,23 @@ export function AuthProvider({ children }) {
       trackedPassengerId.current = null;
     }
   }, [passenger?.id, posthog]);
+
+  useEffect(() => {
+    if (!passenger?.id) return undefined;
+
+    const stopPushSession = activatePushSession(passenger);
+    const syncToken = () => {
+      // The notification module records sanitized development diagnostics.
+      registerPushNotifications().catch(() => {});
+    };
+
+    syncToken();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') syncToken();
+    });
+
+    return () => { subscription.remove(); stopPushSession(); };
+  }, [passenger?.id, passenger?.token]);
 
   const value = useMemo(() => ({
     passenger,
@@ -284,6 +302,7 @@ export function AuthProvider({ children }) {
     },
     syncPushNotifications: syncPushNotificationToken,
     logout: async () => {
+      await unregisterPushNotifications();
       await clearHceToken();
       clearSessionState();
       try {

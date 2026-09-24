@@ -2980,7 +2980,7 @@ export default function DashboardScreen({ navigation }) {
             >
               <MaterialCommunityIcons
                 name="qrcode-scan"
-                size={21}
+                size={23}
                 color="#fff"
               />
             </Pressable>
@@ -3416,7 +3416,7 @@ const NavItem = forwardRef(function NavItem(
       <View style={styles.navIconTarget}>
         <MaterialCommunityIcons
           name={icon}
-          size={19}
+          size={21}
           color={active ? colors.maroon : '#8AA0BF'}
         />
       </View>
@@ -3625,7 +3625,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 22,
     minHeight: 190,
-    overflow: 'hidden',
     ...shadow,
     shadowColor: colors.maroon,
     shadowOpacity: 0.22,
@@ -5238,7 +5237,7 @@ const styles = StyleSheet.create({
   chatFloat: {
     position: 'absolute',
     right: 20,
-    bottom: 92,
+    bottom: 98,
     width: 54,
     height: 54,
     borderRadius: 18,
@@ -5252,14 +5251,14 @@ const styles = StyleSheet.create({
 
   profileChatFloat: {
     right: 22,
-    bottom: 106,
+    bottom: 112,
     width: 50,
     height: 50,
     borderRadius: 16,
   },
 
   bottomNav: {
-    minHeight: 72,
+    minHeight: 78,
     backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: '#E8EEF5',
@@ -5267,26 +5266,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-around',
     paddingHorizontal: 8,
-    paddingBottom: 7,
+    paddingBottom: 8,
   },
 
   navItem: {
-    width: 58,
+    width: 62,
+    minHeight: 54,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
   },
 
   navIconTarget: {
-    width: 28,
-    height: 27,
+    width: 31,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   navText: {
     color: '#8AA0BF',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '900',
     textAlign: 'center',
   },
@@ -5296,13 +5296,13 @@ const styles = StyleSheet.create({
   },
 
   plusButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 19,
     backgroundColor: colors.green,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -25,
+    marginTop: -27,
     ...shadow,
     shadowColor: colors.green,
     shadowOpacity: 0.25,
