@@ -673,9 +673,6 @@ const DashboardPage = () => {
                                 {tx.type === 'TOPUP' ? 'Top-Up Load' : 'Fare Payment'}
                                 </p>
                             </div>
-                            <p className="mt-1 truncate pl-4 text-[12px] font-mono font-medium text-[#64748B]">
-                                {transactionId(tx)}
-                            </p>
                             <p className="mt-0.5 pl-4 text-[12px] font-mono text-[#64748B]">{formatDate(tx.createdAt)}</p>
                             </div>
                             <div className="shrink-0 text-right">

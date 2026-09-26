@@ -271,7 +271,7 @@ function PageHeader({ eyebrow, title, description, updatedLabel, loading, onRefr
       <div className="min-w-0">
         <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#742434]">{eyebrow}</p>
         <h2 className="mt-1 text-2xl font-black leading-tight tracking-[-0.02em] text-[#172438] max-[420px]:text-xl">{title}</h2>
-        <p className="mt-1 text-sm leading-5 text-[#557087]">{description}</p>
+        {description ? <p className="mt-1 text-sm leading-5 text-[#557087]">{description}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-3 max-[560px]:w-full max-[560px]:justify-between">
         {updatedLabel ? (
@@ -465,7 +465,6 @@ function CashTransactions({ data, loading, error, onRefresh }) {
       <PageHeader
         eyebrow="Today’s Transactions"
         title="Staff-Assisted Cash Fares"
-        description="Transactions recorded by your regular and discounted RFID cash cards."
         loading={loading}
         onRefresh={onRefresh}
       />
@@ -727,7 +726,6 @@ function Dashboard({ username, onLogout }) {
             <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-[0.23em] text-[#efc862]">Premier Transit</p>
               <h1 className="truncate text-lg font-black leading-tight sm:text-xl">Staff Bus Queue</h1>
-              <p className="truncate text-[11px] font-medium text-white/80">Logged in as: {username}</p>
             </div>
           </div>
 
@@ -780,7 +778,6 @@ function Dashboard({ username, onLogout }) {
           <PageHeader
             eyebrow="Staff Dashboard"
             title="Bus Queue Monitoring"
-            description="Persistent terminal queue. GPS is used for arrival check-in and remains optional afterward."
             updatedLabel={updatedLabel}
             loading={loading}
             onRefresh={() => loadQueue()}

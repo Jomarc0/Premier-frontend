@@ -83,8 +83,6 @@ const NotificationBell = () => {
     if (token) await API.put('/notifications/fcm-token', { fcmToken: token });
   };
 
-  const getIcon = (type) => ({ TOPUP: '💳', FARE: '🚌', LOW_BALANCE: '⚠️', TICKET: '🎫', CARD: '🛡️' }[type] || '🔔');
-
   const toggleDropdown = () => {
     const opening = !showDropdown;
     setShowDropdown(opening);
@@ -103,11 +101,11 @@ const NotificationBell = () => {
 
       {showDropdown && (
         <div className="absolute top-[calc(100%+0.5rem)] right-0 z-70 w-80 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl md:w-96">
-          <div className="flex items-center justify-between bg-[#7A2F3D] px-5 py-3">
-            <span className="text-xs font-black uppercase tracking-wider text-white">Notifications</span>
-            <button onClick={() => setShowDropdown(false)} className="grid h-7 w-7 cursor-pointer place-items-center rounded-lg border-none bg-white/10 text-white transition-colors hover:bg-white/20" aria-label="Close"><FiX size={14} /></button>
+          <div className="flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-900">Notifications</span>
+            <button onClick={() => setShowDropdown(false)} className="grid h-7 w-7 cursor-pointer place-items-center rounded-lg border-none bg-slate-100 text-slate-600 transition-colors hover:bg-slate-200 hover:text-slate-900" aria-label="Close"><FiX size={14} /></button>
           </div>
-          <div className="max-h-80 divide-y divide-slate-50 overflow-y-auto bg-slate-50/30">
+          <div className="max-h-80 divide-y divide-slate-50 overflow-y-auto bg-white">
             {loading ? (
               <div className="px-4 py-12 text-center text-xs font-semibold text-slate-500" role="status">Loading notifications...</div>
             ) : error ? (
@@ -115,16 +113,15 @@ const NotificationBell = () => {
             ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center px-4 py-12 text-xs text-slate-400"><FiBell className="mb-2 text-2xl opacity-30" /><p className="font-bold">No notifications yet</p></div>
             ) : notifications.map((notification) => (
-              <button type="button" onClick={() => markRead(notification)} key={notification.id} className={`flex w-full items-start gap-3 border-0 px-4 py-3 text-left ${notification.read ? 'bg-white' : 'bg-yellow-50/50'}`}>
-                <span className="mt-0.5 shrink-0 text-lg">{getIcon(notification.type)}</span>
+              <button type="button" onClick={() => markRead(notification)} key={notification.id} className="flex w-full items-start border-0 bg-white px-5 py-3 text-left transition-colors hover:bg-slate-50">
                 <span className="min-w-0 flex-1 leading-tight"><span className="block truncate text-xs font-black text-slate-900">{notification.title}</span><span className="mt-0.5 block text-[11px] leading-relaxed text-slate-600">{notification.message}</span><span className="mt-1 block font-mono text-[9px] text-slate-400">{formatTime(notification.createdAt)}</span></span>
               </button>
             ))}
           </div>
-          <div className="border-t border-slate-100 bg-slate-50 px-4 py-2 text-center">
+          <div className="border-t border-slate-100 bg-white px-4 py-2 text-center">
             {typeof Notification !== 'undefined' && Notification.permission !== 'granted' ? (
-              <button onClick={enableBrowserNotifications} className="w-full cursor-pointer rounded-lg border-none bg-transparent py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7A2F3D] transition-colors hover:bg-[#7A2F3D]/5">Enable browser notifications</button>
-            ) : unreadCount > 0 && <button onClick={markAllRead} className="w-full cursor-pointer rounded-lg border-none bg-transparent py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7A2F3D] transition-colors hover:bg-[#7A2F3D]/5">Mark all as read</button>}
+              <button onClick={enableBrowserNotifications} className="w-full cursor-pointer rounded-lg border-none bg-transparent py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7A2635] transition-colors hover:bg-[#7A2635]/5">Enable browser notifications</button>
+            ) : unreadCount > 0 && <button onClick={markAllRead} className="w-full cursor-pointer rounded-lg border-none bg-transparent py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7A2635] transition-colors hover:bg-[#7A2635]/5">Mark all as read</button>}
           </div>
         </div>
       )}
