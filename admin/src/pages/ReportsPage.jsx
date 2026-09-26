@@ -556,7 +556,6 @@ const DailyBusPerformance = ({ loading, rows, onSelectBus }) => {
                     <>
                         <DataTable rows={visible} columns={[
                             ['date', 'Date'], ['bus', 'Bus', value => <button className="font-black text-maroon hover:text-gold" onClick={() => onSelectBus(value)}>{value}</button>],
-                            ['smToGrandPassengers', 'SM → Grand', number], ['grandToSmPassengers', 'Grand → SM', number],
                             ['totalPassengers', 'Total Pax', number], ['trips', 'Trips', number],
                             ['revenue', 'Revenue', money], ['passengersPerTrip', 'Pax / Trip', number], ['revenuePerTrip', 'Revenue / Trip', money],
                         ]} />

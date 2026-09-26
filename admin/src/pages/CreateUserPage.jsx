@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     FiCheckCircle,
     FiCopy,
@@ -20,6 +20,9 @@ const CARD_CATEGORIES = [
     { value: 'SENIOR_CITIZEN', label: 'Senior Citizen', help: 'Senior discount eligible' },
     { value: 'PWD', label: 'PWD', help: 'PWD discount eligible' },
 ];
+
+const CAPTURE_TIMEOUT_MS = 30000;
+const CAPTURE_POLL_INTERVAL_MS = 750;
 
 const cleanUid = (value) =>
     value.trim().replace(/[^a-fA-F0-9]/g, '').toUpperCase();
@@ -56,6 +59,24 @@ const CreateUserPage = () => {
     const [loading, setLoading] = useState(false);
     const [readingUid, setReadingUid] = useState(false);
     const [bulkProgress, setBulkProgress] = useState(null);
+    const [readerDevices, setReaderDevices] = useState([]);
+    const [selectedReaderId, setSelectedReaderId] = useState('');
+    const captureRunRef = useRef(0);
+
+    useEffect(() => {
+        adminAPI.get('/devices').then((response) => {
+            const readers = (response.data?.data || []).filter((device) =>
+                device.status === 'ACTIVE' && ['RFID_TERMINAL', 'VEHICLE_TERMINAL'].includes(device.deviceType));
+            setReaderDevices(readers);
+            setSelectedReaderId((current) => current || readers[0]?.deviceId || '');
+        }).catch(() => {
+            setReaderDevices([]);
+        });
+    }, []);
+
+    useEffect(() => () => {
+        captureRunRef.current += 1;
+    }, []);
 
     const parsedBulkUids = useMemo(() => {
         const unique = new Set();
@@ -101,42 +122,58 @@ const CreateUserPage = () => {
     };
 
     const handleReadSingleUid = async () => {
+        if (!selectedReaderId) {
+            toast.error('No active RFID reader device is available.');
+            return;
+        }
+        const captureRun = captureRunRef.current + 1;
+        captureRunRef.current = captureRun;
         setReadingUid(true);
+        console.info('[RFID CAPTURE] Starting capture');
         try {
-            const startRes = await adminAPI.post('/rfid/uid-capture/start');
+            const startRes = await adminAPI.post('/rfid/uid-capture/start', { deviceId: selectedReaderId });
             const requestId = startRes.data?.data?.requestId;
             if (!requestId) {
                 throw new Error('Unable to start RFID UID capture.');
             }
 
+            console.info(`[RFID CAPTURE] captureId=${requestId}`);
             toast.info('Tap the blank RFID card on the PN532 reader.');
 
-            const startedAt = Date.now();
-            const timeoutMs = 65000;
+            const serverExpiry = Date.parse(startRes.data?.data?.expiresAt || '');
+            const expiresAt = Number.isFinite(serverExpiry)
+                ? serverExpiry
+                : Date.now() + CAPTURE_TIMEOUT_MS;
 
-            while (Date.now() - startedAt < timeoutMs) {
-                await new Promise((resolve) => setTimeout(resolve, 1500));
+            while (Date.now() <= expiresAt + CAPTURE_POLL_INTERVAL_MS) {
+                if (captureRunRef.current !== captureRun) return;
+                await new Promise((resolve) => setTimeout(resolve, CAPTURE_POLL_INTERVAL_MS));
+                if (captureRunRef.current !== captureRun) return;
                 const statusRes = await adminAPI.get(`/rfid/uid-capture/${requestId}`);
                 const status = statusRes.data?.data?.status;
                 const rfidUid = normalizeReaderUid(statusRes.data?.data?.rfidUid);
+                console.info(`[RFID CAPTURE] status=${status}`);
 
                 if (status === 'CAPTURED' && rfidUid) {
+                    console.info(`[RFID CAPTURE] UID received=${rfidUid}`);
                     setSingleUid(rfidUid);
-                    toast.success(`RFID UID captured: ${rfidUid}`);
+                    toast.success('RFID UID captured successfully.');
                     return;
                 }
 
                 if (status === 'EXPIRED') {
-                    toast.warning('RFID UID capture expired. Click Read UID again.');
+                    console.info('[RFID CAPTURE] Capture expired');
+                    toast.warning('No RFID card detected. Click Read UID to try again.');
                     return;
                 }
             }
 
-            toast.warning('No RFID UID was read. Click Read UID and tap the card again.');
+            console.info('[RFID CAPTURE] Capture expired');
+            toast.warning('No RFID card detected. Click Read UID to try again.');
         } catch (err) {
             toast.error(err.response?.data?.message || err.message || 'Failed to read RFID UID.');
         } finally {
-            setReadingUid(false);
+            if (captureRunRef.current === captureRun) setReadingUid(false);
         }
     };
 
@@ -258,6 +295,24 @@ const CreateUserPage = () => {
 
                         {mode === 'single' ? (
                             <div className="mb-[1.05rem]">
+                                {readerDevices.length > 1 && (
+                                    <div className="mb-3">
+                                        <label className={ui.fieldLabel} htmlFor="rfid-reader">RFID Reader</label>
+                                        <select
+                                            id="rfid-reader"
+                                            value={selectedReaderId}
+                                            onChange={(event) => setSelectedReaderId(event.target.value)}
+                                            disabled={readingUid}
+                                            className="w-full rounded-lg border border-black/10 bg-white px-4 py-3 text-sm font-black text-text-main outline-none focus:border-maroon focus:ring-2 focus:ring-maroon/15"
+                                        >
+                                            {readerDevices.map((device) => (
+                                                <option key={device.deviceId} value={device.deviceId}>
+                                                    {device.deviceName || device.deviceId}{device.plateNumber ? ` - ${device.plateNumber}` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
                                 <label className={ui.fieldLabel} htmlFor="rfid-uid">
                                     Blank RFID UID
                                 </label>
@@ -267,7 +322,7 @@ const CreateUserPage = () => {
                                         <input
                                             id="rfid-uid"
                                             type="text"
-                                            placeholder="Tap blank card, read UID, or type UID"
+                                            placeholder={readingUid ? 'Waiting for RFID card...' : 'Tap blank card, read UID, or type UID'}
                                             value={singleUid}
                                             onChange={(e) => setSingleUid(e.target.value)}
                                             className={ui.fieldInputEl}
@@ -279,7 +334,7 @@ const CreateUserPage = () => {
                                         disabled={loading || readingUid}
                                         className="inline-flex min-h-[3.1rem] items-center justify-center rounded-lg border border-maroon bg-white px-4 text-sm font-black text-maroon transition-colors hover:bg-maroon hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                                     >
-                                        {readingUid ? 'Waiting...' : 'Read UID'}
+                                        {readingUid ? 'Reading...' : 'Read UID'}
                                     </button>
                                 </div>
                                 <div className="mt-[0.35rem] text-[0.74rem] text-text-muted">
@@ -337,7 +392,7 @@ const CreateUserPage = () => {
                         <button
                             type="button"
                             onClick={mode === 'single' ? handleSingleCreate : handleBulkCreate}
-                            disabled={loading}
+                            disabled={loading || readingUid}
                             className={ui.primaryButton}
                         >
                             <FiSave />

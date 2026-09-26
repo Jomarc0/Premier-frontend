@@ -178,13 +178,6 @@ const DriversPage = () => {
         return matchesSearch && (statusFilter === 'ALL' || driver.status === statusFilter);
     });
 
-    const statusColor = (status) => ({
-        ACTIVE: '#2f6b3d',
-        INACTIVE: '#717680',
-        ON_BREAK: '#d97706',
-        OFF_DUTY: '#b24a52',
-    }[status] || '#717680');
-
     const formInputCls = (hasError) =>
         `w-full px-[0.9rem] py-[0.68rem] border-2 rounded-lg text-[0.92rem] text-text-main outline-none bg-white transition-all box-border ${
             hasError
@@ -237,7 +230,7 @@ const DriversPage = () => {
                             <table className={ui.adminTable}>
                                 <thead>
                                     <tr>
-                                        {['#', 'Driver', 'License', 'Phone', 'Assigned Vehicle', 'Status', 'Joined', 'Actions'].map(header => (
+                                        {['#', 'Driver', 'License', 'Phone', 'Assigned Vehicle', 'Joined', 'Actions'].map(header => (
                                             <th key={header} className={ui.tableTh}>{header}</th>
                                         ))}
                                     </tr>
@@ -260,11 +253,6 @@ const DriversPage = () => {
                                             <td className={`${ui.tableTd} ${ui.mono}`}>{driver.licenseNumber || '-'}</td>
                                             <td className={`${ui.tableTd} ${ui.mono}`}>{driver.phoneNumber || '-'}</td>
                                             <td className={`${ui.tableTd} ${ui.mono}`}>{assignments.find(item => item.driverId === driver.id)?.plateNumber || '-'}</td>
-                                            <td className={ui.tableTd}>
-                                                <span className={ui.statusPillColor} style={{ background: statusColor(driver.status) }}>
-                                                    {driver.status || 'UNKNOWN'}
-                                                </span>
-                                            </td>
                                             <td className={`${ui.tableTd} text-text-muted whitespace-nowrap`}>
                                                 {driver.createdAt ? new Date(driver.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}
                                             </td>
