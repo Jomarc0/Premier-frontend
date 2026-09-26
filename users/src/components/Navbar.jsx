@@ -52,23 +52,19 @@ const Navbar = () => {
             onClick={() => setPrivacyNoticeOpen(true)}
             title="Open Privacy Notice"
             aria-label="Open Privacy Notice"
-            className="hidden h-8 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/8 px-3 text-white/90 transition hover:bg-white/15 hover:text-white min-[391px]:inline-flex md:h-9"
+            className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/8 text-white/90 transition hover:bg-white/15 hover:text-white min-[391px]:inline-flex md:h-9 md:w-9"
           >
             <FiShield className="text-sm md:text-base" />
-            <span className="hidden lg:inline text-[11px] font-black uppercase tracking-wider">
-              Privacy
-            </span>
           </button>
 
           <button
+            type="button"
             onClick={handleLogout}
             title="Log out of system"
-            className="ml-0 inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg bg-white/10 px-2 text-white transition hover:bg-white/18 cursor-pointer border border-white/15 md:ml-1 md:h-9 md:px-3"
+            aria-label="Log out of system"
+            className="ml-0 inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-white/15 bg-white/10 text-white transition hover:bg-white/18 md:ml-1 md:h-9 md:w-9"
           >
             <FiLogOut className="text-sm md:text-base" />
-            <span className="hidden md:inline text-[11px] font-black uppercase tracking-wider">
-              Logout
-            </span>
           </button>
         </div>
       </div>

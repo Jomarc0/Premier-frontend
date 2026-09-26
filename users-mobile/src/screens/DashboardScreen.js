@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
+import * as Crypto from 'expo-crypto';
 import QRCode from 'react-native-qrcode-svg';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -125,7 +126,6 @@ const transactionId = (tx) => tx?.referenceNumber || `TX-${tx?.id}`;
 
 const TRANSACTION_FILTERS = ['All', 'RFID', 'QR', 'NFC', 'Top Up', 'Failed'];
 const NOTIFICATION_FILTERS = ['All', 'Top-Ups', 'Fares', 'Alerts'];
-const READ_NOTIFICATIONS_STORAGE_KEY = 'premier_read_notification_ids';
 
 function formatCurrency(value) {
   return Number(value || 0).toLocaleString('en-PH', {
@@ -258,64 +258,14 @@ function isMoneyIn(tx) {
   return method === 'TOP_UP' || method === 'REFUND';
 }
 
-function notificationFromTransaction(tx) {
-  const method = txMethod(tx);
-  const failed = txStatus(tx) === 'FAILED';
-  const amount = `PHP ${formatCurrency(tx?.amount)}`;
-  const base = {
-    id: `transaction-${transactionId(tx)}`,
-    createdAt: tx?.createdAt,
-    category: failed ? 'Alerts' : method === 'TOP_UP' ? 'Top-Ups' : 'Fares',
-  };
-
-  if (failed) {
-    return {
-      ...base,
-      title: 'Payment Failed',
-      message: 'This transaction was not completed. Please try again.',
-      icon: 'alert-circle-outline',
-      color: '#B4232D',
-      backgroundColor: '#FDECEC',
-    };
-  }
-  if (method === 'TOP_UP') {
-    return {
-      ...base,
-      title: 'Top-Up Successful',
-      message: `${amount} was added to your RFID card.`,
-      icon: 'wallet-plus-outline',
-      color: colors.green,
-      backgroundColor: '#EAF7EE',
-    };
-  }
-  if (method === 'QR') {
-    return {
-      ...base,
-      title: 'QR Payment Successful',
-      message: `${amount} QR fare payment was completed.`,
-      icon: 'qrcode-scan',
-      color: colors.green,
-      backgroundColor: '#EAF7EE',
-    };
-  }
-  if (method === 'NFC') {
-    return {
-      ...base,
-      title: 'NFC Payment Successful',
-      message: `${amount} NFC fare payment was completed.`,
-      icon: 'nfc',
-      color: colors.teal,
-      backgroundColor: '#E8F5F3',
-    };
-  }
-
+function notificationFromBackend(notification) {
+  const topUp = notification?.type === 'TOPUP';
   return {
-    ...base,
-    title: 'Fare Payment Successful',
-    message: `${amount} fare was deducted successfully.`,
-    icon: method === 'RFID' ? 'card-account-details-outline' : 'bus',
-    color: colors.maroon,
-    backgroundColor: '#FFF1F3',
+    ...notification,
+    category: topUp ? 'Top-Ups' : 'Fares',
+    icon: topUp ? 'wallet-plus-outline' : 'bus',
+    color: topUp ? colors.green : colors.maroon,
+    backgroundColor: topUp ? '#EAF7EE' : '#FFF1F3',
   };
 }
 
@@ -424,7 +374,10 @@ export default function DashboardScreen({ navigation }) {
   const [transactionSearch, setTransactionSearch] = useState('');
   const [transactionFilter, setTransactionFilter] = useState('All');
   const [notificationFilter, setNotificationFilter] = useState('All');
-  const [readNotificationIds, setReadNotificationIds] = useState([]);
+  const [backendNotifications, setBackendNotifications] = useState([]);
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [notificationError, setNotificationError] = useState(null);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const [exportingTransactions, setExportingTransactions] = useState(false);
   const [isGeneratingReceipt, setIsGeneratingReceipt] = useState(false);
   const [dashboardError, setDashboardError] = useState(null);
@@ -436,6 +389,8 @@ export default function DashboardScreen({ navigation }) {
 
   const [loading, setLoading] = useState(true);
   const [topupLoading, setTopupLoading] = useState(false);
+  const topUpLockRef = useRef(false);
+  const topUpAttemptRef = useRef(null);
   const [verifying, setVerifying] = useState(false);
 
   const [nfcSupported, setNfcSupported] = useState(null);
@@ -597,9 +552,7 @@ export default function DashboardScreen({ navigation }) {
     .filter((tx) => tx.type === 'TOPUP')
     .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
 
-  const notificationCount =
-    transactions.length +
-    (currentBalance > 0 && currentBalance < 100 ? 1 : 0);
+  const notificationCount = notificationUnreadCount;
 
   const transactionSource = allTransactions.length ? allTransactions : transactions;
 
@@ -637,26 +590,10 @@ export default function DashboardScreen({ navigation }) {
     return groups;
   }, [filteredTransactions]);
 
-  const notificationItems = useMemo(() => {
-    const transactionNotifications = transactionSource.map(notificationFromTransaction);
-    const balanceNotifications =
-      currentBalance > 0 && currentBalance < 100
-        ? [
-            {
-              id: 'low-balance',
-              createdAt: new Date().toISOString(),
-              category: 'Alerts',
-              title: 'Low Balance Alert',
-              message: 'Your RFID card balance is low. Please top up before travelling.',
-              icon: 'alert-outline',
-              color: colors.gold,
-              backgroundColor: '#FFF6E5',
-            },
-          ]
-        : [];
-
-    return [...balanceNotifications, ...transactionNotifications];
-  }, [currentBalance, transactionSource]);
+  const notificationItems = useMemo(
+    () => backendNotifications.map(notificationFromBackend),
+    [backendNotifications],
+  );
 
   const filteredNotifications = useMemo(
     () =>
@@ -671,39 +608,34 @@ export default function DashboardScreen({ navigation }) {
     [filteredNotifications],
   );
 
-  const unreadNotificationCount = useMemo(
-    () => notificationItems.filter((item) => !readNotificationIds.includes(item.id)).length,
-    [notificationItems, readNotificationIds],
-  );
-
-  useEffect(() => {
-    AsyncStorage.getItem(READ_NOTIFICATIONS_STORAGE_KEY)
-      .then((value) => {
-        const storedIds = JSON.parse(value || '[]');
-        if (Array.isArray(storedIds)) setReadNotificationIds(storedIds);
-      })
-      .catch(() => setReadNotificationIds([]));
-  }, []);
-
-  const saveReadNotificationIds = useCallback((ids) => {
-    setReadNotificationIds(ids);
-    // TODO: Replace local persistence when a backend notification read/unread API is available.
-    AsyncStorage.setItem(READ_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(ids)).catch(() => {});
-  }, []);
+  const unreadNotificationCount = notificationUnreadCount;
 
   const markNotificationAsRead = useCallback(
-    (id) => {
-      if (readNotificationIds.includes(id)) return;
-      saveReadNotificationIds([...readNotificationIds, id]);
+    async (id) => {
+      const notification = backendNotifications.find((item) => item.id === id);
+      if (!notification || notification.read) return;
+      try {
+        await api.patch(`/notifications/${id}/read`);
+        setBackendNotifications((items) => items.map((item) => (
+          item.id === id ? { ...item, read: true } : item
+        )));
+        setNotificationUnreadCount((count) => Math.max(0, count - 1));
+      } catch (error) {
+        setNotificationError(error.response?.data?.message || 'Unable to update notification.');
+      }
     },
-    [readNotificationIds, saveReadNotificationIds],
+    [backendNotifications],
   );
 
-  const markAllNotificationsAsRead = useCallback(() => {
-    saveReadNotificationIds([
-      ...new Set([...readNotificationIds, ...notificationItems.map((item) => item.id)]),
-    ]);
-  }, [notificationItems, readNotificationIds, saveReadNotificationIds]);
+  const markAllNotificationsAsRead = useCallback(async () => {
+    try {
+      await api.put('/notifications/read-all');
+      setBackendNotifications((items) => items.map((item) => ({ ...item, read: true })));
+      setNotificationUnreadCount(0);
+    } catch (error) {
+      setNotificationError(error.response?.data?.message || 'Unable to update notifications.');
+    }
+  }, []);
 
   const focusRecentActivity = useCallback(() => {
     setActiveTab('Home');
@@ -981,6 +913,21 @@ export default function DashboardScreen({ navigation }) {
     }
   }, []);
 
+  const fetchNotifications = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setNotificationLoading(true);
+    setNotificationError(null);
+    try {
+      const response = await api.get('/notifications?page=0&size=50');
+      const content = response.data?.data?.content;
+      setBackendNotifications(Array.isArray(content) ? content : []);
+      setNotificationUnreadCount(Number(response.data?.data?.unreadCount || 0));
+    } catch (error) {
+      setNotificationError(error.response?.data?.message || 'Unable to load notifications.');
+    } finally {
+      if (!silent) setNotificationLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
 
@@ -1018,10 +965,20 @@ export default function DashboardScreen({ navigation }) {
 
   useEffect(() => {
     fetchData();
+    fetchNotifications({ silent: true });
     const timer = setInterval(() => { if (AppState.currentState === 'active') fetchData({ silent: true }); }, 30000);
-    const listener = AppState.addEventListener('change', state => { if (state === 'active') refreshPending(); });
+    const listener = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        refreshPending();
+        fetchNotifications({ silent: true });
+      }
+    });
     return () => { clearInterval(timer); listener.remove(); };
-  }, [fetchData, refreshPending]);
+  }, [fetchData, fetchNotifications, refreshPending]);
+
+  useEffect(() => {
+    if (activeTab === 'Notifications') fetchNotifications();
+  }, [activeTab, fetchNotifications]);
 
   // Top-up expiration countdown
   useEffect(() => {
@@ -1031,6 +988,7 @@ export default function DashboardScreen({ navigation }) {
       const expiresAt = new Date(pendingPayment.expiresAt).getTime();
       const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
       if (remaining <= 0) {
+        topUpAttemptRef.current = null;
         setPendingPayment(null);
         refreshPending();
       }
@@ -1042,8 +1000,11 @@ export default function DashboardScreen({ navigation }) {
   useEffect(() => {
     if (['TRANSACTION', 'TOPUP', 'PASSENGER', 'SUPPORT_TICKET'].includes(lastEvent?.entity)) {
       fetchData({ silent: true });
+      if (['TRANSACTION', 'TOPUP'].includes(lastEvent?.entity)) {
+        setTimeout(() => fetchNotifications({ silent: true }), 250);
+      }
     }
-  }, [fetchData, lastEvent]);
+  }, [fetchData, fetchNotifications, lastEvent]);
 
   const closeAllAutomaticModals = useCallback(() => {
     setShowChatbotIntro(false);
@@ -1475,31 +1436,41 @@ export default function DashboardScreen({ navigation }) {
   };
 
   const handleTopUp = async () => {
-    const amount = selectedAmount || Number(customAmount);
-
-    if (!amount || amount < 20) {
-      Alert.alert(
-        'Invalid amount',
-        'Please select or enter a valid amount. Minimum is PHP 20.',
-      );
-      return;
-    }
-
-    if (pendingLoading || pendingError) { Alert.alert('Pending payments', pendingError || 'Recovering pending payments. Please wait.'); return; }
-    if (pendingPayment) {
-      Alert.alert(
-        'Pending payment',
-        'Verify or resume your existing pending payment first.',
-      );
-      return;
-    }
-
+    if (topUpLockRef.current) return;
+    topUpLockRef.current = true;
     setTopupLoading(true);
 
     try {
+      const amount = selectedAmount || Number(customAmount);
+
+      if (!amount || amount < 20) {
+        Alert.alert(
+          'Invalid amount',
+          'Please select or enter a valid amount. Minimum is PHP 20.',
+        );
+        return;
+      }
+
+      if (pendingLoading || pendingError) { Alert.alert('Pending payments', pendingError || 'Recovering pending payments. Please wait.'); return; }
+      if (pendingPayment) {
+        Alert.alert(
+          'Pending payment',
+          'Verify or resume your existing pending payment first.',
+        );
+        return;
+      }
+
+      const fingerprint = `${Number(amount).toFixed(2)}:${selectedPaymentMethod}`;
+      if (topUpAttemptRef.current?.fingerprint !== fingerprint) {
+        topUpAttemptRef.current = {
+          fingerprint,
+          idempotencyKey: Crypto.randomUUID(),
+        };
+      }
       const response = await api.post('/topup/initiate', {
         amount,
         paymentMethod: selectedPaymentMethod,
+        idempotencyKey: topUpAttemptRef.current.idempotencyKey,
       });
 
       const { checkoutUrl, referenceNumber, topUpId } =
@@ -1524,6 +1495,7 @@ export default function DashboardScreen({ navigation }) {
       );
     } finally {
       await refreshPending();
+      topUpLockRef.current = false;
       setTopupLoading(false);
     }
   };
@@ -1550,6 +1522,7 @@ export default function DashboardScreen({ navigation }) {
       await refreshPending();
       setSelectedAmount(100);
       setCustomAmount('');
+      topUpAttemptRef.current = null;
       fetchData();
     } catch (error) {
       Alert.alert(
@@ -2297,6 +2270,7 @@ export default function DashboardScreen({ navigation }) {
         {QUICK_AMOUNTS.map((amount) => (
           <Pressable
             key={amount}
+            disabled={topupLoading}
             ref={selectedAmount === amount ? topUpPresetGuideRef : null}
             collapsable={false}
             onPress={() => {
@@ -2340,6 +2314,7 @@ export default function DashboardScreen({ navigation }) {
 
         <TextInput
           value={customAmount}
+          editable={!topupLoading}
           onChangeText={(value) => {
             setCustomAmount(value.replace(/[^0-9.]/g, ''));
             setSelectedAmount(null);
@@ -2361,6 +2336,7 @@ export default function DashboardScreen({ navigation }) {
           return (
             <Pressable
               key={option.id}
+              disabled={topupLoading}
               ref={active ? topUpPaymentGuideRef : null}
               collapsable={false}
               onPress={() => setSelectedPaymentMethod(option.id)}
@@ -2396,8 +2372,8 @@ export default function DashboardScreen({ navigation }) {
         collapsable={false}
         style={styles.stickyButton}
       >
-        <Button loading={topupLoading} onPress={handleTopUp}>
-          Load Amount
+        <Button loading={topupLoading} loadingLabel="Creating Payment..." onPress={handleTopUp}>
+          Proceed to Payment
         </Button>
       </View>
 
@@ -2414,7 +2390,7 @@ export default function DashboardScreen({ navigation }) {
                   <Text style={styles.expiredText}>This top-up has expired. You can create a new one.</Text>
                   <Button
                     variant="primary"
-                    onPress={() => { setPendingPayment(null); refreshPending(); }}
+                    onPress={() => { topUpAttemptRef.current = null; setPendingPayment(null); refreshPending(); }}
                   >
                     Create New Top-Up
                   </Button>
@@ -2594,6 +2570,13 @@ export default function DashboardScreen({ navigation }) {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.notificationContent}
+        refreshControl={(
+          <RefreshControl
+            refreshing={notificationLoading}
+            onRefresh={() => fetchNotifications()}
+            tintColor={colors.maroon}
+          />
+        )}
       >
         <BackTitle
           title="Notifications"
@@ -2627,21 +2610,30 @@ export default function DashboardScreen({ navigation }) {
           })}
         </ScrollView>
 
-        {groupedNotifications.map((group) => (
+        {notificationError && (
+          <View style={styles.notificationEmptyState}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={32} color="#B4232D" />
+            <Text style={styles.notificationEmptyTitle}>Failed to load notifications</Text>
+            <Text style={styles.notificationEmptyText}>{notificationError}</Text>
+            <Button variant="ghost" onPress={() => fetchNotifications()}>Retry</Button>
+          </View>
+        )}
+
+        {!notificationError && groupedNotifications.map((group) => (
           <View key={group.label} style={styles.notificationDateGroup}>
             <Text style={styles.transactionDateTitle}>{group.label}</Text>
             {group.items.map((item) => (
               <NotificationCard
                 key={item.id}
                 item={item}
-                unread={!readNotificationIds.includes(item.id)}
+                unread={!item.read}
                 onPress={() => markNotificationAsRead(item.id)}
               />
             ))}
           </View>
         ))}
 
-        {!filteredNotifications.length && (
+        {!notificationLoading && !notificationError && !filteredNotifications.length && (
           <View style={styles.notificationEmptyState}>
             <MaterialCommunityIcons name="bell-outline" size={32} color={colors.navy} />
             <Text style={styles.notificationEmptyTitle}>

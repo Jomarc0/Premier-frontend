@@ -1,14 +1,15 @@
 import { csvEscape } from '../lib/csv';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import API from '../api/axiosConfig';
 import useOwnedPendingTopups, { safeCheckoutUrl } from '../hooks/useOwnedPendingTopups';
 import { useAuth } from '../context/AuthState';
 import Navbar from '../components/Navbar';
 import { toast } from 'react-toastify';
 import { QRCodeSVG } from 'qrcode.react';
+import { v4 as uuidv4 } from 'uuid';
 import {
   History, MapPin, Search, ArrowUp, ArrowDown, Bus,
-  Smartphone, CreditCard, X, QrCode, CheckCircle2, AlertTriangle, Download, Clock
+  Smartphone, CreditCard, X, QrCode, CheckCircle2, AlertTriangle, Download, Clock, LoaderCircle
 } from 'lucide-react';
 import gcash from '../assets/image/gcash.png';
 import maya from '../assets/image/maya.png';
@@ -49,6 +50,10 @@ const DashboardPage = () => {
     const [selectedAmount, setSelectedAmount] = useState(null);
     const [customAmount, setCustomAmount]     = useState('');
     const [selectedPayment, setSelectedPayment] = useState(null);
+    const [isProcessingTopUp, setIsProcessingTopUp] = useState(false);
+    const [topUpClock, setTopUpClock] = useState(() => Date.now());
+    const topUpLockRef = useRef(false);
+    const topUpAttemptRef = useRef(null);
     const [showModal, setShowModal]           = useState(false);
     const [loading, setLoading]               = useState(true);
     const { pendingPayment, setPendingPayment, pendingLoading, pendingError, morePending, refreshPending, nextPending } = useOwnedPendingTopups(API, passenger?.id);
@@ -171,17 +176,20 @@ const DashboardPage = () => {
         if (!pendingPayment?.expiresAt) return undefined;
 
         const timer = window.setInterval(() => {
+            const now = Date.now();
+            setTopUpClock(now);
             const expiresAt = new Date(pendingPayment.expiresAt).getTime();
-            const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+            const remaining = Math.max(0, Math.floor((expiresAt - now) / 1000));
             if (remaining <= 0) {
                 // Expired - clear pending payment so user can create a new one
                 setPendingPayment(null);
+                topUpAttemptRef.current = null;
                 window.clearInterval(timer);
             }
         }, 1000);
 
         return () => window.clearInterval(timer);
-    }, [pendingPayment]);
+    }, [pendingPayment, setPendingPayment]);
 
     useEffect(() => {
         if (qrState !== 'ready') return undefined;
@@ -355,25 +363,37 @@ const DashboardPage = () => {
     };
 
     const handleTopUp = async () => {
+        if (topUpLockRef.current) return;
+        topUpLockRef.current = true;
+        setIsProcessingTopUp(true);
+
+        try {
         const amount = selectedAmount || parseFloat(customAmount);
         if (!amount || amount < 20) {
-        toast.warning('Please select or enter a valid amount (minimum 20)');
-        return;
+            toast.warning('Please select or enter a valid amount (minimum 20)');
+            return;
         }
         if (!selectedPayment) {
-        toast.warning('Please select a payment method');
-        return;
+            toast.warning('Please select a payment method');
+            return;
         }
         if (pendingLoading || pendingError) { toast.warning(pendingError || 'Recovering pending payments. Please wait.'); return; }
         if (pendingPayment) {
-        toast.warning('Verify or resume your existing pending payment first.');
-        return;
+            toast.warning('Verify or resume your existing pending payment first.');
+            return;
         }
-        try {
+        const fingerprint = `${Number(amount).toFixed(2)}:${selectedPayment.toUpperCase()}`;
+        if (topUpAttemptRef.current?.fingerprint !== fingerprint) {
+            topUpAttemptRef.current = { fingerprint, idempotencyKey: uuidv4() };
+        }
         captureEvent('passenger_web_topup_started', {
             payment_method: selectedPayment,
         });
-        const res = await API.post('/topup/initiate', { amount, paymentMethod: selectedPayment });
+        const res = await API.post('/topup/initiate', {
+            amount,
+            paymentMethod: selectedPayment,
+            idempotencyKey: topUpAttemptRef.current.idempotencyKey,
+        });
         const { checkoutUrl, referenceNumber, topUpId } = res.data.data;
         setPendingPayment({ referenceNumber, amount, topUpId, checkoutUrl, requiresReconciliation: !checkoutUrl });
         if (safeCheckoutUrl(checkoutUrl)) window.open(safeCheckoutUrl(checkoutUrl), '_blank', 'noopener,noreferrer');
@@ -382,6 +402,9 @@ const DashboardPage = () => {
         } catch (err) {
         await refreshPending();
         toast.error(err.response?.data?.message || 'Top-up status is unknown. Check pending payments before retrying.');
+        } finally {
+        topUpLockRef.current = false;
+        setIsProcessingTopUp(false);
         }
     };
 
@@ -398,6 +421,7 @@ const DashboardPage = () => {
         setSelectedAmount(null);
         setCustomAmount('');
         setSelectedPayment(null);
+        topUpAttemptRef.current = null;
         fetchData();
         captureEvent('passenger_web_topup_verified');
         } catch (err) {
@@ -414,7 +438,7 @@ const DashboardPage = () => {
 
     const currentBalNum = parseFloat(balance?.balance || 0);
     const activeTopUpAmount = selectedAmount || Number.parseFloat(customAmount);
-    const canProceedToPayment = Boolean(activeTopUpAmount >= 20 && selectedPayment && !pendingPayment && !pendingLoading && !pendingError);
+    const canProceedToPayment = Boolean(activeTopUpAmount >= 20 && selectedPayment && !pendingPayment && !pendingLoading && !pendingError && !isProcessingTopUp);
     const filteredHistory = allTransactions.filter((transaction) => {
         const query = historySearch.trim().toLowerCase();
         const matchesSearch = !query || transactionId(transaction).toLowerCase().includes(query);
@@ -463,6 +487,7 @@ const DashboardPage = () => {
                     <button
                         key={amt}
                         type="button"
+                        disabled={isProcessingTopUp}
                         aria-pressed={selectedAmount === amt}
                         onClick={() => { setSelectedAmount(amt); setCustomAmount(''); }}
                         className={`min-h-12 rounded-xl border font-semibold text-sm transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7A2635] ${
@@ -483,6 +508,7 @@ const DashboardPage = () => {
                     type="number"
                     placeholder="Enter custom amount (min ₱20.00)"
                     value={customAmount}
+                    disabled={isProcessingTopUp}
                     onChange={(e) => { setCustomAmount(e.target.value); setSelectedAmount(null); }}
                     className="mb-9 min-h-12 w-full rounded-xl border border-[#D1D5DB] bg-white px-4 py-3 text-base font-mono font-bold text-[#1F2937] outline-none transition-all placeholder-slate-400 focus:border-[#7A2635] focus:ring-2 focus:ring-[#7A2635]/15"
                 />
@@ -498,6 +524,7 @@ const DashboardPage = () => {
                         <button
                         key={pm}
                         type="button"
+                        disabled={isProcessingTopUp}
                         aria-pressed={isSelected}
                         onClick={() => setSelectedPayment(pm)}
                         className={`flex min-h-16 w-full items-center justify-between rounded-lg border px-3 text-left cursor-pointer transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7A2635] ${
@@ -520,11 +547,14 @@ const DashboardPage = () => {
 
                 <p className="mb-3 text-[13px] font-semibold uppercase tracking-[0.12em] text-[#6B7280]">Step 3 · Confirm payment</p>
                 <button
+                    type="button"
                     onClick={handleTopUp}
                     disabled={!canProceedToPayment}
                     className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-none bg-[#7A2635] px-5 text-base font-semibold text-white transition hover:bg-[#651F2D] active:scale-[0.99] cursor-pointer disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-[#9CA3AF] disabled:active:scale-100"
                 >
-                    <CreditCard size={18} /> Proceed to Payment
+                    {isProcessingTopUp
+                        ? <><LoaderCircle aria-hidden="true" className="animate-spin" size={18} /> Creating Payment...</>
+                        : <><CreditCard size={18} /> Proceed to Payment</>}
                 </button>
 
                 {(pendingLoading || pendingError) && <p role="status" className="mt-4 text-sm">{pendingError || 'Recovering pending payments...'} {pendingError && <button type="button" onClick={() => refreshPending()}>Retry</button>}</p>}
@@ -534,7 +564,7 @@ const DashboardPage = () => {
                         <div>
                         {(() => {
                             if (!pendingPayment.expiresAt) return <p className="flex items-center gap-2 text-[13px] font-semibold text-[#1F2937]"><span className="h-2 w-2 rounded-full bg-[#D4AF37]" />Payment pending</p>;
-                            const remaining = Math.max(0, Math.floor((new Date(pendingPayment.expiresAt).getTime() - Date.now()) / 1000));
+                            const remaining = Math.max(0, Math.floor((new Date(pendingPayment.expiresAt).getTime() - topUpClock) / 1000));
                             if (remaining <= 0) {
                                 return (
                                     <div className="flex items-center gap-2 text-[13px] font-semibold text-[#DC2626]">
@@ -566,12 +596,12 @@ const DashboardPage = () => {
                                 Continue Payment
                             </button>
                         ) : null;
-                        const remaining = Math.max(0, Math.floor((new Date(pendingPayment.expiresAt).getTime() - Date.now()) / 1000));
+                        const remaining = Math.max(0, Math.floor((new Date(pendingPayment.expiresAt).getTime() - topUpClock) / 1000));
                         if (remaining <= 0) {
                             return (
                                 <button
                                     type="button"
-                                    onClick={() => { setPendingPayment(null); refreshPending(); }}
+                                    onClick={() => { topUpAttemptRef.current = null; setPendingPayment(null); refreshPending(); }}
                                     className="mt-5 h-12 w-full rounded-xl text-white text-sm font-semibold transition-all cursor-pointer border-none bg-[#7A2635] hover:bg-[#651F2D]"
                                 >
                                     Create New Top-Up

@@ -12,8 +12,10 @@ import {
   ListChecks,
   LoaderCircle,
   MoreVertical,
+  Plus,
   RefreshCw,
   UserRound,
+  X,
 } from "lucide-react";
 import { Client } from "@stomp/stompjs";
 import logo from "./assets/image/logo-premier.webp";
@@ -36,6 +38,8 @@ const WEBSOCKET_URL = import.meta.env.DEV
 const emptyQueue = {
   incomingToSmTerminal: [],
   incomingToGrandTerminal: [],
+  smTerminal: { terminal: "SM_TERMINAL", boarding: null, waiting: [], approaching: [] },
+  grandTerminal: { terminal: "GRAND_TERMINAL", boarding: null, waiting: [], approaching: [] },
 };
 
 const statusStyles = {
@@ -45,13 +49,15 @@ const statusStyles = {
   "Near Terminal": "bg-emerald-50 text-emerald-700 border-emerald-200",
   Arriving: "bg-orange-50 text-orange-700 border-orange-200",
   Arrived: "bg-green-50 text-green-700 border-green-200",
+  Waiting: "bg-amber-50 text-amber-700 border-amber-200",
+  Boarding: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
 function normalizeStatus(status, statusLabel) {
   return statusLabel || String(status || "On Route").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function normalizeBuses(items = []) {
+function normalizeBuses(items = [], includeQueuePosition = true) {
   return [...items]
     .map((bus, index) => ({
       ...bus,
@@ -59,40 +65,41 @@ function normalizeBuses(items = []) {
       routeDirection: bus.routeDirection || bus.route || "Route unavailable",
       distanceRemainingKm: (bus.distanceRemainingKm ?? bus.distanceKm) == null ? null : Number(bus.distanceRemainingKm ?? bus.distanceKm),
       estimatedArrivalMinutes: (bus.estimatedArrivalMinutes ?? bus.etaMinutes) == null ? null : Number(bus.estimatedArrivalMinutes ?? bus.etaMinutes),
-      queuePosition: Number(bus.queuePosition ?? index + 1),
+      queuePosition: includeQueuePosition ? Number(bus.queuePosition ?? index + 1) : null,
       statusLabel: normalizeStatus(bus.status, bus.statusLabel),
-    }))
-    .sort((a, b) => {
-      if (a.distanceRemainingKm !== b.distanceRemainingKm) {
-        return (a.distanceRemainingKm ?? Infinity) - (b.distanceRemainingKm ?? Infinity);
-      }
-      return (a.estimatedArrivalMinutes ?? Infinity) - (b.estimatedArrivalMinutes ?? Infinity);
-    })
-    .map((bus, index) => ({ ...bus, queuePosition: index + 1 }));
+    }));
 }
 
 function normalizeQueuePayload(payload) {
   const data = payload?.data ?? payload ?? emptyQueue;
 
+  const smWaiting = normalizeBuses(data.smTerminal?.waiting || data.incomingToSmTerminal || data.sm || []);
+  const grandWaiting = normalizeBuses(data.grandTerminal?.waiting || data.incomingToGrandTerminal || data.grand || []);
+  const smApproaching = normalizeBuses(data.smTerminal?.approaching || [], false);
+  const grandApproaching = normalizeBuses(data.grandTerminal?.approaching || [], false);
+  const normalizeTerminal = (terminal, fallback, waiting, approaching) => ({
+    terminal,
+    boarding: fallback?.boarding ? normalizeBuses([fallback.boarding])[0] : null,
+    waiting,
+    approaching,
+  });
   return {
-    incomingToSmTerminal: normalizeBuses(data.incomingToSmTerminal || data.sm || []),
-    incomingToGrandTerminal: normalizeBuses(data.incomingToGrandTerminal || data.grand || []),
+    incomingToSmTerminal: smWaiting,
+    incomingToGrandTerminal: grandWaiting,
+    smTerminal: normalizeTerminal("SM_TERMINAL", data.smTerminal, smWaiting, smApproaching),
+    grandTerminal: normalizeTerminal("GRAND_TERMINAL", data.grandTerminal, grandWaiting, grandApproaching),
   };
 }
 
 function formatDistance(value) {
   if (value == null) return "Unknown";
   const distance = Number(value);
-  return Number.isFinite(distance) ? `${distance.toFixed(1)} km` : "Unknown";
+  return Number.isFinite(distance) ? `${distance.toFixed(2)} km` : "Unknown";
 }
 
 function formatEta(value) {
   const minutes = Number(value);
   return Number.isFinite(minutes) && minutes > 0 ? `${Math.round(minutes)} min` : "Unknown";
-}
-
-function routeLabel(routeDirection) {
-  return String(routeDirection || "").replace(" to ", " -> ");
 }
 
 function LoginPage({ onLogin }) {
@@ -338,14 +345,16 @@ function TerminalSelector({ label, colorClass, selected, onClick }) {
   );
 }
 
-function QueueCard({ bus }) {
+function QueueCard({ bus, boarding = false, canBoard = false, busy = false, onBoard, onDepart, onCancel }) {
   const badgeClass = statusStyles[bus.statusLabel] || "bg-slate-100 text-slate-700 border-slate-200";
+  const lastGpsLabel = bus.gpsAvailable ? `GPS Live · ${formatPhtTime(bus.capturedAt)}`
+    : bus.capturedAt ? `GPS unavailable · Last ${formatPhtTime(bus.capturedAt)}` : "GPS unavailable";
 
   return (
     <article className="rounded-lg border border-[#e6e8ee] bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#8b95a7]">Queue #{bus.queuePosition}</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#8b95a7]">{boarding ? "Currently Boarding" : `Queue #${bus.queuePosition}`}</p>
           <h3 className="mt-2 text-3xl font-black tracking-wide text-[#352f33]">{bus.plateNumber}</h3>
         </div>
         <span className={`rounded-full border px-2 py-1 text-[11px] font-black ${badgeClass}`}>{bus.statusLabel}</span>
@@ -353,32 +362,96 @@ function QueueCard({ bus }) {
 
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div className="col-span-2 rounded-lg bg-[#f8fafc] border border-[#e6e8ee] p-3">
-          <dt className="text-[10px] font-black uppercase tracking-wide text-[#717680]">Route</dt>
-          <dd className="mt-1 font-bold text-[#352f33]">{routeLabel(bus.routeDirection)}</dd>
+          <dt className="text-[10px] font-black uppercase tracking-wide text-[#717680]">{boarding ? "Boarding since" : "Checked in"}</dt>
+          <dd className="mt-1 font-bold text-[#352f33]">{formatPhtTime(boarding ? bus.boardingAt : bus.checkedInAt)} · {bus.checkInSource === "STAFF" ? "Staff" : "GPS"}</dd>
         </div>
         <StatCard label="Distance" value={formatDistance(bus.distanceRemainingKm)} />
         <StatCard label="ETA" value={formatEta(bus.estimatedArrivalMinutes)} />
+        <div className="col-span-2 rounded-lg border border-[#e6e8ee] bg-[#f8fafc] p-3">
+          <dt className="text-[10px] font-black uppercase tracking-wide text-[#717680]">GPS status</dt>
+          <dd className="mt-1 font-bold text-[#352f33]">{lastGpsLabel}</dd>
+        </div>
       </dl>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {boarding ? <button type="button" disabled={busy} onClick={() => onDepart(bus.id)} className="min-h-10 rounded-lg bg-[#6b202f] px-4 text-sm font-black text-white disabled:opacity-50">Mark Departed</button> : null}
+        {canBoard ? <button type="button" disabled={busy} onClick={() => onBoard(bus.id)} className="min-h-10 rounded-lg bg-[#6b202f] px-4 text-sm font-black text-white disabled:opacity-50">Start Boarding</button> : null}
+        <button type="button" disabled={busy} onClick={() => onCancel(bus.id)} className="min-h-10 rounded-lg border border-[#d8dde3] px-4 text-sm font-black text-[#6b202f] disabled:opacity-50">Cancel</button>
+      </div>
     </article>
   );
 }
 
-function QueueSection({ title, buses }) {
+function ApproachingCard({ bus }) {
+  return (
+    <article className="rounded-lg border border-[#e6e8ee] bg-[#fbfcfd] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#8b95a7]">Approaching Terminal</p>
+          <h3 className="mt-2 text-2xl font-black tracking-wide text-[#352f33]">{bus.plateNumber}</h3>
+        </div>
+        <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">Approaching</span>
+      </div>
+      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <StatCard label="Distance" value={formatDistance(bus.distanceRemainingKm)} />
+        <StatCard label="GPS" value={bus.gpsAvailable ? "Live" : "Unavailable"} />
+      </dl>
+      <p className="mt-3 text-xs font-semibold text-[#647182]">
+        Informational only · No queue position
+        {bus.lastGpsAt ? ` · Updated ${formatPhtTime(bus.lastGpsAt)}` : ""}
+      </p>
+    </article>
+  );
+}
+
+function QueueSection({ title, terminal, busy, onBoard, onDepart, onCancel }) {
+  const buses = terminal?.waiting || [];
+  const approaching = terminal?.approaching || [];
   return (
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-xl font-black text-[#352f33]">{title}</h2>
         <span className="rounded-full bg-[#f2e8ea] px-2 py-1 text-[11px] font-black text-[#6f2f3c]">{buses.length} buses</span>
       </div>
+      <div className="mb-5">
+        <p className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-[#6b202f]">Currently Boarding</p>
+        {terminal?.boarding ? <QueueCard bus={terminal.boarding} boarding busy={busy} onDepart={onDepart} onCancel={onCancel} />
+          : <div className="rounded-lg border border-dashed border-[#d8dde3] bg-[#f8fafc] p-4 text-sm font-semibold text-[#717680]">No vehicle is currently boarding.</div>}
+      </div>
+      <p className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-[#6b202f]">Waiting Queue</p>
       {buses.length ? (
         <div className="grid gap-4">
-          {buses.map((bus) => <QueueCard key={`${bus.plateNumber}-${bus.queuePosition}-${bus.routeDirection}`} bus={bus} />)}
+          {buses.map((bus, index) => <QueueCard key={bus.id || `${bus.plateNumber}-${bus.queuePosition}`} bus={bus}
+            canBoard={index === 0 && !terminal?.boarding} busy={busy} onBoard={onBoard} onCancel={onCancel} />)}
         </div>
       ) : (
         <EmptyState icon={BusFront} title="No incoming buses in this queue." description="Check back later for updates." />
       )}
+      <div className="mt-5 border-t border-[#e4e7eb] pt-5">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#6b202f]">Approaching Terminal</p>
+          <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{approaching.length} buses</span>
+        </div>
+        {approaching.length ? (
+          <div className="grid gap-3">{approaching.map(bus => <ApproachingCard key={bus.vehicleId} bus={bus} />)}</div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-[#d8dde3] bg-[#f8fafc] p-4 text-sm font-semibold text-[#717680]">No buses within 1.0 km.</div>
+        )}
+      </div>
     </section>
   );
+}
+
+function ManualCheckInModal({ vehicles, terminal, selectedVehicle, busy, error, onTerminal, onVehicle, onClose, onSubmit }) {
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-label="Manual Bus Check-In">
+    <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+      <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-widest text-[#6b202f]">Terminal Queue</p><h2 className="mt-1 text-xl font-black">Manual Bus Check-In</h2></div><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-lg hover:bg-slate-100"><X size={20} /></button></div>
+      <label className="mt-5 block text-sm font-black">Terminal<select value={terminal} onChange={e => onTerminal(e.target.value)} className="mt-2 min-h-11 w-full rounded-lg border border-[#d8dde3] px-3"><option value="GRAND_TERMINAL">Grand Terminal</option><option value="SM_TERMINAL">SM Terminal</option></select></label>
+      <label className="mt-4 block text-sm font-black">Vehicle<select required value={selectedVehicle} onChange={e => onVehicle(e.target.value)} className="mt-2 min-h-11 w-full rounded-lg border border-[#d8dde3] px-3"><option value="">Select an eligible vehicle</option>{vehicles.map(vehicle => <option key={vehicle.vehicleId} value={vehicle.vehicleId}>{vehicle.plateNumber}</option>)}</select></label>
+      {!vehicles.length ? <p className="mt-3 text-sm text-[#717680]">No active, unqueued vehicles are available.</p> : null}
+      {error ? <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p> : null}
+      <button type="submit" disabled={busy || !selectedVehicle} className="mt-5 min-h-11 w-full rounded-lg bg-[#6b202f] px-4 font-black text-white disabled:opacity-50">{busy ? "Checking in..." : "Check In"}</button>
+    </form>
+  </div>;
 }
 
 function peso(value) {
@@ -467,6 +540,12 @@ function Dashboard({ username, onLogout }) {
   const [cashData, setCashData] = useState(null);
   const [cashLoading, setCashLoading] = useState(false);
   const [cashError, setCashError] = useState("");
+  const [queueBusy, setQueueBusy] = useState(false);
+  const [queueActionError, setQueueActionError] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [eligibleVehicles, setEligibleVehicles] = useState([]);
+  const [manualTerminal, setManualTerminal] = useState("GRAND_TERMINAL");
+  const [manualVehicle, setManualVehicle] = useState("");
   const queueLoaderRef = useRef(null);
   const cashLoaderRef = useRef(null);
 
@@ -514,6 +593,47 @@ function Dashboard({ username, onLogout }) {
       setLoading(false);
     }
   }, [onLogout]);
+
+  const queueRequest = useCallback(async (path, body) => {
+    const savedSession = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+    if (!savedSession?.token) throw new Error("Staff session expired.");
+    const response = await fetch(`${API_BASE_URL}/api/staff/bus-queue${path}`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${savedSession.token}` },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.success === false) throw new Error(payload?.message || `Request failed (${response.status})`);
+    return payload;
+  }, []);
+
+  const runQueueAction = useCallback(async (path) => {
+    setQueueBusy(true); setQueueActionError("");
+    try { await queueRequest(path); await loadQueue({ silent: true }); }
+    catch (actionError) { setQueueActionError(actionError.message || "Queue action failed."); }
+    finally { setQueueBusy(false); }
+  }, [loadQueue, queueRequest]);
+
+  const openManualCheckIn = useCallback(async () => {
+    setQueueBusy(true); setQueueActionError("");
+    try {
+      const savedSession = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+      const response = await fetch(`${API_BASE_URL}/api/staff/bus-queue/eligible-vehicles`, { headers: { Accept: "application/json", Authorization: `Bearer ${savedSession?.token || ""}` } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.success === false) throw new Error(payload?.message || "Unable to load vehicles.");
+      setEligibleVehicles(payload.data || []); setManualVehicle(""); setManualOpen(true);
+    } catch (actionError) { setQueueActionError(actionError.message || "Unable to open manual check-in."); }
+    finally { setQueueBusy(false); }
+  }, []);
+
+  const submitManualCheckIn = useCallback(async (event) => {
+    event.preventDefault(); setQueueBusy(true); setQueueActionError("");
+    try {
+      await queueRequest("/check-in", { terminal: manualTerminal, vehicleId: Number(manualVehicle) });
+      setManualOpen(false); setManualVehicle(""); await loadQueue({ silent: true });
+    } catch (actionError) { setQueueActionError(actionError.message || "Manual check-in failed."); }
+    finally { setQueueBusy(false); }
+  }, [loadQueue, manualTerminal, manualVehicle, queueRequest]);
 
   const loadCashTransactions = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setCashLoading(true);
@@ -574,7 +694,7 @@ function Dashboard({ username, onLogout }) {
       onConnect: () => client.subscribe("/topic/staff/realtime", (frame) => {
         try {
           const event = JSON.parse(frame.body);
-          if (event.entity === "VEHICLE_LOCATION" || event.entity === "VEHICLE") queueLoaderRef.current?.({ silent: true });
+          if (event.entity === "VEHICLE_LOCATION" || event.entity === "VEHICLE" || event.entity === "TERMINAL_QUEUE") queueLoaderRef.current?.({ silent: true });
           if (event.entity === "STAFF_CASH_TRANSACTION") cashLoaderRef.current?.({ silent: true });
         } catch { /* Ignore malformed realtime envelopes. */ }
       }),
@@ -588,9 +708,15 @@ function Dashboard({ username, onLogout }) {
     return formatPhtTime(lastUpdated);
   }, [lastUpdated]);
 
-  const totalBuses = queue.incomingToSmTerminal.length + queue.incomingToGrandTerminal.length;
-  const activeQueue = (activeTerminal === "sm" ? queue.incomingToSmTerminal : queue.incomingToGrandTerminal).map(bus => queueView(bus, telemetryNow));
-  const activeTitle = activeTerminal === "sm" ? "Incoming to SM Terminal" : "Incoming to Grand Terminal";
+  const totalBuses = queue.smTerminal.waiting.length + queue.grandTerminal.waiting.length
+    + queue.smTerminal.approaching.length + queue.grandTerminal.approaching.length
+    + (queue.smTerminal.boarding ? 1 : 0) + (queue.grandTerminal.boarding ? 1 : 0);
+  const selectedTerminal = activeTerminal === "sm" ? queue.smTerminal : queue.grandTerminal;
+  const activeQueue = { ...selectedTerminal,
+    boarding: selectedTerminal.boarding ? queueView(selectedTerminal.boarding, telemetryNow) : null,
+    waiting: selectedTerminal.waiting.map(bus => queueView(bus, telemetryNow)),
+    approaching: selectedTerminal.approaching };
+  const activeTitle = activeTerminal === "sm" ? "SM Terminal" : "Grand Terminal";
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#f3f5f7] text-[#172438]">
@@ -654,7 +780,7 @@ function Dashboard({ username, onLogout }) {
           <PageHeader
             eyebrow="Staff Dashboard"
             title="Bus Queue Monitoring"
-            description="Live queue status and incoming buses per terminal. Auto-refreshes every 30 seconds."
+            description="Persistent terminal queue. GPS is used for arrival check-in and remains optional afterward."
             updatedLabel={updatedLabel}
             loading={loading}
             onRefresh={() => loadQueue()}
@@ -662,8 +788,8 @@ function Dashboard({ username, onLogout }) {
 
           <dl className="my-5 grid grid-cols-3 gap-2.5">
             <StatCard label="Total Buses" value={totalBuses} icon={BusFront} />
-            <StatCard label="Incoming SM" value={queue.incomingToSmTerminal.length} icon={ArrowLeftRight} />
-            <StatCard label="Incoming Grand" value={queue.incomingToGrandTerminal.length} icon={ArrowLeftRight} />
+            <StatCard label="Approaching SM" value={queue.smTerminal.approaching.length} icon={ArrowLeftRight} />
+            <StatCard label="Approaching Grand" value={queue.grandTerminal.approaching.length} icon={ArrowLeftRight} />
           </dl>
 
           <div className="mb-4 grid grid-cols-2 gap-2.5 max-[560px]:grid-cols-1">
@@ -687,14 +813,21 @@ function Dashboard({ username, onLogout }) {
             />
           </div>
 
+          <button type="button" disabled={queueBusy} onClick={openManualCheckIn} className="mb-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-[#6b202f] bg-white px-4 text-sm font-black text-[#6b202f] transition hover:bg-[#fff7f8] disabled:opacity-50"><Plus size={18} /> Manual Check-In</button>
+          {queueActionError ? <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm font-bold text-red-700">{queueActionError}</p> : null}
+
           <div className="border-t border-[#e4e7eb] pt-4">
             {loading ? <LoadingState label="Loading queue data…" /> : null}
             {error ? <ErrorState title="Queue unavailable" description="Please check your connection and try again." onRetry={() => loadQueue()} /> : null}
-            {!loading && !error ? <QueueSection title={activeTitle} buses={activeQueue} /> : null}
+            {!loading && !error ? <QueueSection title={activeTitle} terminal={activeQueue} busy={queueBusy}
+              onBoard={id => runQueueAction(`/${id}/boarding`)} onDepart={id => runQueueAction(`/${id}/depart`)} onCancel={id => runQueueAction(`/${id}/cancel`)} /> : null}
           </div>
         </section>
         )}
       </section>
+      {manualOpen ? <ManualCheckInModal vehicles={eligibleVehicles} terminal={manualTerminal} selectedVehicle={manualVehicle}
+        busy={queueBusy} error={queueActionError} onTerminal={setManualTerminal} onVehicle={setManualVehicle}
+        onClose={() => { setManualOpen(false); setQueueActionError(""); }} onSubmit={submitManualCheckIn} /> : null}
     </main>
   );
 }

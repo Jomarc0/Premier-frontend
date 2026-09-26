@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, Text, StyleSheet } from 'react-native';
 
 import { colors } from '../theme';
 
-const Button = forwardRef(function Button({ children, icon, variant = 'primary', loading, disabled, style, textStyle, ...props }, ref) {
+const Button = forwardRef(function Button({ children, icon, variant = 'primary', loading, loadingLabel, disabled, style, textStyle, ...props }, ref) {
   const isSecondary = variant === 'secondary';
   const isGhost = variant === 'ghost';
 
@@ -22,7 +22,14 @@ const Button = forwardRef(function Button({ children, icon, variant = 'primary',
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isGhost ? colors.maroon : colors.surface} />
+        <>
+          <ActivityIndicator color={isGhost ? colors.maroon : colors.surface} />
+          {loadingLabel ? (
+            <Text style={[styles.text, isSecondary && styles.secondaryText, isGhost && styles.ghostText, textStyle]}>
+              {loadingLabel}
+            </Text>
+          ) : null}
+        </>
       ) : (
         <>
           {icon}

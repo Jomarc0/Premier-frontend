@@ -377,9 +377,9 @@ const TransactionsPage = () => {
                     </div>
                     <div className={ui.tableWrap}>
                         <table className={ui.adminTable}>
-                            <thead><tr>{['Time','Staff','Vehicle','Device','Shift','Terminal','Category','Amount','Reference'].map(h => <th key={h} className={ui.tableTh}>{h}</th>)}</tr></thead>
+                            <thead><tr>{['Time','Staff','Vehicle','Device','Legacy Shift','Terminal','Category','Amount','Reference'].map(h => <th key={h} className={ui.tableTh}>{h}</th>)}</tr></thead>
                             <tbody>{loading ? <tr><td colSpan="9" className={ui.loadingRow}>Loading...</td></tr> : filteredStaffCashTransactions.length ? filteredStaffCashTransactions.map(tx => <tr key={tx.id} className={ui.tableRow}>
-                                <td className={ui.tableTd}>{formatTime(tx.createdAt)}</td><td className={`${ui.tableTd} font-black`}>{tx.staffName}</td><td className={ui.tableTd}>{tx.plateNumber}</td><td className={ui.tableTd}>{tx.deviceId}</td><td className={ui.tableTd}>{tx.driverShiftId}</td><td className={ui.tableTd}>{tx.terminal || '—'}</td><td className={ui.tableTd}>{tx.fareCategory === 'REGULAR_CASH' ? 'Regular Cash' : 'Discounted Cash'}</td><td className={`${ui.tableTd} ${ui.balancePositive}`}>₱{Number(tx.finalFare).toFixed(2)}</td><td className={`${ui.tableTd} ${ui.mono}`}>{tx.referenceNumber}</td>
+                                <td className={ui.tableTd}>{formatTime(tx.createdAt)}</td><td className={`${ui.tableTd} font-black`}>{tx.staffName}</td><td className={ui.tableTd}>{tx.plateNumber}</td><td className={ui.tableTd}>{tx.deviceId}</td><td className={ui.tableTd}>{tx.driverShiftId || '—'}</td><td className={ui.tableTd}>{tx.terminal || '—'}</td><td className={ui.tableTd}>{tx.fareCategory === 'REGULAR_CASH' ? 'Regular Cash' : 'Discounted Cash'}</td><td className={`${ui.tableTd} ${ui.balancePositive}`}>₱{Number(tx.finalFare).toFixed(2)}</td><td className={`${ui.tableTd} ${ui.mono}`}>{tx.referenceNumber}</td>
                             </tr>) : <tr><td colSpan="9" className={ui.emptyRow}>No staff cash transactions match the selected filters.</td></tr>}</tbody>
                         </table>
                     </div>
