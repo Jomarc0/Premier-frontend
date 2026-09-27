@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { BRAND_NAME, FOOTER_TEXT } from '../../constants/brand';
 import PrimaryButton from './PrimaryButton';
 import TotpInput from './TotpInput';
@@ -27,18 +27,34 @@ export default function TotpVerify({
   const [submitting, setSubmitting] = useState(false);
   const isReady = code.length === 6;
   const panelLabel = mode === 'setup' ? 'Secure Setup' : 'Admin Panel';
+  const totpInputRef = useRef(null);
+
+  const handleVerify = useCallback(async (codeToVerify) => {
+    if (!onVerify) return;
+    try {
+      setSubmitting(true);
+      await onVerify(codeToVerify);
+    } catch (err) {
+      // On error: clear inputs and focus first box for retry
+      if (totpInputRef.current?.clearAndFocusFirst) {
+        totpInputRef.current.clearAndFocusFirst();
+      }
+      setCode('');
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [onVerify]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!isReady || submitting) return;
-
-    try {
-      setSubmitting(true);
-      await onVerify?.(code);
-    } finally {
-      setSubmitting(false);
-    }
+    await handleVerify(code);
   };
+
+  const handleAutoComplete = useCallback((completedCode) => {
+    handleVerify(completedCode);
+  }, [handleVerify]);
 
   return (
     <main className="grid min-h-screen place-items-center bg-[linear-gradient(135deg,#edf1f6_0%,#f8fafc_100%)] px-4 py-8">
@@ -63,7 +79,13 @@ export default function TotpVerify({
             {children ? <div className="mt-6">{children}</div> : null}
 
             <div className="mt-7">
-              <TotpInput value={code} onChange={setCode} />
+              <TotpInput
+                ref={totpInputRef}
+                value={code}
+                onChange={setCode}
+                onComplete={handleAutoComplete}
+                submitting={submitting}
+              />
             </div>
 
             <div className="mx-auto mt-7 grid max-w-xs">

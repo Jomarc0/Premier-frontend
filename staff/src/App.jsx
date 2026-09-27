@@ -154,10 +154,6 @@ function LoginPage({ onLogin }) {
     }
   }
 
-  function handleForgotPassword() {
-    window.alert("Please contact your administrator to reset your password");
-  }
-
   return (
     <main className="min-h-screen grid place-items-center px-4 py-8 bg-[linear-gradient(135deg,#edf1f6_0%,#f8fafc_100%)]">
       <section className="grid grid-cols-[minmax(280px,1fr)_minmax(320px,1fr)] w-full max-w-5xl min-h-[35rem] overflow-hidden rounded-2xl bg-white shadow-[0_22px_52px_rgba(44,36,41,0.18)] max-[860px]:grid-cols-1">
@@ -210,15 +206,6 @@ function LoginPage({ onLogin }) {
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-            <div className="mb-5 mt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={handleForgotPassword}
-                className="text-sm font-semibold text-brand-primary hover:underline"
-              >
-                Forgot your password?
               </button>
             </div>
 

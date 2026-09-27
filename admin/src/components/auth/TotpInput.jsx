@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useImperativeHandle, forwardRef } from 'react';
 
 const CODE_LENGTH = 6;
 
-export default function TotpInput({ value = '', onChange, onComplete }) {
+const TotpInput = forwardRef(function TotpInput({ value = '', onChange, onComplete, submitting = false }, ref) {
   const refs = useRef([]);
+  const hasSubmittedRef = useRef(false);
+
   const digits = useMemo(() => {
     const clean = String(value).replace(/\D/g, '').slice(0, CODE_LENGTH);
     return Array.from({ length: CODE_LENGTH }, (_, index) => clean[index] || '');
@@ -11,10 +13,21 @@ export default function TotpInput({ value = '', onChange, onComplete }) {
 
   useEffect(() => {
     const code = digits.join('');
-    if (code.length === CODE_LENGTH && !digits.includes('')) {
+    const isComplete = code.length === CODE_LENGTH && !digits.includes('');
+    if (isComplete && !submitting && !hasSubmittedRef.current) {
+      hasSubmittedRef.current = true;
       onComplete?.(code);
     }
-  }, [digits, onComplete]);
+    if (!isComplete) {
+      hasSubmittedRef.current = false;
+    }
+  }, [digits, onComplete, submitting]);
+
+  useImperativeHandle(ref, () => ({
+    clearAndFocusFirst: () => {
+      refs.current[0]?.focus();
+    },
+  }), []);
 
   const updateCode = (nextDigits) => {
     onChange?.(nextDigits.join('').replace(/\D/g, '').slice(0, CODE_LENGTH));
@@ -75,4 +88,8 @@ export default function TotpInput({ value = '', onChange, onComplete }) {
       ))}
     </div>
   );
-}
+});
+
+TotpInput.displayName = 'TotpInput';
+
+export default TotpInput;
