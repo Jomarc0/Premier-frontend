@@ -95,7 +95,13 @@ const CreateUserPage = () => {
             rfidUid,
             category,
         });
-        return res.data.data;
+        const createdCard = res.data?.data || {};
+        return {
+            ...createdCard,
+            rfidUid: createdCard.rfidUid || rfidUid,
+            cardCategory: createdCard.cardCategory || category,
+            createdAt: createdCard.createdAt || new Date().toISOString(),
+        };
     };
 
     const copyCardNumber = async (cardNumber) => {
