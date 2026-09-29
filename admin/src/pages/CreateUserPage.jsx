@@ -121,55 +121,85 @@ const CreateUserPage = () => {
         }
     };
 
-    const handleReadSingleUid = async () => {
+    const captureUidFromReader = async (captureRun) => {
         if (!selectedReaderId) {
-            toast.error('No active RFID reader device is available.');
-            return;
+            throw new Error('No active RFID reader device is available.');
         }
+        console.info('[RFID CAPTURE] Starting capture');
+        const startRes = await adminAPI.post('/rfid/uid-capture/start', { deviceId: selectedReaderId });
+        const requestId = startRes.data?.data?.requestId;
+        if (!requestId) {
+            throw new Error('Unable to start RFID UID capture.');
+        }
+
+        console.info(`[RFID CAPTURE] captureId=${requestId}`);
+        toast.info('Tap the blank RFID card on the PN532 reader.');
+
+        const serverExpiry = Date.parse(startRes.data?.data?.expiresAt || '');
+        const expiresAt = Number.isFinite(serverExpiry)
+            ? serverExpiry
+            : Date.now() + CAPTURE_TIMEOUT_MS;
+
+        while (Date.now() <= expiresAt + CAPTURE_POLL_INTERVAL_MS) {
+            if (captureRunRef.current !== captureRun) return '';
+            await new Promise((resolve) => setTimeout(resolve, CAPTURE_POLL_INTERVAL_MS));
+            if (captureRunRef.current !== captureRun) return '';
+            const statusRes = await adminAPI.get(`/rfid/uid-capture/${requestId}`);
+            const status = statusRes.data?.data?.status;
+            const rfidUid = normalizeReaderUid(statusRes.data?.data?.rfidUid);
+            console.info(`[RFID CAPTURE] status=${status}`);
+
+            if (status === 'CAPTURED' && rfidUid) {
+                console.info(`[RFID CAPTURE] UID received=${rfidUid}`);
+                return rfidUid;
+            }
+
+            if (status === 'EXPIRED') {
+                console.info('[RFID CAPTURE] Capture expired');
+                toast.warning('No RFID card detected. Try reading the UID again.');
+                return '';
+            }
+        }
+
+        console.info('[RFID CAPTURE] Capture expired');
+        toast.warning('No RFID card detected. Try reading the UID again.');
+        return '';
+    };
+
+    const handleReadSingleUid = async () => {
         const captureRun = captureRunRef.current + 1;
         captureRunRef.current = captureRun;
         setReadingUid(true);
-        console.info('[RFID CAPTURE] Starting capture');
         try {
-            const startRes = await adminAPI.post('/rfid/uid-capture/start', { deviceId: selectedReaderId });
-            const requestId = startRes.data?.data?.requestId;
-            if (!requestId) {
-                throw new Error('Unable to start RFID UID capture.');
+            const rfidUid = await captureUidFromReader(captureRun);
+            if (rfidUid) {
+                setSingleUid(rfidUid);
+                toast.success('RFID UID captured successfully.');
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.message || err.message || 'Failed to read RFID UID.');
+        } finally {
+            if (captureRunRef.current === captureRun) setReadingUid(false);
+        }
+    };
+
+    const handleReadBulkUid = async () => {
+        const captureRun = captureRunRef.current + 1;
+        captureRunRef.current = captureRun;
+        setReadingUid(true);
+        try {
+            const rfidUid = await captureUidFromReader(captureRun);
+            if (!rfidUid) return;
+
+            if (parsedBulkUids.includes(rfidUid)) {
+                toast.warning(`RFID UID ${rfidUid} is already in this batch.`);
+                return;
             }
 
-            console.info(`[RFID CAPTURE] captureId=${requestId}`);
-            toast.info('Tap the blank RFID card on the PN532 reader.');
-
-            const serverExpiry = Date.parse(startRes.data?.data?.expiresAt || '');
-            const expiresAt = Number.isFinite(serverExpiry)
-                ? serverExpiry
-                : Date.now() + CAPTURE_TIMEOUT_MS;
-
-            while (Date.now() <= expiresAt + CAPTURE_POLL_INTERVAL_MS) {
-                if (captureRunRef.current !== captureRun) return;
-                await new Promise((resolve) => setTimeout(resolve, CAPTURE_POLL_INTERVAL_MS));
-                if (captureRunRef.current !== captureRun) return;
-                const statusRes = await adminAPI.get(`/rfid/uid-capture/${requestId}`);
-                const status = statusRes.data?.data?.status;
-                const rfidUid = normalizeReaderUid(statusRes.data?.data?.rfidUid);
-                console.info(`[RFID CAPTURE] status=${status}`);
-
-                if (status === 'CAPTURED' && rfidUid) {
-                    console.info(`[RFID CAPTURE] UID received=${rfidUid}`);
-                    setSingleUid(rfidUid);
-                    toast.success('RFID UID captured successfully.');
-                    return;
-                }
-
-                if (status === 'EXPIRED') {
-                    console.info('[RFID CAPTURE] Capture expired');
-                    toast.warning('No RFID card detected. Click Read UID to try again.');
-                    return;
-                }
-            }
-
-            console.info('[RFID CAPTURE] Capture expired');
-            toast.warning('No RFID card detected. Click Read UID to try again.');
+            setBulkUids((current) => current.trim()
+                ? `${current.trimEnd()}\n${rfidUid}`
+                : rfidUid);
+            toast.success(`RFID UID ${rfidUid} added to the batch.`);
         } catch (err) {
             toast.error(err.response?.data?.message || err.message || 'Failed to read RFID UID.');
         } finally {
@@ -293,26 +323,27 @@ const CreateUserPage = () => {
                             </select>
                         </div>
 
+                        {readerDevices.length > 1 && (
+                            <div className="mb-[1.05rem]">
+                                <label className={ui.fieldLabel} htmlFor="rfid-reader">RFID Reader</label>
+                                <select
+                                    id="rfid-reader"
+                                    value={selectedReaderId}
+                                    onChange={(event) => setSelectedReaderId(event.target.value)}
+                                    disabled={readingUid}
+                                    className="w-full rounded-lg border border-black/10 bg-white px-4 py-3 text-sm font-black text-text-main outline-none focus:border-maroon focus:ring-2 focus:ring-maroon/15"
+                                >
+                                    {readerDevices.map((device) => (
+                                        <option key={device.deviceId} value={device.deviceId}>
+                                            {device.deviceName || device.deviceId}{device.plateNumber ? ` - ${device.plateNumber}` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         {mode === 'single' ? (
                             <div className="mb-[1.05rem]">
-                                {readerDevices.length > 1 && (
-                                    <div className="mb-3">
-                                        <label className={ui.fieldLabel} htmlFor="rfid-reader">RFID Reader</label>
-                                        <select
-                                            id="rfid-reader"
-                                            value={selectedReaderId}
-                                            onChange={(event) => setSelectedReaderId(event.target.value)}
-                                            disabled={readingUid}
-                                            className="w-full rounded-lg border border-black/10 bg-white px-4 py-3 text-sm font-black text-text-main outline-none focus:border-maroon focus:ring-2 focus:ring-maroon/15"
-                                        >
-                                            {readerDevices.map((device) => (
-                                                <option key={device.deviceId} value={device.deviceId}>
-                                                    {device.deviceName || device.deviceId}{device.plateNumber ? ` - ${device.plateNumber}` : ''}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
                                 <label className={ui.fieldLabel} htmlFor="rfid-uid">
                                     Blank RFID UID
                                 </label>
@@ -366,9 +397,20 @@ const CreateUserPage = () => {
                             </div>
                         ) : (
                             <div className="mb-[1.05rem]">
-                                <label className={ui.fieldLabel} htmlFor="bulk-uids">
-                                    Blank RFID UIDs, one per line
-                                </label>
+                                <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+                                    <label className={`${ui.fieldLabel} mb-0`} htmlFor="bulk-uids">
+                                        Blank RFID UIDs, one per line
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={handleReadBulkUid}
+                                        disabled={loading || readingUid}
+                                        className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-maroon bg-white px-4 text-xs font-black text-maroon transition-colors hover:bg-maroon hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        <FiCreditCard />
+                                        {readingUid ? 'Waiting for card...' : 'Read Next UID'}
+                                    </button>
+                                </div>
                                 <textarea
                                     id="bulk-uids"
                                     rows={8}
@@ -378,7 +420,7 @@ const CreateUserPage = () => {
                                     className="w-full rounded-lg border border-black/10 bg-white px-4 py-3 text-sm font-mono outline-none focus:border-maroon focus:ring-2 focus:ring-maroon/15"
                                 />
                                 <div className="mt-[0.35rem] text-[0.74rem] text-text-muted">
-                                    Ready to create {parsedBulkUids.length} unique {formatCategory(category)} card{parsedBulkUids.length === 1 ? '' : 's'}.
+                                    Click Read Next UID and tap one blank card. Repeat for every card. Ready to create {parsedBulkUids.length} unique {formatCategory(category)} card{parsedBulkUids.length === 1 ? '' : 's'}.
                                 </div>
                             </div>
                         )}

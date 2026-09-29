@@ -127,13 +127,16 @@ const DriversPage = () => {
             }
 
             const currentAssignment = assignments.find(item => item.driverId === savedDriverId);
-            if (form.vehicleId) {
+            const selectedVehicleId = form.vehicleId ? Number(form.vehicleId) : null;
+            const assignmentChanged = currentAssignment?.vehicleId !== selectedVehicleId;
+            if (currentAssignment && assignmentChanged) {
+                await adminAPI.delete(`/fleet-assignments/${currentAssignment.id}`);
+            }
+            if (selectedVehicleId && assignmentChanged) {
                 await adminAPI.post('/fleet-assignments', {
                     driverId: savedDriverId,
-                    vehicleId: Number(form.vehicleId),
+                    vehicleId: selectedVehicleId,
                 });
-            } else if (currentAssignment) {
-                await adminAPI.delete(`/fleet-assignments/${currentAssignment.id}`);
             }
 
             handleClose();
@@ -323,13 +326,20 @@ const DriversPage = () => {
 
                             <div className="flex flex-col gap-[0.32rem]">
                                 <label className="text-[0.86rem] font-extrabold text-[#343946]">Assigned Vehicle</label>
-                                <select className={`${formInputCls(false)} select-arrow cursor-pointer`} value={form.vehicleId} onChange={e => setForm(f => ({ ...f, vehicleId: e.target.value }))}>
+                                <select
+                                    className={`${formInputCls(false)} select-arrow cursor-pointer`}
+                                    value={form.vehicleId}
+                                    onChange={e => setForm(f => ({ ...f, vehicleId: e.target.value }))}
+                                >
                                     <option value="">No vehicle assigned</option>
-                                    {vehicles.map(vehicle => (
+                                    {vehicles.filter(vehicle => {
+                                        const assignment = assignments.find(item => item.vehicleId === vehicle.id);
+                                        return !assignment || assignment.driverId === editingDriver?.id;
+                                    }).map(vehicle => (
                                         <option key={vehicle.id} value={vehicle.id}>{vehicle.plateNumber}</option>
                                     ))}
                                 </select>
-                                <span className="text-[0.74rem] font-semibold text-text-muted">A vehicle can have only one active driver assignment.</span>
+                                <span className="text-[0.74rem] font-semibold text-text-muted">Only unassigned vehicles are shown.</span>
                             </div>
 
                             <div className="flex justify-end gap-[0.6rem] pt-2 border-t border-border-soft mt-[0.15rem] max-[560px]:flex-col-reverse">
