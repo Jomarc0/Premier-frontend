@@ -44,8 +44,8 @@ const DEFAULT_ROUTE = {
         code: 'POINT_B',
         label: 'Grand Terminal',
         description: 'Destination Terminal',
-        latitude: 13.790391,
-        longitude: 121.062721,
+        latitude: 13.78962,
+        longitude: 121.06170,
     },
 };
 
@@ -622,7 +622,7 @@ const VehicleTable = ({ buses, loading, onLocate, onHistory }) => (
                         <tr key={bus.plateNumber} className={ui.tableRow}>
                             <td className={`${ui.tableTd} font-black text-maroon`}>Bus {bus.plateNumber}</td>
                             <td className={ui.tableTd}>{FIXED_ROUTE_LABEL}</td>
-                            <td className={ui.tableTd}><span className={`rounded-full px-2 py-1 text-xs font-black ${statusTone[bus.status] || statusTone.OFFLINE}`}>{bus.deviceStatus || 'DEVICE_OFFLINE'}</span><br /><small>{bus.gpsState}</small></td>
+                            <td className={ui.tableTd}><span className={`rounded-full px-2 py-1 text-xs font-black ${statusTone[bus.status] || statusTone.OFFLINE}`}>{bus.deviceStatus || 'DEVICE_OFFLINE'}</span>{bus.gpsState && bus.gpsState !== 'GPS_NO_FIX' && <><br /><small>{bus.gpsState}</small></>}</td>
                             <td className={`${ui.tableTd} ${ui.mono}`}>{validCoordinates(bus) ? `${formatCoordinate(bus.latitude)}, ${formatCoordinate(bus.longitude)}` : 'No GPS location available'}</td>
                             <td className={ui.tableTd}>{validCoordinates(bus) ? formatSpeed(bus.speed) : 'Not available'}</td>
                             <td className={`${ui.tableTd} text-text-muted`}>{bus.lastUpdated ? `${formatDateTime(bus.lastUpdated)} (${relativeTime(bus.capturedAt)})` : 'No GPS update'}</td>

@@ -463,7 +463,7 @@ function RfidTapForm({ vehicle, onChangeVehicle }) {
                             Fixed Boarding Fare
                         </span>
                         <span className="text-xl font-black font-mono text-[#7A2F3D]">
-                            ₱60.00
+                            ₱75.00
                         </span>
                     </div>
 
