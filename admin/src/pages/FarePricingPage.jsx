@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FiInfo, FiRotateCcw, FiSave } from 'react-icons/fi';
+import { FiInfo } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
@@ -159,7 +159,7 @@ export default function FarePricingPage() {
                 onClick={() => setConfirm(true)}
                 className="inline-flex min-h-14 items-center gap-3 rounded-xl bg-maroon px-7 font-bold text-white shadow-sm transition hover:bg-maroon-dark disabled:cursor-not-allowed disabled:opacity-45"
               >
-                <FiSave aria-hidden="true" className="text-xl" /> Save Changes
+                Save Changes
               </button>
               <button
                 type="button"
@@ -167,7 +167,7 @@ export default function FarePricingPage() {
                 disabled={!changed || saving}
                 className="inline-flex min-h-14 items-center gap-3 rounded-xl border border-maroon bg-white px-6 font-bold text-maroon transition hover:bg-maroon/5 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                <FiRotateCcw aria-hidden="true" className="text-xl" /> Reset
+                Reset
               </button>
             </div>
 
