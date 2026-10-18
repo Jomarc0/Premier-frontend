@@ -68,6 +68,7 @@ const AdminSidebar = () => {
         { label: 'Analytics',     icon: FiActivity,      path: '/admin/analytics',     superOnly: false },
         { label: 'Transactions',  icon: FiFileText,      path: '/admin/transactions',  superOnly: false },
         { label: 'Staff',         icon: FiUsers,         path: '/admin/staff',         superOnly: false },
+        { label: 'Fare Pricing',  icon: FiFileText,      path: '/admin/fares',         superOnly: true },
         { label: 'All Users',     icon: FiUsers,         path: '/admin/users',         superOnly: false },
         { label: 'Create Cards',  icon: FiUserPlus,      path: '/admin/create-user',   superOnly: false },
         { label: 'Drivers',       icon: FiUsers,         path: '/admin/drivers',       superOnly: false },
@@ -81,6 +82,7 @@ const AdminSidebar = () => {
 
     const visibleMenu = menu.filter(
         item => (!item.superOnly || isSuperAdmin())
+            && (!item.adminOnly || admin?.role !== 'STAFF')
             && (!item.setupOnly || (admin?.role !== 'STAFF' && !twoFactorEnabled))
     );
 

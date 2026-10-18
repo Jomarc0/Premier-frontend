@@ -19,6 +19,7 @@ import VehiclesPage      from './pages/VehiclesPage';
 import AdminSecurityPage from './pages/AdminSecurityPage';
 import SupportTicketsPage from './pages/SupportTicketsPage';
 import StaffPage from './pages/StaffPage';
+import FarePricingPage from './pages/FarePricingPage';
 
 const AdminRoute = ({ children }) => {
     const { admin, loading } = useAdminAuth();
@@ -99,6 +100,14 @@ const SuperAdminRoute = ({ children }) => {
     return children;
 };
 
+const FareAdminRoute = ({ children }) => {
+    const { admin, loading } = useAdminAuth();
+    if (loading) return <div style={{ display: 'grid', placeItems: 'center', height: '100vh' }}>Loading...</div>;
+    const role = admin?.role || sessionStorage.getItem('adminRole');
+    if (role !== 'SUPER_ADMIN') return <div role="alert" style={{ padding: 32 }}>Access denied. Fare pricing requires a Super Admin.</div>;
+    return <AdminRoute>{children}</AdminRoute>;
+};
+
 function RouteAnalytics() {
     const location = useLocation();
 
@@ -137,6 +146,7 @@ function App() {
                     <Route path="/admin/staff" element={
                         <AdminRoute><StaffPage /></AdminRoute>
                     } />
+                    <Route path="/admin/fares" element={<FareAdminRoute><FarePricingPage /></FareAdminRoute>} />
                     <Route path="/admin/users" element={
                         <AdminRoute><AllUsersPage /></AdminRoute>
                     } />

@@ -1,0 +1,23 @@
+import { useEffect, useState } from 'react';
+import { toast } from 'react-toastify';
+import adminAPI from '../api/adminAxios';
+import AdminSidebar from '../components/AdminSidebar';
+import * as ui from '../components/adminUI';
+
+const peso = (amount) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(amount || 0));
+export default function FarePricingPage() {
+  const [config, setConfig] = useState(null); const [regular, setRegular] = useState(''); const [discounted, setDiscounted] = useState('');
+  const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [confirm, setConfirm] = useState(false);
+  const load = async () => { setLoading(true); try { const { data } = await adminAPI.get('/fares'); const row = data.data; setConfig(row); setRegular(String(row.regularFare)); setDiscounted(String(row.discountedFare)); } catch (e) { toast.error(e.response?.data?.message || 'Unable to load active fares'); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const errors = [];
+  for (const [label, value] of [['Regular fare', regular], ['Discounted fare', discounted]]) if (!/^\d+(\.\d{1,2})?$/.test(value) || Number(value) < 0 || Number(value) > 100000) errors.push(`${label} must be PHP 0.00–100,000.00 (up to 2 decimals).`);
+  if (!errors.length && Number(discounted) >= Number(regular)) errors.push('Discounted fare must be less than regular fare.');
+  const save = async () => { setSaving(true); try { const { data } = await adminAPI.put('/fares', { regularFare: Number(regular).toFixed(2), discountedFare: Number(discounted).toFixed(2), version: config.version }); setConfig(data.data); setRegular(String(data.data.regularFare)); setDiscounted(String(data.data.discountedFare)); setConfirm(false); toast.success('Fare configuration updated. Devices will sync when connected.'); } catch (e) { toast.error(e.response?.data?.message || 'Unable to update fares'); if (e.response?.status === 409) load(); } finally { setSaving(false); } };
+  return <div className={ui.layout}><AdminSidebar /><main className={ui.workspace}><header className={ui.headerBar}><div><h1 className={ui.headerTitle}>Fare Pricing Management</h1><p>Manage the active system fares</p></div></header>{loading ? <p>Loading active fare configuration…</p> : <div className="max-w-3xl rounded-2xl bg-white p-6 shadow-sm">
+    <div className="mb-6 grid gap-4 sm:grid-cols-2"><label className="grid gap-2 font-bold">Regular fare (PHP)<input className="rounded-lg border p-3" type="number" min="0" max="100000" step="0.01" value={regular} onChange={e=>setRegular(e.target.value)} /></label><label className="grid gap-2 font-bold">Discounted fare (PHP)<input className="rounded-lg border p-3" type="number" min="0" max="100000" step="0.01" value={discounted} onChange={e=>setDiscounted(e.target.value)} /></label></div>
+    {errors.map(e=><p role="alert" className="mb-2 text-sm text-red-700" key={e}>{e}</p>)}<div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"><p>Current active fares: {peso(config.regularFare)} regular · {peso(config.discountedFare)} discounted</p><p>Version {config.version} · Last updated {config.updatedAt ? new Date(config.updatedAt).toLocaleString() : 'Initial configuration'} by {config.updatedBy || 'System'}</p><p>Discounted fares follow existing verified passenger eligibility.</p></div>
+    <div className="flex gap-3"><button disabled={!!errors.length || saving || (String(config.regularFare)===regular && String(config.discountedFare)===discounted)} onClick={()=>setConfirm(true)} className="rounded-lg bg-maroon px-5 py-3 font-bold text-white disabled:opacity-40">Save Changes</button><button onClick={()=>{setRegular(String(config.regularFare));setDiscounted(String(config.discountedFare));}} className="rounded-lg border px-5 py-3">Reset</button></div>
+    {confirm && <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"><div className="w-full max-w-md rounded-xl bg-white p-6"><h2 className="text-xl font-bold">Apply new fares?</h2><p className="my-4">Regular {peso(regular)} · Discounted {peso(discounted)}. New transactions use these fares after the configuration is saved.</p><div className="flex justify-end gap-3"><button disabled={saving} onClick={()=>setConfirm(false)} className="rounded border px-4 py-2">Cancel</button><button disabled={saving} onClick={save} className="rounded bg-maroon px-4 py-2 font-bold text-white">{saving?'Saving…':'Confirm and apply'}</button></div></div></div>}
+  </div>}</main></div>;
+}

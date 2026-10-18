@@ -913,6 +913,7 @@ export default function DashboardScreen({ navigation }) {
     }
   }, []);
 
+
   const fetchNotifications = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setNotificationLoading(true);
     setNotificationError(null);

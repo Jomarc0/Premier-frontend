@@ -90,6 +90,7 @@ const DashboardPage = () => {
         return () => { clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
     }, [fetchData, refreshPending]);
 
+
     useEffect(() => subscribe((event) => {
         if (event.entity === 'TRANSACTION' || event.entity === 'TOPUP' || event.entity === 'PASSENGER') {
             fetchData();
