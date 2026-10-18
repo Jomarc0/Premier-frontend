@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FiInfo, FiRotateCcw, FiSave, FiTag, FiUser } from 'react-icons/fi';
+import { FiInfo, FiRotateCcw, FiSave } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
@@ -9,35 +9,26 @@ const peso = (amount) => new Intl.NumberFormat('en-PH', {
   style: 'currency', currency: 'PHP', minimumFractionDigits: 2,
 }).format(Number(amount || 0));
 
-const inputShell = 'flex min-h-16 overflow-hidden rounded-xl border border-[#d6dfec] bg-white transition focus-within:border-[#8297b8] focus-within:ring-4 focus-within:ring-[#dce6f4]';
-const inputBase = 'min-w-0 flex-1 bg-transparent px-4 text-2xl font-bold text-slate-900 outline-none max-[560px]:text-xl';
+const inputShell = 'flex min-h-16 overflow-hidden rounded-xl border border-border-soft bg-white transition focus-within:border-maroon focus-within:ring-4 focus-within:ring-maroon/10';
+const inputBase = 'min-w-0 flex-1 bg-transparent px-4 text-base font-bold text-[#303b49] outline-none';
 
-function FareField({ icon: Icon, label, description, value, onChange, name }) {
+function FareField({ label, description, value, onChange, name }) {
   return (
-    <label className="block rounded-xl border border-[#d8e1ee] bg-white p-5 max-[560px]:p-4">
-      <span className="mb-3 flex items-center gap-4 text-lg font-bold text-[#702034]">
-        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-[#f7eff1] text-2xl text-[#702034]">
-          <Icon aria-hidden="true" />
-        </span>
-        <span>{label}</span>
-      </span>
+    <label className="block rounded-xl border border-border-soft bg-white p-5 max-[560px]:p-4">
+      <span className="mb-3 block text-sm font-bold text-[#303b49]">{label}</span>
       <span className={inputShell}>
-        <span className="grid w-14 shrink-0 place-items-center border-r border-[#e0e6ef] bg-[#f1f4f8] text-xl font-bold text-slate-500" aria-hidden="true">₱</span>
+        <span className="grid w-14 shrink-0 place-items-center border-r border-border-soft bg-page-bg text-xl font-bold text-text-muted" aria-hidden="true">₱</span>
         <input
           aria-label={label}
           className={inputBase}
           name={name}
-          type="number"
-          min="0"
-          max="100000"
-          step="0.01"
+          type="text"
           inputMode="decimal"
           value={value}
           onChange={(event) => onChange(event.target.value)}
         />
-        <span className="grid shrink-0 place-items-center px-3 text-xs leading-4 text-slate-400" aria-hidden="true">▴<br />▾</span>
       </span>
-      <span className="mt-3 block text-sm text-[#71829f]">{description}</span>
+      <span className="mt-3 block text-sm text-text-muted">{description}</span>
     </label>
   );
 }
@@ -110,33 +101,32 @@ export default function FarePricingPage() {
     <div className={ui.layout}>
       <AdminSidebar />
       <main className={ui.workspace}>
-        <header className="mb-5 rounded-xl border border-[#d8e1ee] bg-white px-7 py-6 max-[560px]:px-4 max-[560px]:py-5">
-          <div className="border-l-[6px] border-[#d9b642] pl-5">
-            <h1 className="m-0 text-[clamp(1.65rem,2.5vw,2.35rem)] font-extrabold leading-tight text-[#702034]">Fare Pricing Management</h1>
-            <p className="mt-1 text-lg text-[#71829f]">Manage the active system fares.</p>
+        <header className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-border-soft bg-white px-6 py-5 max-[560px]:flex-col max-[560px]:items-start max-[560px]:px-4 max-[560px]:py-4">
+          <div>
+            <h1 className="m-0 text-[clamp(1.5rem,2.5vw,1.75rem)] font-extrabold leading-tight text-[#202b3a]">Fare Pricing Management</h1>
+            <p className="mt-1 text-sm text-text-muted">Manage the active system fares.</p>
           </div>
         </header>
 
         {loading ? (
-          <section className="rounded-xl border border-[#d8e1ee] bg-white p-7 text-slate-600" role="status">
+          <section className="rounded-xl border border-border-soft bg-white p-7 text-text-muted" role="status">
             Loading active fare configuration…
           </section>
         ) : !config ? (
-          <section role="alert" className="rounded-xl border border-[#d8e1ee] bg-white p-7">
-            <h2 className="text-xl font-bold text-[#702034]">Couldn’t load fare configuration</h2>
+          <section role="alert" className="rounded-xl border border-border-soft bg-white p-7">
+            <h2 className="text-xl font-bold text-maroon">Couldn’t load fare configuration</h2>
             <p className="my-3 text-sm text-slate-600">{loadError || 'The fare service is temporarily unavailable. No changes have been made.'}</p>
-            <button type="button" onClick={load} className="rounded-lg bg-[#702034] px-5 py-3 font-bold text-white transition hover:bg-[#591728]">Retry</button>
+            <button type="button" onClick={load} className="rounded-lg bg-maroon px-5 py-3 font-bold text-white transition hover:bg-maroon-dark">Retry</button>
           </section>
         ) : (
-          <section className="rounded-xl border border-[#d8e1ee] bg-white p-7 max-[560px]:p-4">
+          <section className="rounded-xl border border-border-soft bg-white p-5 shadow-[0_2px_8px_rgba(31,42,55,0.04)] max-[560px]:p-4">
             <div className="mb-6">
-              <h2 className="text-2xl font-bold text-[#702034] max-[560px]:text-xl">Current Fare Configuration</h2>
-              <p className="mt-1 text-base text-[#71829f]">Set the fixed fare charged per passenger.</p>
+              <h2 className="text-base font-bold text-[#202b3a]">Current Fare Configuration</h2>
+              <p className="mt-1 text-sm text-text-muted">Set the fixed fare charged per passenger.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-5 max-[760px]:grid-cols-1">
               <FareField
-                icon={FiUser}
                 label="Regular Fare"
                 description="Standard passenger fare."
                 name="regularFare"
@@ -144,7 +134,6 @@ export default function FarePricingPage() {
                 onChange={setRegular}
               />
               <FareField
-                icon={FiTag}
                 label="Discounted Fare"
                 description="Verified student, senior, and PWD passengers."
                 name="discountedFare"
@@ -153,10 +142,10 @@ export default function FarePricingPage() {
               />
             </div>
 
-            <div className="my-6 flex gap-4 rounded-xl bg-[#f0f4fa] p-5 text-[#536b91] max-[560px]:gap-3 max-[560px]:p-4">
-              <FiInfo aria-hidden="true" className="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-[#7890b4] p-1.5 text-white" />
+            <div className="my-6 flex gap-4 rounded-xl border border-gold/30 bg-gold/10 p-5 text-text-muted max-[560px]:gap-3 max-[560px]:p-4">
+              <FiInfo aria-hidden="true" className="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-gold p-1.5 text-maroon" />
               <div className="space-y-1 text-sm leading-6">
-                <p className="font-bold text-[#3e557b]">Current active fares: {peso(config.regularFare)} regular <span className="px-1">•</span> {peso(config.discountedFare)} discounted</p>
+                <p className="font-bold text-maroon">Current active fares: {peso(config.regularFare)} regular <span className="px-1">•</span> {peso(config.discountedFare)} discounted</p>
                 <p>Version {config.version} <span className="px-1">·</span> Last updated {config.updatedAt ? new Date(config.updatedAt).toLocaleString() : 'Initial configuration'} by {config.updatedBy || 'System'}</p>
                 <p>Discounted fares follow verified passenger eligibility.</p>
               </div>
@@ -168,7 +157,7 @@ export default function FarePricingPage() {
               <button
                 disabled={!!errors.length || saving || !changed}
                 onClick={() => setConfirm(true)}
-                className="inline-flex min-h-14 items-center gap-3 rounded-xl bg-[#702034] px-7 font-bold text-white shadow-sm transition hover:bg-[#591728] disabled:cursor-not-allowed disabled:opacity-45"
+                className="inline-flex min-h-14 items-center gap-3 rounded-xl bg-maroon px-7 font-bold text-white shadow-sm transition hover:bg-maroon-dark disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <FiSave aria-hidden="true" className="text-xl" /> Save Changes
               </button>
@@ -176,7 +165,7 @@ export default function FarePricingPage() {
                 type="button"
                 onClick={() => { setRegular(String(config.regularFare)); setDiscounted(String(config.discountedFare)); }}
                 disabled={!changed || saving}
-                className="inline-flex min-h-14 items-center gap-3 rounded-xl border border-[#702034] bg-white px-6 font-bold text-[#702034] transition hover:bg-[#faf4f5] disabled:cursor-not-allowed disabled:opacity-45"
+                className="inline-flex min-h-14 items-center gap-3 rounded-xl border border-maroon bg-white px-6 font-bold text-maroon transition hover:bg-maroon/5 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <FiRotateCcw aria-hidden="true" className="text-xl" /> Reset
               </button>
@@ -185,11 +174,11 @@ export default function FarePricingPage() {
             {confirm && (
               <div role="dialog" aria-modal="true" aria-labelledby="fare-confirm-title" className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
                 <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-                  <h2 id="fare-confirm-title" className="text-xl font-bold text-[#702034]">Apply new fares?</h2>
+                  <h2 id="fare-confirm-title" className="text-xl font-bold text-maroon">Apply new fares?</h2>
                   <p className="my-4 text-slate-600">Regular {peso(regular)} · Discounted {peso(discounted)}. New transactions use these fares after the configuration is saved.</p>
                   <div className="flex justify-end gap-3">
                     <button disabled={saving} onClick={() => setConfirm(false)} className="rounded-lg border border-slate-300 px-4 py-2 font-semibold">Cancel</button>
-                    <button disabled={saving} onClick={save} className="rounded-lg bg-[#702034] px-4 py-2 font-bold text-white disabled:opacity-60">{saving ? 'Saving…' : 'Confirm and apply'}</button>
+                    <button disabled={saving} onClick={save} className="rounded-lg bg-maroon px-4 py-2 font-bold text-white transition hover:bg-maroon-dark disabled:opacity-60">{saving ? 'Saving…' : 'Confirm and apply'}</button>
                   </div>
                 </div>
               </div>
