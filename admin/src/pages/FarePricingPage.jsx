@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FiInfo } from 'react-icons/fi';
+import { FiInfo, FiRefreshCw, FiSave } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 import adminAPI from '../api/adminAxios';
 import AdminSidebar from '../components/AdminSidebar';
@@ -146,7 +146,7 @@ export default function FarePricingPage() {
               <FiInfo aria-hidden="true" className="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-gold p-1.5 text-maroon" />
               <div className="space-y-1 text-sm leading-6">
                 <p className="font-bold text-maroon">Current active fares: {peso(config.regularFare)} regular <span className="px-1">•</span> {peso(config.discountedFare)} discounted</p>
-                <p>Version {config.version} <span className="px-1">·</span> Last updated {config.updatedAt ? new Date(config.updatedAt).toLocaleString() : 'Initial configuration'} by {config.updatedBy || 'System'}</p>
+                <p>Last updated {config.updatedAt ? new Date(config.updatedAt).toLocaleString() : '—'}</p>
                 <p>Discounted fares follow verified passenger eligibility.</p>
               </div>
             </div>
@@ -159,7 +159,7 @@ export default function FarePricingPage() {
                 onClick={() => setConfirm(true)}
                 className="inline-flex min-h-14 items-center gap-3 rounded-xl bg-maroon px-7 font-bold text-white shadow-sm transition hover:bg-maroon-dark disabled:cursor-not-allowed disabled:opacity-45"
               >
-                Save Changes
+                <FiSave aria-hidden="true" className="shrink-0 text-sm" /> Save Changes
               </button>
               <button
                 type="button"
@@ -167,7 +167,7 @@ export default function FarePricingPage() {
                 disabled={!changed || saving}
                 className="inline-flex min-h-14 items-center gap-3 rounded-xl border border-maroon bg-white px-6 font-bold text-maroon transition hover:bg-maroon/5 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                Reset
+                <FiRefreshCw aria-hidden="true" className="shrink-0 text-sm" /> Reset
               </button>
             </div>
 
