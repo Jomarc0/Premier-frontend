@@ -17,7 +17,8 @@ export function captureMobileEvent(posthog, name, properties = {}) {
 export function identifyMobileUser(posthog, userId) {
   if (!posthog || userId === null || userId === undefined || userId === '') return;
   try {
-    posthog.identify(String(userId), { app: 'premier-users-mobile' });
+    // Retain the SDK-generated anonymous ID; do not send the passenger ID.
+    posthog.register({ app: 'premier-users-mobile' }).catch(() => {});
   } catch {}
 }
 

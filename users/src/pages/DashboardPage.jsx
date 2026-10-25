@@ -387,9 +387,7 @@ const DashboardPage = () => {
         if (topUpAttemptRef.current?.fingerprint !== fingerprint) {
             topUpAttemptRef.current = { fingerprint, idempotencyKey: uuidv4() };
         }
-        captureEvent('passenger_web_topup_started', {
-            payment_method: selectedPayment,
-        });
+        captureEvent('passenger_web_topup_started');
         const res = await API.post('/topup/initiate', {
             amount,
             paymentMethod: selectedPayment,
@@ -864,4 +862,3 @@ const DashboardPage = () => {
 };
 
 export default DashboardPage;
-
