@@ -157,10 +157,7 @@ function LoginPage({ onLogin }) {
   return (
     <main className="min-h-screen grid place-items-center px-4 py-8 bg-[linear-gradient(135deg,#edf1f6_0%,#f8fafc_100%)]">
       <section className="grid grid-cols-[minmax(280px,1fr)_minmax(320px,1fr)] w-full max-w-5xl min-h-[35rem] overflow-hidden rounded-2xl bg-white shadow-[0_22px_52px_rgba(44,36,41,0.18)] max-[860px]:grid-cols-1">
-        <div
-          className="grid place-content-center p-8 text-white text-center bg-brand-primary max-[860px]:min-h-64"
-          style={{ backgroundColor: "#5c2028" }}
-        >
+        <div className="grid place-content-center p-8 text-white text-center bg-brand-primary max-[860px]:min-h-64">
           <div>
             <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-white p-4 overflow-hidden shadow-[0_10px_22px_rgba(0,0,0,0.18)] ring-4 ring-white/75">
               <img src={logo} alt={BRAND_NAME} className="w-full h-full object-contain" />
@@ -171,7 +168,7 @@ function LoginPage({ onLogin }) {
         </div>
 
         <div className="grid content-center p-[clamp(2rem,5vw,3.5rem)] bg-white">
-          <h2 className="m-0 text-brand-primary text-3xl font-black" style={{ color: "#5c2028" }}>Staff Login</h2>
+          <h2 className="m-0 text-brand-primary text-3xl font-black">Staff Login</h2>
           <p className="mt-1 mb-7 text-[#717680] text-sm">Sign in using the staff account created by the admin.</p>
 
           <form onSubmit={handleSubmit}>
@@ -214,8 +211,7 @@ function LoginPage({ onLogin }) {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full min-h-12 rounded-lg bg-brand-primary text-white font-black transition hover:bg-brand-primary-dark hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(92,32,40,0.22)] disabled:opacity-60 disabled:cursor-not-allowed"
-              style={{ backgroundColor: submitting ? "rgba(92, 32, 40, 0.55)" : "#5c2028", color: "#ffffff" }}
+              className={`w-full min-h-12 rounded-lg text-white font-black transition hover:bg-brand-primary-dark hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(92,32,40,0.22)] disabled:opacity-60 disabled:cursor-not-allowed ${submitting ? "bg-brand-primary/55" : "bg-brand-primary"}`}
             >
               {submitting ? "Signing in..." : "Log In"}
             </button>
