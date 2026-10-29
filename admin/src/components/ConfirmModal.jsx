@@ -1,15 +1,17 @@
 import { useEffect, useRef } from 'react';
-import { FiAlertTriangle, FiLoader, FiShield } from 'react-icons/fi';
+import { FiAlertTriangle, FiLoader, FiShield, FiX } from 'react-icons/fi';
 
 export default function ConfirmModal({
-    isOpen, onClose, onConfirm, title, message, warning,
+    isOpen, onClose, onConfirm, title, message, details, warning, error,
     confirmText = 'Confirm', cancelText = 'Cancel', loadingText = 'Processing...',
     variant = 'danger', loading = false, confirmDisabled = false, returnFocusRef,
+    showCloseButton = false,
     ariaLabelledBy = 'confirm-modal-title', ariaDescribedBy = 'confirm-modal-description',
 }) {
     const dialogRef = useRef(null);
     const cancelRef = useRef(null);
     const warningId = `${ariaDescribedBy}-warning`;
+    const errorId = `${ariaDescribedBy}-error`;
     const variantStyles = {
         danger: 'bg-red-700 hover:bg-red-800 text-white',
         warning: 'bg-amber-800 hover:bg-amber-900 text-white',
@@ -38,13 +40,13 @@ export default function ConfirmModal({
             ref={dialogRef}
             aria-modal="true"
             aria-labelledby={ariaLabelledBy}
-            aria-describedby={`${ariaDescribedBy}${warning ? ` ${warningId}` : ''}`}
+            aria-describedby={`${ariaDescribedBy}${warning ? ` ${warningId}` : ''}${error ? ` ${errorId}` : ''}`}
             className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-xl border border-border-soft bg-white p-0 text-text-main shadow-[0_24px_70px_rgba(0,0,0,0.3)] backdrop:bg-black/50"
-            onCancel={(event) => { event.preventDefault(); onClose(); }}
+            onCancel={(event) => { event.preventDefault(); if (!loading) onClose(); }}
             onClick={(event) => {
                 if (event.target !== event.currentTarget) return;
                 const rect = event.currentTarget.getBoundingClientRect();
-                if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose();
+                if (!loading && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) onClose();
             }}
             onKeyDown={(event) => {
                 if (event.key !== 'Tab') return;
@@ -64,17 +66,27 @@ export default function ConfirmModal({
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-maroon/10 text-maroon" aria-hidden="true">
                     <FiShield className="h-6 w-6" />
                 </div>
-                <h2 id={ariaLabelledBy} className="text-xl font-black leading-snug text-maroon">{title}</h2>
+                <div className="flex items-start justify-between gap-3">
+                    <h2 id={ariaLabelledBy} className="text-xl font-black leading-snug text-maroon">{title}</h2>
+                    {showCloseButton && (
+                        <button type="button" onClick={onClose} disabled={loading} aria-label="Close confirmation"
+                            className="-mr-2 -mt-2 inline-grid h-9 w-9 shrink-0 place-items-center rounded-lg text-text-muted transition hover:bg-page-bg hover:text-maroon focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon disabled:cursor-not-allowed disabled:opacity-50">
+                            <FiX aria-hidden="true" />
+                        </button>
+                    )}
+                </div>
                 <p id={ariaDescribedBy} className="mt-3 text-sm leading-6 text-text-main">{message}</p>
+                {details}
                 {warning && (
                     <div id={warningId} className="mt-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
                         <FiAlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
                         <p className="text-sm leading-6"><strong className="mb-1 block font-extrabold">Security warning</strong>{warning}</p>
                     </div>
                 )}
+                {error && <p id={errorId} role="alert" className="mt-4 rounded-lg border border-danger-muted/30 bg-danger-muted/5 px-3 py-2 text-sm font-semibold leading-5 text-danger-muted">{error}</p>}
             </div>
             <div className="flex flex-col gap-3 border-t border-border-soft px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
-                <button ref={cancelRef} type="button" onClick={onClose}
+                <button ref={cancelRef} type="button" onClick={onClose} disabled={loading}
                     className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border-soft bg-white px-5 py-2.5 text-sm font-extrabold text-maroon transition hover:bg-page-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon">
                     {cancelText}
                 </button>

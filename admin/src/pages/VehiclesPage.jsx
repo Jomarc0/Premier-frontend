@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     FiRefreshCw,
     FiSearch,
@@ -20,6 +20,7 @@ import { useAdminAuth } from '../context/AdminAuthState';
 import { toast } from 'react-toastify';
 import * as ui from '../components/adminUI';
 import { useRealtime } from '../context/RealtimeState';
+import ConfirmModal from '../components/ConfirmModal';
 
 const VEHICLE_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'OUT_OF_SERVICE'];
 
@@ -67,6 +68,10 @@ const VehiclesPage = () => {
     const [deviceSaving, setDeviceSaving] = useState(false);
     const [deviceToken, setDeviceToken] = useState('');
     const [copiedToken, setCopiedToken] = useState(false);
+    const [deviceToRotate, setDeviceToRotate] = useState(null);
+    const [rotationError, setRotationError] = useState('');
+    const rotateTokenButtonRef = useRef(null);
+    const rotationInFlightRef = useRef(false);
 
     const fetchVehicles = useCallback(async () => {
         setLoading(true);
@@ -242,24 +247,34 @@ const VehiclesPage = () => {
         }
     };
 
-    const handleRotateDeviceToken = async (device) => {
-        if (!device?.id) return;
-        const confirmed = window.confirm(`Rotate token for ${device.deviceId}? The old ESP32 token will stop working.`);
-        if (!confirmed) return;
-
+    const handleRotateDeviceToken = async () => {
+        if (!deviceToRotate?.id || rotationInFlightRef.current) return;
+        rotationInFlightRef.current = true;
         setDeviceSaving(true);
+        setRotationError('');
         try {
-            const res = await adminAPI.post(`/devices/${device.id}/rotate-token`);
+            const res = await adminAPI.post(`/devices/${deviceToRotate.id}/rotate-token`);
             const token = res.data?.data?.oneTimeDeviceToken || '';
+            if (!token) throw new Error('The server did not return the one-time device token. Contact support before closing this editor.');
             setDeviceToken(token);
             setCopiedToken(false);
-            toast.success('Device token rotated. Copy the new token now.');
+            setDeviceToRotate(null);
+            toast.success('Device token rotated successfully. Update the ESP32 terminal with the new credentials before its next authenticated request.');
             fetchVehicles();
         } catch (err) {
-            toast.error(err.response?.data?.message || 'Failed to rotate device token');
+            const message = err.response?.data?.message || err.message || 'Failed to rotate device token. Please retry.';
+            setRotationError(message);
+            toast.error(message);
         } finally {
+            rotationInFlightRef.current = false;
             setDeviceSaving(false);
         }
+    };
+
+    const closeRotateTokenModal = () => {
+        if (deviceSaving) return;
+        setDeviceToRotate(null);
+        setRotationError('');
     };
 
     const handleCopyToken = async () => {
@@ -283,6 +298,8 @@ const VehiclesPage = () => {
         setDeviceErrors({});
         setDeviceToken('');
         setCopiedToken(false);
+        setDeviceToRotate(null);
+        setRotationError('');
     };
 
     if (auth.loading) return <div className={ui.fullLoading}>Loading...</div>;
@@ -473,7 +490,8 @@ const VehiclesPage = () => {
                                             </div>
                                             <button
                                                 type="button"
-                                                onClick={() => handleRotateDeviceToken(editingLinkedDevice)}
+                                                ref={rotateTokenButtonRef}
+                                                onClick={() => { setRotationError(''); setDeviceToRotate(editingLinkedDevice); }}
                                                 disabled={deviceSaving}
                                                 className="self-start inline-flex items-center justify-center gap-[0.4rem] min-h-[2.3rem] px-4 rounded-lg bg-maroon text-white text-[0.82rem] font-black cursor-pointer transition-colors hover:bg-maroon-dark disabled:opacity-60 disabled:cursor-not-allowed"
                                             >
@@ -553,6 +571,33 @@ const VehiclesPage = () => {
                     </div>
                 </div>
             )}
+
+            <ConfirmModal
+                isOpen={Boolean(deviceToRotate)}
+                onClose={closeRotateTokenModal}
+                onConfirm={handleRotateDeviceToken}
+                title="Rotate ESP32 Device Token?"
+                message="Confirm token rotation for this ESP32 terminal. The new token will be shown once in the vehicle editor after the backend confirms the rotation."
+                details={deviceToRotate && (
+                    <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-border-soft bg-page-bg px-4 py-3 text-sm">
+                        <dt className="font-bold text-text-muted">Device ID</dt><dd className="m-0 break-all font-extrabold text-text-main">{deviceToRotate.deviceId || '—'}</dd>
+                        <dt className="font-bold text-text-muted">Vehicle Plate Number</dt><dd className="m-0 font-extrabold text-text-main">{deviceToRotate.plateNumber || deviceVehicle?.plateNumber || '—'}</dd>
+                        <dt className="font-bold text-text-muted">Device Name</dt><dd className="m-0 font-extrabold text-text-main">{deviceToRotate.deviceName || '—'}</dd>
+                    </dl>
+                )}
+                warning="Rotating this device token will invalidate the current token. The ESP32 terminal must use the new token to authenticate with the system. If the device continues using the old token, its authenticated API requests may fail until its credentials are updated."
+                error={rotationError}
+                confirmText="Rotate Token"
+                cancelText="Cancel"
+                loadingText="Rotating token..."
+                loading={deviceSaving}
+                confirmDisabled={!deviceToRotate?.id}
+                variant="primary"
+                showCloseButton
+                returnFocusRef={rotateTokenButtonRef}
+                ariaLabelledBy="rotate-device-token-title"
+                ariaDescribedBy="rotate-device-token-description"
+            />
 
         </div>
     );
