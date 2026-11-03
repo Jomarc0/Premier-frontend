@@ -284,32 +284,64 @@ const DashboardPage = () => {
     const downloadReceipt = (tx) => {
         if (!tx) return;
 
-        const amountSign = tx.type === 'TOPUP' ? '+' : '-';
-        const receiptLines = [
-            'PREMIER TRANSPORT',
-            'Transaction Receipt',
-            '',
-            `Type: ${tx.type === 'TOPUP' ? 'Top-Up Load' : 'Fare Payment'}`,
-            `Status: ${tx.status === 'SUCCESS' ? 'Completed' : tx.status}`,
-            `Reference ID: ${transactionId(tx)}`,
-            `Date & Time: ${formatDate(tx.createdAt) || '-'}`,
-            `Amount: ${amountSign}PHP ${parseFloat(tx.amount?.toString() || '0').toFixed(2)}`,
-            tx.balanceBefore !== undefined && tx.balanceBefore !== null
-                ? `Balance Before: PHP ${parseFloat(tx.balanceBefore?.toString() || '0').toFixed(2)}`
-                : null,
-            tx.balanceAfter !== undefined && tx.balanceAfter !== null
-                ? `Balance After: PHP ${parseFloat(tx.balanceAfter?.toString() || '0').toFixed(2)}`
-                : null,
-            tx.description ? `Description: ${tx.description}` : null,
-            '',
-            'Thank you for using Premier Transport.',
-        ].filter(Boolean);
-
-        const blob = new Blob([receiptLines.join('\n')], { type: 'text/plain;charset=utf-8;' });
+        const amount = Number.parseFloat(tx.amount?.toString() || '0');
+        const money = (value) => `PHP ${Number.parseFloat(value?.toString() || '0').toFixed(2)}`;
+        const escapePdfText = (value) => String(value ?? '-')
+            .replace(/[^\x20-\x7E]/g, '?')
+            .replace(/\\/g, '\\\\')
+            .replace(/\(/g, '\\(')
+            .replace(/\)/g, '\\)');
+        const text = (value, x, y, size = 11, color = '0.12 0.16 0.22') =>
+            `BT /${size > 20 ? 'F2' : 'F1'} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escapePdfText(value)}) Tj ET`;
+        const line = (y) => `0.88 0.90 0.93 RG 0.7 w 48 ${y} m 547 ${y} l S`;
+        const content = [
+            '0.43 0.13 0.20 rg 0 790 595 52 re f',
+            text('PREMIER TRANSPORT CORPORATION', 48, 815, 15, '1 1 1'),
+            text('RECEIPT', 48, 755, 13, '0.43 0.13 0.20'),
+            text(tx.type === 'TOPUP' ? 'Top-Up Load' : 'Fare Payment', 48, 716, 11, '0.42 0.46 0.52'),
+            text(`${tx.type === 'TOPUP' ? '+' : '-'}${money(amount)}`, 48, 676, 27),
+            text(tx.status === 'SUCCESS' ? 'Completed' : String(tx.status || 'Unknown'), 452, 690, 10, tx.status === 'SUCCESS' ? '0.08 0.55 0.28' : '0.55 0.40 0.05'),
+            line(650),
+            text('Transaction details', 48, 625, 12),
+            text('Receipt number', 48, 590, 9, '0.42 0.46 0.52'),
+            text(transactionId(tx), 48, 574, 10),
+            text('Reference ID', 310, 590, 9, '0.42 0.46 0.52'),
+            text(String(tx.id || '-'), 310, 574, 10),
+            text('Date & time', 48, 535, 9, '0.42 0.46 0.52'),
+            text(formatDate(tx.createdAt) || '-', 48, 519, 10),
+            text('Payment method', 310, 535, 9, '0.42 0.46 0.52'),
+            text(tx.paymentMethod || (tx.type === 'TOPUP' ? 'Digital wallet' : 'RFID fare'), 310, 519, 10),
+            line(493),
+            ...(tx.balanceBefore !== undefined && tx.balanceBefore !== null ? [text('Balance before', 48, 465, 10, '0.42 0.46 0.52'), text(money(tx.balanceBefore), 440, 465, 10)] : []),
+            ...(tx.balanceAfter !== undefined && tx.balanceAfter !== null ? [text('Balance after', 48, 439, 10, '0.42 0.46 0.52'), text(money(tx.balanceAfter), 440, 439, 10)] : []),
+            ...(tx.description ? [line(412), text('Description', 48, 386, 9, '0.42 0.46 0.52'), text(String(tx.description).slice(0, 85), 48, 368, 10)] : []),
+            line(72),
+            text('PREMIER TRANSPORT RFID SMART FARE SYSTEM', 150, 52, 9, '0.43 0.13 0.20'),
+            text('This is a system-generated receipt.', 196, 36, 8, '0.42 0.46 0.52'),
+        ].join('\n');
+        const encoder = new TextEncoder();
+        const stream = `${content}\n`;
+        const objects = [
+            '<< /Type /Catalog /Pages 2 0 R >>',
+            '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>',
+            '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+            '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>',
+            `<< /Length ${encoder.encode(stream).length} >>\nstream\n${stream}endstream`,
+        ];
+        let pdf = '%PDF-1.4\n';
+        const offsets = [0];
+        objects.forEach((object, index) => {
+            offsets.push(encoder.encode(pdf).length);
+            pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+        });
+        const xrefOffset = encoder.encode(pdf).length;
+        pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+        const blob = new Blob([pdf], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `premier-receipt-${transactionId(tx)}.txt`;
+        link.download = `premier-receipt-${transactionId(tx)}.pdf`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
