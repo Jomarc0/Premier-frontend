@@ -30,6 +30,14 @@ const AdminSidebar = () => {
     const [supportBadge, setSupportBadge] = useState(0);
 
     useEffect(() => {
+        // Enrollment tokens are intentionally limited to TOTP setup and
+        // verification. Don't make regular admin requests until enrollment
+        // has completed, or their 401 response can bounce setup back to login.
+        if (!admin || admin.role === 'STAFF' || !twoFactorEnabled) {
+            setSupportBadge(0);
+            return undefined;
+        }
+
         let active = true;
 
         const fetchSupportBadge = async () => {
@@ -49,7 +57,7 @@ const AdminSidebar = () => {
             active = false;
             clearInterval(interval);
         };
-    }, []);
+    }, [admin, twoFactorEnabled]);
 
     useEffect(() => {
         if (!admin || admin.role === 'STAFF' || twoFactorEnabled) return;

@@ -26,8 +26,11 @@ adminAPI.interceptors.response.use(
         const requestUrl = error.config?.url || '';
         const isLoginRequest = requestUrl.includes('/auth/login');
         const isTotpVerifyRequest = requestUrl.includes('/auth/totp/verify');
+        const isTotpSetupRequest = requestUrl.includes('/auth/totp/setup');
 
-        if (error.response?.status === 401 && !isLoginRequest && !isTotpVerifyRequest) {
+        // Keep the enrollment page open so it can show the setup endpoint's
+        // error instead of silently bouncing the admin back to login.
+        if (error.response?.status === 401 && !isLoginRequest && !isTotpVerifyRequest && !isTotpSetupRequest) {
             for (const key of Object.keys(sessionStorage)) {
                 if (key.startsWith('premier:remittance-pending:')) sessionStorage.removeItem(key);
             }

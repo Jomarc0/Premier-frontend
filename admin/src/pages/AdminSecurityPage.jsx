@@ -13,6 +13,7 @@ const AdminSecurityPage = () => {
     const [code, setCode] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [setupError, setSetupError] = useState('');
 
     const qrImageUrl = useMemo(() => {
         return setup?.qrImageDataUri || '';
@@ -24,13 +25,16 @@ const AdminSecurityPage = () => {
 
     const loadSetup = useCallback(async () => {
         setLoading(true);
+        setSetupError('');
         try {
             const res = await adminAPI.get('/auth/totp/setup');
             setSetup(res.data.data);
             const enabled = Boolean(res.data.data?.is2FaEnabled ?? res.data.data?.twoFactorEnabled ?? res.data.data?.['2FaEnabled']);
             setTwoFactorEnabled(enabled);
         } catch (err) {
-            toast.error(err.response?.data?.message || 'Failed to load Google Authenticator setup');
+            const status = err.response?.status;
+            const message = err.response?.data?.message || err.message || 'Request failed';
+            setSetupError(`${status ? `HTTP ${status}: ` : ''}${message}`);
         } finally {
             setLoading(false);
         }
@@ -93,6 +97,15 @@ const AdminSecurityPage = () => {
                 <section className="bg-white rounded-lg p-6 shadow-[0_10px_26px_rgba(44,36,41,0.08)] border-t-4 border-maroon">
                     {loading ? (
                         <p className={ui.loadingRow}>Loading security setup...</p>
+                    ) : setupError ? (
+                        <div role="alert" className="mx-auto max-w-[42rem] rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+                            <h2 className="m-0 text-lg font-black text-red-800">Could not load authenticator setup</h2>
+                            <p className="mt-2 break-words text-sm text-red-700">{setupError}</p>
+                            <button type="button" onClick={loadSetup} className={`${ui.adminAction} mt-4`}>
+                                <FiRefreshCw />
+                                Try again
+                            </button>
+                        </div>
                     ) : isEnabled ? (
                         <div className="mx-auto max-w-[42rem] rounded-lg border border-green-brand/20 bg-[#f0fbf3] p-6 text-center">
                             <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-green-brand text-white">
