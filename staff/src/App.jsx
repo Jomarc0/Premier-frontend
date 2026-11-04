@@ -18,7 +18,6 @@ import {
   RefreshCw,
   ShieldCheck,
   UserRound,
-  UserRound,
   X,
 } from "lucide-react";
 import { Client } from "@stomp/stompjs";
