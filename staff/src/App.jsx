@@ -9,11 +9,15 @@ import {
   CreditCard,
   Eye,
   EyeOff,
+  LockKeyhole,
+  LogIn,
   ListChecks,
   LoaderCircle,
   MoreVertical,
   Plus,
   RefreshCw,
+  ShieldCheck,
+  UserRound,
   UserRound,
   X,
 } from "lucide-react";
@@ -173,16 +177,19 @@ function LoginPage({ onLogin }) {
 
           <form onSubmit={handleSubmit}>
             <label htmlFor="staff-username" className="block mb-2 text-[#343946] font-extrabold text-sm">Username</label>
-            <input
-              id="staff-username"
-              type="text"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              placeholder="Enter staff username"
-              autoComplete="username"
-              required
-              className={`w-full min-h-12 mb-5 px-4 border-2 rounded-lg bg-white text-[#352f33] outline-none transition focus:border-brand-primary focus:shadow-[0_0_0_4px_rgba(92,32,40,0.14)] ${hasError ? "border-red-500" : "border-[#d9dce2]"}`}
-            />
+            <div className="relative mb-5">
+              <input
+                id="staff-username"
+                type="text"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="Enter staff username"
+                autoComplete="username"
+                required
+                className={`w-full min-h-12 pl-10 pr-4 border-2 rounded-lg bg-white text-[#352f33] outline-none transition focus:border-brand-primary focus:shadow-[0_0_0_4px_rgba(92,32,40,0.14)] ${hasError ? "border-red-500" : "border-[#d9dce2]"}`}
+              />
+              <UserRound size={16} aria-hidden="true" className="absolute inset-y-0 left-3 my-auto text-brand-primary" />
+            </div>
 
             <label htmlFor="staff-password" className="block mb-2 text-[#343946] font-extrabold text-sm">Password</label>
             <div className="relative">
@@ -194,8 +201,9 @@ function LoginPage({ onLogin }) {
                 placeholder="Enter password"
                 autoComplete="current-password"
                 required
-                className={`w-full min-h-12 px-4 pr-12 border-2 rounded-lg bg-white text-[#352f33] outline-none transition focus:border-brand-primary focus:shadow-[0_0_0_4px_rgba(92,32,40,0.14)] ${hasError ? "border-red-500" : "border-[#d9dce2]"}`}
+                className={`w-full min-h-12 pl-10 pr-12 border-2 rounded-lg bg-white text-[#352f33] outline-none transition focus:border-brand-primary focus:shadow-[0_0_0_4px_rgba(92,32,40,0.14)] ${hasError ? "border-red-500" : "border-[#d9dce2]"}`}
               />
+              <LockKeyhole size={16} aria-hidden="true" className="absolute inset-y-0 left-3 my-auto text-brand-primary" />
               <button
                 type="button"
                 onClick={() => setShowPassword((visible) => !visible)}
@@ -211,10 +219,15 @@ function LoginPage({ onLogin }) {
             <button
               type="submit"
               disabled={submitting}
-              className={`w-full min-h-12 rounded-lg text-white font-black transition hover:bg-brand-primary-dark hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(92,32,40,0.22)] disabled:opacity-60 disabled:cursor-not-allowed ${submitting ? "bg-brand-primary/55" : "bg-brand-primary"}`}
+              className={`w-full min-h-12 mt-4 inline-flex items-center justify-center gap-2 rounded-lg text-white font-black transition hover:bg-brand-primary-dark hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(92,32,40,0.22)] disabled:opacity-60 disabled:cursor-not-allowed ${submitting ? "bg-brand-primary/55" : "bg-brand-primary"}`}
             >
+              {!submitting && <LogIn size={16} aria-hidden="true" />}
               {submitting ? "Signing in..." : "Log In"}
             </button>
+            <p className="mt-6 mb-0 flex items-center justify-center gap-2 text-xs text-[#717680]">
+              <ShieldCheck size={14} aria-hidden="true" className="text-brand-primary" />
+              Secure staff access
+            </p>
           </form>
         </div>
       </section>
