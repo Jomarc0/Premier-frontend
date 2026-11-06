@@ -346,7 +346,7 @@ const AnalyticsHeader = ({ loading, exporting, onExport, onRefresh, generatedAt 
             <ActionButton disabled={loading || exporting} onClick={() => onExport('csv')} label="CSV" icon={FiDownload} busy={exporting === 'csv'} />
             <ActionButton disabled={loading || exporting} onClick={() => onExport('excel')} label="Excel" icon={FiDownload} busy={exporting === 'excel'} busyLabel="Generating Excel..." />
             <ActionButton disabled={loading || exporting} onClick={() => onExport('pdf')} label="PDF" icon={FiDownload} busy={exporting === 'pdf'} busyLabel="Generating PDF..." />
-            <ActionButton primary disabled={loading || exporting} onClick={onRefresh} label="Refresh" icon={FiRefreshCw} busy={loading} />
+            <ActionButton primary disabled={loading || exporting} onClick={onRefresh} label="Refresh" icon={FiRefreshCw} busy={loading} busyLabel="Loading..." />
         </div>
     </header>
 );
@@ -355,7 +355,7 @@ const ActionButton = ({ primary, disabled, onClick, label, icon, busy, busyLabel
     const ButtonIcon = icon;
     return (
         <button type="button" disabled={disabled} onClick={onClick} className={`${primary ? ui.adminActionRefresh : ui.adminAction} disabled:opacity-60 disabled:cursor-not-allowed`}>
-            <ButtonIcon className={busy ? 'animate-spin' : ''} /> {busy ? busyLabel : label}
+            <ButtonIcon /> {busy ? busyLabel : label}
         </button>
     );
 };

@@ -1,6 +1,6 @@
 import { csvEscape } from './csv.js';
 import { downloadXlsxSheets } from './fareReportExports.js';
-import { createLandscapeReportPdf, downloadReportBlob, wrapReportText } from './reportExportCore.js';
+import { createTableReportPdf, downloadReportBlob } from './reportExportCore.js';
 
 const humanize = (key) => String(key).replace(/([a-z\d])([A-Z])/g, '$1 $2').replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date);
@@ -118,6 +118,12 @@ export function buildAdminAnalyticsSections(analytics) {
     return sections.filter(Boolean);
 }
 
+function directionLabel(value) {
+    if (value === 'SM_TO_GRAND') return 'SM Terminal to Grand Terminal';
+    if (value === 'GRAND_TO_SM') return 'Grand Terminal to SM Terminal';
+    return value || 'Unknown';
+}
+
 export function downloadAdminAnalyticsCsv(sections, filename) {
     const rows = [];
     sections.forEach((section, index) => {
@@ -156,39 +162,119 @@ export function downloadAdminAnalyticsXlsx(sections, filename) {
 }
 
 export function downloadAdminAnalyticsPdf(analytics, sections, filename) {
+    return downloadReportBlob(filename, createAdminAnalyticsPdf(analytics, sections), 'application/pdf');
+}
+
+export function createAdminAnalyticsPdf(analytics, sections) {
     const filters = analytics.filters || {};
-    const header = [
-        'PREMIER TRANSPORT CORPORATION',
-        'ADMINISTRATOR ANALYTICS REPORT',
-        `Period: ${formatPhtDate(filters.startDate)} to ${formatPhtDate(filters.endDate)}`,
-        `Bus: ${filters.busId || 'All Buses'} | Direction: ${filters.direction || 'All Directions'}`,
-        `Payment: ${filters.paymentMethod || 'All'} | Status: ${filters.transactionStatus || 'All'}`,
-        `Generated (PHT): ${formatPhtDateTime(analytics.generatedAt)} | Internal accounting support; not an official BIR form`,
-        'Business address: ____________________ | TIN: ____________________ | Registration details: ____________________ | Prepared by: ____________________',
-    ];
-    const pages = [];
-    sections.forEach((section) => {
-        const base = [...header, '', section.name.toUpperCase(), section.headers.join(' | ').toUpperCase()];
-        let pageLines = [...base];
-        let used = pageLines.length;
-        const maxLines = 40;
-        for (const row of section.rows) {
-            const content = row.map((value, index) => `${section.headers[index]}: ${formatPdfField(section, row, index)}`).join(' | ');
-            const wrapped = wrapReportText(content, 170);
-            if (used + wrapped.length > maxLines && used > base.length) {
-                pages.push([...pageLines, '', `${section.name} (continued)`]);
-                pageLines = [...header, '', `${section.name.toUpperCase()} (CONTINUED)`, section.headers.join(' | ').toUpperCase()];
-                used = pageLines.length;
-            }
-            pageLines.push(...wrapped);
-            used += wrapped.length;
-        }
-        if (section.rows.length === 0) pageLines.push('No records available for this section.');
-        pages.push(pageLines);
+    const header = {
+        period: `${formatPhtDate(filters.startDate)} to ${formatPhtDate(filters.endDate)}`,
+        generatedAt: `${formatPhtDateTime(analytics.generatedAt)} (Asia/Manila)`,
+        bus: selectedBusLabel(filters, analytics.options),
+    };
+    const footer = `Internal accounting support; not an official BIR form | Asia/Manila`;
+    const pdfSections = buildPdfSections(analytics, sections);
+    return createTableReportPdf(header, pdfSections, footer, formatPdfValue);
+}
+
+function buildPdfSections(analytics, existingSections) {
+    const filters = analytics.filters || {};
+    const summary = analytics.summary || {};
+    const filterSummary = metricSection('Report Summary', {
+        reportingPeriod: `${formatPhtDate(filters.startDate)} to ${formatPhtDate(filters.endDate)}`,
+        bus: selectedBusLabel(filters, analytics.options),
+        direction: filters.direction || 'All Directions',
+        paymentMethod: filters.paymentMethod || 'All',
+        transactionStatus: filters.transactionStatus || 'All',
+        ...summary,
     });
-    if (!pages.length) pages.push([...header, '', 'No analytics data available.']);
-    const footer = `Period: ${formatPhtDate(filters.startDate)} to ${formatPhtDate(filters.endDate)} | Asia/Manila`;
-    return downloadReportBlob(filename, createLandscapeReportPdf(pages, footer), 'application/pdf');
+    if (filterSummary) filterSummary.rows = filterSummary.rows.map(([label, value]) => [
+        label.replaceAll('.', ' - ').replace('Best Performing Bus - Bus', 'Best Performing Bus').replace('Peak Direction - Label', 'Peak Direction'),
+        value,
+    ]);
+    const revenue = analytics.trends?.revenue || [];
+    const passengers = analytics.trends?.passengers || [];
+    const revenueTable = tableSection('Revenue Trend', revenue.length ? [...revenue, {
+        date: 'TOTAL', name: '', revenue: sumRows(revenue, 'revenue'),
+    }] : []);
+    const passengerTable = tableSection('Passenger Trend', passengers.length ? [...passengers, {
+        date: 'TOTAL', name: '', passengers: sumRows(passengers, 'passengers'),
+        uniquePassengers: summary.uniquePassengers ?? '',
+    }] : []);
+    const buses = analytics.busPerformance?.buses || [];
+    const busRows = buses.map((row, index) => ({
+        number: index + 1,
+        busPlateNumber: row.bus || row.name || 'Unassigned',
+        revenue: row.revenue,
+        passengers: row.passengers,
+        uniquePassengers: row.uniquePassengers,
+        transactions: row.passengers,
+    }));
+    if (busRows.length) busRows.push({
+        number: 'TOTAL', busPlateNumber: '', revenue: sumRows(busRows, 'revenue'),
+        passengers: sumRows(busRows, 'passengers'), uniquePassengers: summary.uniquePassengers ?? '',
+        transactions: sumRows(busRows, 'transactions'),
+    });
+    const busTable = tableSection('Bus Performance', busRows);
+    const directions = analytics.directionAnalytics?.directions || [];
+    const directionRows = directions.map((row, index) => ({
+        number: index + 1,
+        direction: row.label || row.name || directionLabel(row.direction),
+        passengers: row.passengers,
+        revenue: row.revenue,
+        transactions: row.transactions ?? row.passengers,
+    }));
+    if (directionRows.length) directionRows.push({
+        number: 'TOTAL', direction: '', passengers: sumRows(directionRows, 'passengers'),
+        revenue: sumRows(directionRows, 'revenue'), transactions: sumRows(directionRows, 'transactions'),
+    });
+    const directionTable = tableSection('Direction Performance', directionRows);
+    const methods = analytics.paymentAnalytics?.methods || [];
+    const paymentRows = methods.map((row) => ({
+        paymentMethod: row.name || row.method,
+        transactionCount: row.transactionCount ?? row.count,
+        successfulTransactions: row.successfulTransactions ?? row.count,
+        totalCollection: row.revenue,
+    }));
+    if (paymentRows.length) paymentRows.push({
+        paymentMethod: 'TOTAL', transactionCount: sumRows(paymentRows, 'transactionCount'),
+        successfulTransactions: sumRows(paymentRows, 'successfulTransactions'),
+        totalCollection: sumRows(paymentRows, 'totalCollection'),
+    });
+    const paymentTable = tableSection('Payment Method Summary', paymentRows);
+    const statuses = analytics.transactionAnalytics?.statuses || [];
+    const statusRows = statuses.map((row) => ({
+        status: row.name || row.status,
+        count: row.count,
+        amount: row.amount ?? 0,
+    }));
+    if (statusRows.length) statusRows.push({ status: 'TOTAL', count: sumRows(statusRows, 'count'), amount: sumRows(statusRows, 'amount') });
+    const statusTable = tableSection('Transaction Status', statusRows);
+
+    const omitted = new Set(['Report Summary', 'Revenue Trend', 'Passenger Trend', 'Bus Performance', 'Direction Performance', 'Payment Analytics', 'Transaction Analytics']);
+    const extras = existingSections.filter((section) => !omitted.has(section.name));
+    const metricExtras = extras.filter((section) => section.keys?.[0] === 'Metric');
+    const additionalMetrics = metricExtras.flatMap((section) => section.rows.map(([metric, value]) => [`${section.name} - ${metric}`.replaceAll('.', ' - '), value]));
+    const extraTables = extras.filter((section) => section.keys?.[0] !== 'Metric');
+    const additional = [
+        tableSection('Daily Payment Counts', analytics.paymentAnalytics?.dailyTrend),
+        tableSection('Payment Failure Reasons', analytics.transactionAnalytics?.failureReasons),
+        tableSection('Failed Payment Attempts', analytics.transactionAnalytics?.failedTransactions),
+    ].filter(Boolean);
+    const metricsTable = additionalMetrics.length ? {
+        name: 'Additional Analytics Metrics', keys: ['Metric', 'Value'], headers: ['Metric', 'Value'], rows: additionalMetrics,
+    } : null;
+    return [filterSummary, revenueTable, passengerTable, busTable, directionTable, paymentTable, statusTable, ...additional, metricsTable, ...extraTables].filter(Boolean);
+}
+
+function sumRows(rows, key) {
+    return rows.reduce((sum, row) => sum + Number(row?.[key] || 0), 0);
+}
+
+function selectedBusLabel(filters, options) {
+    if (!filters.busId) return 'All Buses';
+    const selected = (options?.buses || []).find((bus) => String(bus.id) === String(filters.busId));
+    return selected?.label || selected?.plateNumber || String(filters.busId);
 }
 
 function formatValue(key, value) {
@@ -233,14 +319,19 @@ function uniqueHeaders(headers) {
     });
 }
 function formatPdfValue(key, value) {
-    const text = formatValue(key, value);
-    return /revenue|amount|fare|balance|price/i.test(String(key || '')) && typeof value === 'number'
-        ? text.replace('₱', 'PHP ')
-        : text;
-}
-function formatPdfField(section, row, index) {
-    const key = section.keys[0] === 'Metric' && index === 1 ? row[0] : section.keys[index];
-    return formatPdfValue(key, row[index]);
+    const normalizedKey = String(key || '').split(/[. ]/).findLast((part) => /^(date|day|dateTime|lastHeartbeat|createdAt|updatedAt|direction|paymentMethod|status)$/i.test(part)) || key;
+    if (/^direction$/i.test(normalizedKey) && typeof value === 'string' && value) value = directionLabel(value);
+    if (/^paymentMethod$/i.test(normalizedKey) && value === 'ASSISTED_CASH') value = 'Assisted Cash';
+    if (/^status$/i.test(normalizedKey) && typeof value === 'string') value = humanize(value);
+    if (/^(date|day)$/i.test(normalizedKey) && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return formatPhtDate(value);
+    if (/^(dateTime|lastHeartbeat|createdAt|updatedAt)$/i.test(normalizedKey) && value && !Number.isNaN(new Date(value).getTime())) return formatPhtDateTime(value);
+    if (typeof value === 'number' && /collection/i.test(String(key || ''))) {
+        return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value);
+    }
+    if (typeof value === 'number' && !/revenue|amount|fare|balance|price/i.test(String(key || ''))) {
+        return new Intl.NumberFormat('en-PH', { maximumFractionDigits: 2 }).format(value);
+    }
+    return formatValue(key, value);
 }
 function formatSectionValue(section, row, index) {
     const key = section.keys[0] === 'Metric' && index === 1 ? row[0] : section.keys[index];

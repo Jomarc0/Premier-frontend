@@ -44,7 +44,6 @@ export function downloadFareXlsx(rows, report, filename) {
         ['Pending / processing', Number(s.pendingCount || 0)], ['Cancelled transactions', Number(s.cancelledCount || 0)],
         ['Reversed transactions', Number(s.reversedCount || 0)], ['Successful fare revenue (PHP)', Number(s.successfulRevenue || 0)],
         ['Generated (PHT)', report.generatedAt],
-        ['Transaction status filter', report.statusFilter || 'All statuses'], ['Payment method filter', report.paymentMethodFilter || 'All methods'],
         ['', ''], ['Collection breakdown by payment method', ''], ['Payment Method', 'Successful Transaction Count', 'Successful Amount (PHP)'],
         ...(report.paymentBreakdown || []).map((item) => [item.payment_method, Number(item.transaction_count || 0), Number(item.successful_amount || 0)]),
     ];
@@ -188,7 +187,6 @@ export function downloadFarePdf(rows, report, filename) {
             'FARE TRANSACTION AND COLLECTION REPORT',
             `Period: ${phtPeriodDate(report.startDate)} to ${phtPeriodDate(report.endDate)}    Bus: ${report.busLabel}`,
             'Business address: ____________________    TIN: ____________________    Registration details: ____________________',
-            `Filters: Status ${report.statusFilter || 'All'} | Payment method ${report.paymentMethodFilter || 'All'}`,
             `Generated (PHT): ${report.generatedAt} | Internal accounting support; not an official BIR form`,
             `Total transactions: ${report.summary.totalCount}`,
             `Successful: ${report.summary.successfulCount}    Failed: ${report.summary.failedCount}    Pending: ${report.summary.pendingCount}`,

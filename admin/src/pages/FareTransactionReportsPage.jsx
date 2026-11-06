@@ -7,6 +7,16 @@ import * as ui from '../components/adminUI';
 import { downloadFareCsv, downloadFarePdf, downloadFareXlsx } from '../lib/fareReportExports';
 
 const PAGE_SIZE = 25;
+const requestMessage = (error, fallback) => {
+    const response = error.response?.data;
+    if (response && typeof response === 'object') {
+        const message = response.message || response.error;
+        const detail = response.detail;
+        if (message || detail) return [message, detail].filter(Boolean).join(' — ');
+    }
+    if (error.response?.status) return `Report API returned HTTP ${error.response.status}. The backend service or proxy failed.`;
+    return error.message || fallback;
+};
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
 const currentMonth = () => today().slice(0, 7);
 const currentYear = () => today().slice(0, 4);
@@ -36,7 +46,7 @@ function resolveRange(filters) {
 
 export default function FareTransactionReportsPage() {
     const [vehicles, setVehicles] = useState([]);
-    const [filters, setFilters] = useState({ type: 'DAILY', date: today(), weekDate: today(), month: currentMonth(), year: currentYear(), startDate: today(), endDate: today(), vehicleId: '', status: '', paymentMethod: '' });
+    const [filters, setFilters] = useState({ type: 'DAILY', date: today(), weekDate: today(), month: currentMonth(), year: currentYear(), startDate: today(), endDate: today(), vehicleId: '' });
     const [report, setReport] = useState(null);
     const [rows, setRows] = useState([]);
     const [page, setPage] = useState(0);
@@ -50,29 +60,27 @@ export default function FareTransactionReportsPage() {
     }, []);
 
     const range = useMemo(() => resolveRange(filters), [filters]);
-    const loadPage = useCallback(async (targetPage, activeRange = range, activeBus = filters.vehicleId, activeStatus = filters.status, activePayment = filters.paymentMethod) => {
+    const loadPage = useCallback(async (targetPage, activeRange = range, activeBus = filters.vehicleId) => {
         setLoading(true); setError('');
         try {
             const params = { startDate: activeRange[0], endDate: activeRange[1], page: targetPage, size: PAGE_SIZE };
             if (activeBus !== '') params.vehicleId = activeBus;
-            if (activeStatus) params.status = activeStatus;
-            if (activePayment) params.paymentMethod = activePayment;
             const { data } = await adminAPI.get('/fare-reports', { params });
             if (!data?.success || !data.data) throw new Error('Report response was incomplete.');
             const selectedBus = vehicles.find((bus) => String(bus.id) === String(activeBus));
-            setReport({ ...data.data, startDate: activeRange[0], endDate: activeRange[1], busLabel: activeBus === '' ? 'All Buses' : selectedBus?.plateNumber || 'Selected Bus', vehicleId: activeBus === '' ? null : Number(activeBus), statusFilter: activeStatus, paymentMethodFilter: activePayment });
+            setReport({ ...data.data, startDate: activeRange[0], endDate: activeRange[1], busLabel: activeBus === '' ? 'All Buses' : selectedBus?.plateNumber || 'Selected Bus', vehicleId: activeBus === '' ? null : Number(activeBus) });
             setRows(data.data.transactions || []); setPage(targetPage);
         } catch (requestError) {
-            const message = requestError.response?.data?.message || requestError.message || 'Unable to generate this report.';
+            const message = requestMessage(requestError, 'Unable to generate this report.');
             setError(message); toast.error(message);
         } finally { setLoading(false); }
-    }, [range, filters.vehicleId, filters.status, filters.paymentMethod, vehicles]);
+    }, [range, filters.vehicleId, vehicles]);
 
     const generate = (event) => {
         event.preventDefault();
         if (!range[0] || !range[1] || range[1] < range[0]) { toast.error('Choose a valid reporting period.'); return; }
         setReport(null); setRows([]); setPage(0);
-        loadPage(0, range, filters.vehicleId, filters.status, filters.paymentMethod);
+        loadPage(0, range, filters.vehicleId);
     };
 
     const allTransactions = async () => {
@@ -83,8 +91,6 @@ export default function FareTransactionReportsPage() {
             for (let nextPage = 0; nextPage < exportPages; nextPage += 1) {
                 const params = { startDate: report.startDate, endDate: report.endDate, page: nextPage, size: 200 };
                 if (report.vehicleId != null) params.vehicleId = report.vehicleId;
-                if (report.statusFilter) params.status = report.statusFilter;
-                if (report.paymentMethodFilter) params.paymentMethod = report.paymentMethodFilter;
                 const { data } = await adminAPI.get('/fare-reports', { params });
                 const dataRows = data?.data?.transactions;
                 if (!data?.success || !Array.isArray(dataRows)) throw new Error('The server returned an incomplete report page.');
@@ -96,7 +102,7 @@ export default function FareTransactionReportsPage() {
             if (successful.length !== Number(report.summary.successfulCount) || Math.abs(successfulTotal - Number(report.summary.successfulRevenue || 0)) > 0.005) throw new Error('Export stopped: transaction rows do not reconcile with the report summary. Refresh the report and try again.');
             return all;
         } catch (requestError) {
-            toast.error(requestError.response?.data?.message || requestError.message || 'Could not load all report records.');
+            toast.error(requestMessage(requestError, 'Could not load all report records.'));
             return null;
         }
     };
@@ -119,7 +125,7 @@ export default function FareTransactionReportsPage() {
             if (!downloaded) throw new Error('The report file could not be prepared for download.');
             toast.success(`Downloaded ${all.length.toLocaleString()} fare transactions.`);
         } catch (requestError) {
-            toast.error(requestError.response?.data?.message || requestError.message || 'Could not generate the fare transaction report.');
+            toast.error(requestMessage(requestError, 'Could not generate the fare transaction report.'));
         } finally {
             setExporting(false);
         }
@@ -139,8 +145,6 @@ export default function FareTransactionReportsPage() {
                 <h2 className={ui.filterPanelTitle}>Report filters</h2>
                 <div className="grid grid-cols-4 gap-4 max-[850px]:grid-cols-2 max-[560px]:grid-cols-1">
                     <label className={ui.filterGroup}><span className={ui.filterLabel}>Bus</span><select className={ui.filterField} value={filters.vehicleId} onChange={(e) => setFilters({ ...filters, vehicleId: e.target.value })}><option value="">All Buses</option>{vehicles.map((bus) => <option key={bus.id} value={bus.id}>{bus.plateNumber}</option>)}</select></label>
-                    <label className={ui.filterGroup}><span className={ui.filterLabel}>Transaction status</span><select className={ui.filterField} value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">All statuses</option>{['SUCCESS','COMPLETED','FAILED','EXPIRED','PENDING','PROCESSING','CANCELLED'].map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
-                    <label className={ui.filterGroup}><span className={ui.filterLabel}>Payment method</span><select className={ui.filterField} value={filters.paymentMethod} onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}><option value="">All methods</option>{['RFID','NFC','QR','ADMIN','PAYMONGO','ASSISTED_CASH'].map((s) => <option key={s} value={s}>{s.replace('_',' ')}</option>)}</select></label>
                     <label className={ui.filterGroup}><span className={ui.filterLabel}>Report type</span><select className={ui.filterField} value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option><option value="CUSTOM">Custom date range</option></select></label>
                     {filters.type === 'DAILY' && <label className={ui.filterGroup}><span className={ui.filterLabel}>Date</span><input required type="date" className={ui.filterField} value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} /></label>}
                     {filters.type === 'WEEKLY' && <label className={ui.filterGroup}><span className={ui.filterLabel}>Select a date in the week</span><input required type="date" className={ui.filterField} value={filters.weekDate} onChange={(e) => setFilters({ ...filters, weekDate: e.target.value })} /></label>}
