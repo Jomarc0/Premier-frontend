@@ -57,7 +57,7 @@ export function createLandscapeReportPdf(pages, footerText = '') {
 }
 
 /** Build a paginated landscape PDF whose report sections are real ruled tables. */
-export function createTableReportPdf(reportHeader, sections, footerText = '', valueFormatter = (key, value) => String(value ?? '')) {
+export function createTableReportPdf(reportHeader, sections, footerText = '', valueFormatter = (key, value) => String(value ?? ''), options = {}) {
     const pageWidth = 842, pageHeight = 595, margin = 32, bottom = 38, right = pageWidth - margin;
     const pages = [[]];
     let pageIndex = 0, y = pageHeight - 30;
@@ -79,10 +79,13 @@ export function createTableReportPdf(reportHeader, sections, footerText = '', va
         add(`${color(111, 47, 60)} rg ${margin} ${y - 3} ${right - margin} 3 re f`);
         y -= 24;
         text('PREMIER TRANSPORT CORPORATION', margin, y, 13, true, [111, 47, 60]); y -= 17;
-        text('ADMINISTRATOR ANALYTICS REPORT', margin, y, 11, true, [40, 43, 58]); y -= 17;
-        text(`Reporting Period: ${reportHeader.period || 'Not available'}`, margin, y, 9, true, [54, 61, 74]);
-        text(`Generated At: ${reportHeader.generatedAt || 'Not available'}`, 430, y, 9, false, [54, 61, 74]); y -= 14;
-        text(`Selected Bus: ${reportHeader.bus || 'All Buses'}`, margin, y, 9, false, [54, 61, 74]); y -= 16;
+        text(reportHeader.title || 'ADMINISTRATOR ANALYTICS REPORT', margin, y, 11, true, [40, 43, 58]); y -= 17;
+        if (options.compactHeader) y -= 2;
+        else {
+            text(`Reporting Period: ${reportHeader.period || 'Not available'}`, margin, y, 9, true, [54, 61, 74]);
+            text(`Generated At: ${reportHeader.generatedAt || 'Not available'}`, 430, y, 9, false, [54, 61, 74]); y -= 14;
+            text(`Selected Bus: ${reportHeader.bus || 'All Buses'}`, margin, y, 9, false, [54, 61, 74]); y -= 16;
+        }
         add(`${color(218, 221, 226)} RG 0.6 w ${margin} ${y} m ${right} ${y} l S`);
         y -= 14;
     };
@@ -144,7 +147,8 @@ export function createTableReportPdf(reportHeader, sections, footerText = '', va
                 const width = line.includes('₱')
                     ? (line.length - 1) * size * (totalRow ? 0.54 : 0.51) + size * 0.67
                     : line.length * size * (totalRow ? 0.54 : 0.51);
-                const tx = rightAlign ? x + widths[i] - 6 - width : x + 6;
+                const centered = section.centerColumns?.includes(i);
+                const tx = centered ? x + (widths[i] - width) / 2 : rightAlign ? x + widths[i] - 6 - width : x + 6;
                 text(line, Math.max(x + 4, tx), y - 13 - n * 9, size, totalRow, totalRow ? [40, 43, 58] : [54, 61, 74]);
             });
             x += widths[i];
@@ -154,6 +158,7 @@ export function createTableReportPdf(reportHeader, sections, footerText = '', va
 
     (sections || []).forEach((section) => {
         if (!section.headers?.length) return;
+        if (section.pageBreakBefore && pages[pageIndex].length) newPage();
         const widths = colWidths(section);
         const size = section.headers.length > 7 ? 7 : 8;
         const headerHeight = Math.max(22, Math.max(...section.headers.map((header, i) => wrapCell(header.toUpperCase(), widths[i], size, true).length)) * 9 + 10);
@@ -164,7 +169,10 @@ export function createTableReportPdf(reportHeader, sections, footerText = '', va
         (section.rows || []).forEach((row, rowIndex) => {
             const isTotal = String(row?.[0] ?? '').trim().toUpperCase() === 'TOTAL';
             const rowHeight = Math.max(20, Math.max(...section.headers.map((_, i) => wrapCell(rowValue(section, row, i), widths[i], size, isTotal).length)) * 9 + 9);
-            if (y - rowHeight < bottom) {
+            const nextRow = section.rows?.[rowIndex + 1];
+            const nextIsTotal = String(nextRow?.[0] ?? '').trim().toUpperCase() === 'TOTAL';
+            const nextHeight = nextIsTotal ? Math.max(20, Math.max(...section.headers.map((_, i) => wrapCell(rowValue(section, nextRow, i), widths[i], size, true).length)) * 9 + 9) : 0;
+            if (y - rowHeight - nextHeight < bottom) {
                 newPage();
                 text(`${section.name.toUpperCase()} (CONTINUED)`, margin, y, 9, true, [111, 47, 60]); y -= 14;
                 drawTableHead(section, widths);
