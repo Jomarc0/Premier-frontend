@@ -36,7 +36,7 @@ function resolveRange(filters) {
 
 export default function FareTransactionReportsPage() {
     const [vehicles, setVehicles] = useState([]);
-    const [filters, setFilters] = useState({ type: 'DAILY', date: today(), weekDate: today(), month: currentMonth(), year: currentYear(), startDate: today(), endDate: today(), vehicleId: '' });
+    const [filters, setFilters] = useState({ type: 'DAILY', date: today(), weekDate: today(), month: currentMonth(), year: currentYear(), startDate: today(), endDate: today(), vehicleId: '', status: '', paymentMethod: '' });
     const [report, setReport] = useState(null);
     const [rows, setRows] = useState([]);
     const [page, setPage] = useState(0);
@@ -50,61 +50,79 @@ export default function FareTransactionReportsPage() {
     }, []);
 
     const range = useMemo(() => resolveRange(filters), [filters]);
-    const loadPage = useCallback(async (targetPage, activeRange = range, activeBus = filters.vehicleId) => {
+    const loadPage = useCallback(async (targetPage, activeRange = range, activeBus = filters.vehicleId, activeStatus = filters.status, activePayment = filters.paymentMethod) => {
         setLoading(true); setError('');
         try {
             const params = { startDate: activeRange[0], endDate: activeRange[1], page: targetPage, size: PAGE_SIZE };
             if (activeBus !== '') params.vehicleId = activeBus;
+            if (activeStatus) params.status = activeStatus;
+            if (activePayment) params.paymentMethod = activePayment;
             const { data } = await adminAPI.get('/fare-reports', { params });
             if (!data?.success || !data.data) throw new Error('Report response was incomplete.');
             const selectedBus = vehicles.find((bus) => String(bus.id) === String(activeBus));
-            setReport({ ...data.data, startDate: activeRange[0], endDate: activeRange[1], busLabel: activeBus === '' ? 'All Buses' : selectedBus?.plateNumber || 'Selected Bus', vehicleId: activeBus === '' ? null : Number(activeBus) });
+            setReport({ ...data.data, startDate: activeRange[0], endDate: activeRange[1], busLabel: activeBus === '' ? 'All Buses' : selectedBus?.plateNumber || 'Selected Bus', vehicleId: activeBus === '' ? null : Number(activeBus), statusFilter: activeStatus, paymentMethodFilter: activePayment });
             setRows(data.data.transactions || []); setPage(targetPage);
         } catch (requestError) {
             const message = requestError.response?.data?.message || requestError.message || 'Unable to generate this report.';
             setError(message); toast.error(message);
         } finally { setLoading(false); }
-    }, [range, filters.vehicleId, vehicles]);
+    }, [range, filters.vehicleId, filters.status, filters.paymentMethod, vehicles]);
 
     const generate = (event) => {
         event.preventDefault();
         if (!range[0] || !range[1] || range[1] < range[0]) { toast.error('Choose a valid reporting period.'); return; }
         setReport(null); setRows([]); setPage(0);
-        loadPage(0, range, filters.vehicleId);
+        loadPage(0, range, filters.vehicleId, filters.status, filters.paymentMethod);
     };
 
     const allTransactions = async () => {
         if (!report) return [];
-        setExporting(true);
         try {
             const all = [];
             const exportPages = Math.ceil(Number(report.summary.totalCount || 0) / 200);
             for (let nextPage = 0; nextPage < exportPages; nextPage += 1) {
                 const params = { startDate: report.startDate, endDate: report.endDate, page: nextPage, size: 200 };
                 if (report.vehicleId != null) params.vehicleId = report.vehicleId;
+                if (report.statusFilter) params.status = report.statusFilter;
+                if (report.paymentMethodFilter) params.paymentMethod = report.paymentMethodFilter;
                 const { data } = await adminAPI.get('/fare-reports', { params });
                 const dataRows = data?.data?.transactions;
                 if (!data?.success || !Array.isArray(dataRows)) throw new Error('The server returned an incomplete report page.');
                 all.push(...dataRows);
             }
-            if (all.length !== report.summary.totalCount) throw new Error(`Export stopped: fetched ${all.length} of ${report.summary.totalCount} matching transactions.`);
+            if (all.length !== Number(report.summary.totalCount)) throw new Error(`Export stopped: fetched ${all.length} of ${report.summary.totalCount} matching transactions.`);
+            const successful = all.filter((row) => !row.reversed && ['SUCCESS', 'COMPLETED'].includes(row.status));
+            const successfulTotal = successful.reduce((sum, row) => sum + Number(row.fare_amount || 0), 0);
+            if (successful.length !== Number(report.summary.successfulCount) || Math.abs(successfulTotal - Number(report.summary.successfulRevenue || 0)) > 0.005) throw new Error('Export stopped: transaction rows do not reconcile with the report summary. Refresh the report and try again.');
             return all;
         } catch (requestError) {
             toast.error(requestError.response?.data?.message || requestError.message || 'Could not load all report records.');
             return null;
-        } finally { setExporting(false); }
+        }
     };
 
     const exportFile = async (format) => {
-        if (!report) return;
-        const all = await allTransactions();
-        if (!all) return;
-        const filename = `fare-transactions-${report.startDate}-to-${report.endDate}`;
-        const exportReport = { ...report, generatedAt: new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }).format(new Date()) };
-        if (format === 'CSV') downloadFareCsv(all, `${filename}.csv`);
-        if (format === 'XLSX') downloadFareXlsx(all, exportReport, `${filename}.xlsx`);
-        if (format === 'PDF') downloadFarePdf(all, exportReport, `${filename}.pdf`);
-        toast.success(`Downloaded ${all.length.toLocaleString()} fare transactions.`);
+        if (!report || exporting) return;
+        setExporting(true);
+        try {
+            const all = await allTransactions();
+            if (!all) return;
+            const period = report.startDate === report.endDate ? report.startDate : `${report.startDate}_to_${report.endDate}`;
+            const filename = `PTC_Fare_Transaction_Report_${period}`;
+            const generatedAt = `${new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }).format(new Date())} PHT`;
+            const exportReport = { ...report, generatedAt };
+            const downloaded = format === 'CSV'
+                ? downloadFareCsv(all, `${filename}.csv`)
+                : format === 'XLSX'
+                    ? downloadFareXlsx(all, exportReport, `${filename}.xlsx`)
+                    : downloadFarePdf(all, exportReport, `${filename}.pdf`);
+            if (!downloaded) throw new Error('The report file could not be prepared for download.');
+            toast.success(`Downloaded ${all.length.toLocaleString()} fare transactions.`);
+        } catch (requestError) {
+            toast.error(requestError.response?.data?.message || requestError.message || 'Could not generate the fare transaction report.');
+        } finally {
+            setExporting(false);
+        }
     };
 
     const summary = report?.summary || {};
@@ -121,6 +139,8 @@ export default function FareTransactionReportsPage() {
                 <h2 className={ui.filterPanelTitle}>Report filters</h2>
                 <div className="grid grid-cols-4 gap-4 max-[850px]:grid-cols-2 max-[560px]:grid-cols-1">
                     <label className={ui.filterGroup}><span className={ui.filterLabel}>Bus</span><select className={ui.filterField} value={filters.vehicleId} onChange={(e) => setFilters({ ...filters, vehicleId: e.target.value })}><option value="">All Buses</option>{vehicles.map((bus) => <option key={bus.id} value={bus.id}>{bus.plateNumber}</option>)}</select></label>
+                    <label className={ui.filterGroup}><span className={ui.filterLabel}>Transaction status</span><select className={ui.filterField} value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">All statuses</option>{['SUCCESS','COMPLETED','FAILED','EXPIRED','PENDING','PROCESSING','CANCELLED'].map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+                    <label className={ui.filterGroup}><span className={ui.filterLabel}>Payment method</span><select className={ui.filterField} value={filters.paymentMethod} onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}><option value="">All methods</option>{['RFID','NFC','QR','ADMIN','PAYMONGO','ASSISTED_CASH'].map((s) => <option key={s} value={s}>{s.replace('_',' ')}</option>)}</select></label>
                     <label className={ui.filterGroup}><span className={ui.filterLabel}>Report type</span><select className={ui.filterField} value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option><option value="CUSTOM">Custom date range</option></select></label>
                     {filters.type === 'DAILY' && <label className={ui.filterGroup}><span className={ui.filterLabel}>Date</span><input required type="date" className={ui.filterField} value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} /></label>}
                     {filters.type === 'WEEKLY' && <label className={ui.filterGroup}><span className={ui.filterLabel}>Select a date in the week</span><input required type="date" className={ui.filterField} value={filters.weekDate} onChange={(e) => setFilters({ ...filters, weekDate: e.target.value })} /></label>}
@@ -132,7 +152,6 @@ export default function FareTransactionReportsPage() {
                     </>}
                     <div className="flex items-end"><button type="submit" disabled={loading} className={ui.adminActionPrimary}><FiFileText /> Generate Report</button></div>
                 </div>
-                <p className="m-0 mt-3 text-xs text-text-muted">Dates use Philippine calendar boundaries (Asia/Manila). Weekly reports run Monday through Sunday.</p>
             </form>
 
             {error && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">{error}</div>}
@@ -144,16 +163,15 @@ export default function FareTransactionReportsPage() {
                     <div className={ui.dataPanelHeader}><div><span className={ui.dataPanelTitle}><FiFileText /> Matching fare records</span><p className="m-0 mt-1 text-xs text-text-muted">{fmtDate(`${report.startDate}T12:00:00+08:00`)} – {fmtDate(`${report.endDate}T12:00:00+08:00`)} · {report.busLabel} · {Number(summary.totalCount || 0).toLocaleString()} total</p></div>
                         <div className="flex flex-wrap gap-2">{[['PDF', 'PDF'], ['XLSX', 'Excel'], ['CSV', 'CSV']].map(([format, label]) => <button key={format} type="button" onClick={() => exportFile(format)} disabled={exporting || loading} className={ui.adminAction}><FiDownload /> {exporting ? 'Preparing…' : label}</button>)}</div>
                     </div>
-                    <div className="overflow-x-auto"><table className={`${ui.adminTable} min-w-[1100px]`}>
-                        <thead><tr>{['Transaction ID', 'Passenger ID', 'Card', 'Bus Plate', 'Date', 'Time', 'Payment', 'Fare', 'Status', 'Direction', 'Reference'].map((label) => <th className={ui.tableTh} key={label}>{label}</th>)}</tr></thead>
-                        <tbody>{loading ? <tr><td colSpan={11} className={ui.loadingRow}>Loading matching transactions…</td></tr> : rows.length ? rows.map((row) => <tr key={row.transaction_id} className={ui.tableRow}>
-                            <td className={`${ui.tableTd} font-mono text-xs`}>{row.transaction_id}</td><td className={ui.tableTd}>{row.passenger_id || '—'}</td><td className={ui.tableTd}>{row.passenger_identifier || '—'}</td><td className={ui.tableTd}>{row.plate_number || '—'}</td><td className={ui.tableTd}>{fmtDate(row.occurred_at)}</td><td className={ui.tableTd}>{fmtTime(row.occurred_at)}</td><td className={ui.tableTd}>{row.payment_method || '—'}</td><td className={ui.tableTd}>{php(row.fare_amount)}</td><td className={ui.tableTd}>{row.reversed ? 'REVERSED' : row.status}</td><td className={ui.tableTd}>{row.direction || '—'}</td><td className={`${ui.tableTd} font-mono text-xs`}>{row.reference_number || '—'}</td>
+                    <div className="overflow-x-auto"><table className={`${ui.adminTable} min-w-[1200px]`}>
+                        <thead><tr>{['Transaction ID', 'Source', 'Passenger ID', 'Card', 'Bus Plate', 'Date', 'Time', 'Payment', 'Fare', 'Status', 'Reference'].map((label) => <th className={ui.tableTh} key={label}>{label}</th>)}</tr></thead>
+                        <tbody>{loading ? <tr><td colSpan={11} className={ui.loadingRow}>Loading matching transactions…</td></tr> : rows.length ? rows.map((row) => <tr key={`${row.record_source}-${row.transaction_id}`} className={ui.tableRow}>
+                            <td className={`${ui.tableTd} font-mono text-xs`}>{row.transaction_id}</td><td className={ui.tableTd}>{row.record_source || '—'}</td><td className={ui.tableTd}>{row.passenger_id || '—'}</td><td className={ui.tableTd}>{row.passenger_identifier || '—'}</td><td className={ui.tableTd}>{row.plate_number || '—'}</td><td className={ui.tableTd}>{fmtDate(row.occurred_at)}</td><td className={ui.tableTd}>{fmtTime(row.occurred_at)}</td><td className={ui.tableTd}>{row.payment_method || '—'}</td><td className={ui.tableTd}>{php(row.fare_amount)}</td><td className={ui.tableTd}>{row.reversed ? 'REVERSED' : row.status}</td><td className={`${ui.tableTd} font-mono text-xs`}>{row.reference_number || '—'}</td>
                         </tr>) : <tr><td colSpan={11} className={ui.emptyRow}>No matching fare transactions for this report period.</td></tr>}</tbody>
                     </table></div>
                     <div className={ui.paginationBar}><span>Page {page + 1} of {Math.max(1, report.totalPages)} · {rows.length} shown</span><div className={ui.paginationButtons}><button type="button" disabled={page === 0 || loading} onClick={() => loadPage(page - 1)} className={ui.pageBtn}>Previous</button><button type="button" disabled={page + 1 >= report.totalPages || loading} onClick={() => loadPage(page + 1)} className={ui.pageBtn}>Next</button></div></div>
                 </section>
                 {report.busBreakdown && <section className={`${ui.dataPanel} mb-5`}><div className={ui.dataPanelHeader}><span className={ui.dataPanelTitle}>Bus breakdown</span></div><div className="overflow-x-auto"><table className={ui.adminTable}><thead><tr>{['Bus Plate', 'Transactions', 'Successful Revenue'].map((x) => <th key={x} className={ui.tableTh}>{x}</th>)}</tr></thead><tbody>{report.busBreakdown.map((bus, i) => <tr key={bus.bus_id || `unknown-${i}`} className={ui.tableRow}><td className={ui.tableTd}>{bus.plate_number || '—'}</td><td className={ui.tableTd}>{bus.transaction_count}</td><td className={ui.tableTd}>{php(bus.successful_revenue)}</td></tr>)}</tbody></table></div></section>}
-                <p className="text-xs text-text-muted">Summary: {summary.successfulCount} successful · {summary.failedCount} failed · {summary.pendingCount} pending · {summary.cancelledCount} cancelled · {summary.reversedCount} reversed. Only successful, non-reversed fares count as revenue.</p>
             </>}
         </main>
     </div>;

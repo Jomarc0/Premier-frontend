@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'react-toastify';
 import {
     FiActivity,
     FiAlertTriangle,
@@ -229,20 +230,28 @@ const ReportsPage = () => {
     const recent = analytics?.recent || {};
     const options = analytics?.options || {};
 
-    const exportSections = useMemo(() => buildAdminAnalyticsSections(analytics), [analytics]);
-
     const exportFile = async (type) => {
         if (!analytics) return;
         setExporting(type);
         try {
-            const stamp = phtDateKey();
+            const response = await adminAPI.get('/analytics/dashboard', { params: buildParams(appliedFilters), timeout: 60000 });
+            const exportAnalytics = response.data?.data;
+            if (!response.data?.success || !exportAnalytics) throw new Error('The analytics API returned an incomplete report.');
+            const sections = buildAdminAnalyticsSections(exportAnalytics);
+            if (!sections.length) throw new Error('There is no analytics data available to export.');
+            const startDate = exportAnalytics.filters?.startDate || phtDateKey();
+            const endDate = exportAnalytics.filters?.endDate || startDate;
+            const period = startDate === endDate ? startDate : `${startDate}_to_${endDate}`;
+            const filename = `PTC_Admin_Analytics_Report_${period}`;
+            let downloaded;
             if (type === 'csv') {
-                downloadAdminAnalyticsCsv(exportSections, `admin-analytics-${stamp}.csv`);
+                downloaded = downloadAdminAnalyticsCsv(sections, `${filename}.csv`);
             } else if (type === 'excel') {
-                downloadAdminAnalyticsXlsx(exportSections, `admin-analytics-${stamp}.xlsx`);
+                downloaded = downloadAdminAnalyticsXlsx(sections, `${filename}.xlsx`);
             } else {
-                downloadAdminAnalyticsPdf(analytics, exportSections);
+                downloaded = downloadAdminAnalyticsPdf(exportAnalytics, sections, `${filename}.pdf`);
             }
+            if (!downloaded) throw new Error('The report file could not be prepared for download.');
             captureEvent('admin_analytics_exported', {
                 export_type: type,
                 range: appliedFilters.range,
@@ -252,8 +261,10 @@ const ReportsPage = () => {
                 has_payment_filter: Boolean(appliedFilters.paymentMethod),
                 has_status_filter: Boolean(appliedFilters.transactionStatus),
             });
+            toast.success(`${type === 'pdf' ? 'PDF' : type === 'excel' ? 'Excel' : 'CSV'} report download started.`);
         } catch (err) {
             console.error('Analytics export failed', err);
+            toast.error(err.response?.data?.message || err.message || 'Could not generate the analytics report.');
         } finally {
             setExporting('');
         }
@@ -333,18 +344,18 @@ const AnalyticsHeader = ({ loading, exporting, onExport, onRefresh, generatedAt 
         </div>
         <div className="flex justify-end gap-2 flex-wrap">
             <ActionButton disabled={loading || exporting} onClick={() => onExport('csv')} label="CSV" icon={FiDownload} busy={exporting === 'csv'} />
-            <ActionButton disabled={loading || exporting} onClick={() => onExport('excel')} label="Excel" icon={FiDownload} busy={exporting === 'excel'} />
-            <ActionButton disabled={loading || exporting} onClick={() => onExport('pdf')} label="PDF" icon={FiDownload} busy={exporting === 'pdf'} />
+            <ActionButton disabled={loading || exporting} onClick={() => onExport('excel')} label="Excel" icon={FiDownload} busy={exporting === 'excel'} busyLabel="Generating Excel..." />
+            <ActionButton disabled={loading || exporting} onClick={() => onExport('pdf')} label="PDF" icon={FiDownload} busy={exporting === 'pdf'} busyLabel="Generating PDF..." />
             <ActionButton primary disabled={loading || exporting} onClick={onRefresh} label="Refresh" icon={FiRefreshCw} busy={loading} />
         </div>
     </header>
 );
 
-const ActionButton = ({ primary, disabled, onClick, label, icon, busy }) => {
+const ActionButton = ({ primary, disabled, onClick, label, icon, busy, busyLabel = 'Working' }) => {
     const ButtonIcon = icon;
     return (
         <button type="button" disabled={disabled} onClick={onClick} className={`${primary ? ui.adminActionRefresh : ui.adminAction} disabled:opacity-60 disabled:cursor-not-allowed`}>
-            <ButtonIcon className={busy ? 'animate-spin' : ''} /> {busy ? 'Working' : label}
+            <ButtonIcon className={busy ? 'animate-spin' : ''} /> {busy ? busyLabel : label}
         </button>
     );
 };
