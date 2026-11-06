@@ -1,4 +1,3 @@
-import { csvEscape, safeSpreadsheetText } from '../lib/csv';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     FiActivity,
@@ -32,6 +31,12 @@ import * as ui from '../components/adminUI';
 import { captureEvent } from '../lib/posthog';
 import { useRealtime } from '../context/RealtimeState';
 import { phtDateKey } from '../lib/time';
+import {
+    buildAdminAnalyticsSections,
+    downloadAdminAnalyticsCsv,
+    downloadAdminAnalyticsPdf,
+    downloadAdminAnalyticsXlsx,
+} from '../lib/adminAnalyticsExports';
 
 const COLORS = ['#6f2f3c', '#e8bd47', '#2f6b3d', '#b24a52', '#58606f', '#9a7b21'];
 const TIMEZONE = 'Asia/Manila';
@@ -224,7 +229,7 @@ const ReportsPage = () => {
     const recent = analytics?.recent || {};
     const options = analytics?.options || {};
 
-    const exportRows = useMemo(() => buildExportRows(analytics), [analytics]);
+    const exportSections = useMemo(() => buildAdminAnalyticsSections(analytics), [analytics]);
 
     const exportFile = async (type) => {
         if (!analytics) return;
@@ -232,13 +237,11 @@ const ReportsPage = () => {
         try {
             const stamp = phtDateKey();
             if (type === 'csv') {
-                const body = exportRows.map(row => row.map(csvEscape).join(',')).join('\n');
-                download(`admin-analytics-${stamp}.csv`, body, 'text/csv');
+                downloadAdminAnalyticsCsv(exportSections, `admin-analytics-${stamp}.csv`);
             } else if (type === 'excel') {
-                const body = exportRows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(safeSpreadsheetText(cell))}</td>`).join('')}</tr>`).join('');
-                download(`admin-analytics-${stamp}.xls`, `<table>${body}</table>`, 'application/vnd.ms-excel');
+                downloadAdminAnalyticsXlsx(exportSections, `admin-analytics-${stamp}.xlsx`);
             } else {
-                printPdfReport(analytics, exportRows);
+                downloadAdminAnalyticsPdf(analytics, exportSections);
             }
             captureEvent('admin_analytics_exported', {
                 export_type: type,
@@ -915,82 +918,5 @@ const SkeletonBlock = () => (
 
 const ChartSkeleton = () => <div className="h-[19rem] rounded-md bg-[#eceff3] animate-pulse" />;
 const TableSkeleton = () => <div className="h-52 rounded-md bg-[#eceff3] animate-pulse" />;
-
-const buildExportRows = (analytics) => {
-    if (!analytics) return [];
-    const rows = [['Section', 'Metric', 'Value']];
-    const filters = analytics.filters || {};
-    rows.push(['Report', 'Date range', `${filters.startDate || ''} to ${filters.endDate || ''}`]);
-    rows.push(['Applied filter', 'Bus', filters.busId || 'All Buses']);
-    rows.push(['Applied filter', 'Direction', filters.direction || 'All Directions']);
-    rows.push(['Applied filter', 'Payment method', filters.paymentMethod || 'All']);
-    rows.push(['Applied filter', 'Transaction status', filters.transactionStatus || 'All']);
-    kpiConfig.forEach(([key, label, type]) => rows.push(['Executive Summary', label, formatKpiValue(type, analytics.summary?.[key])]));
-    const exportSections = {
-        'Revenue Trend': analytics.trends?.revenue,
-        'Passenger Trend': analytics.trends?.passengers,
-        'Bus Performance': analytics.busPerformance?.buses,
-        'Daily Bus Performance': analytics.dailyBusPerformance,
-        'Direction Performance': analytics.directionAnalytics?.directions,
-        'Payment Analytics': analytics.paymentAnalytics?.methods,
-        'Transaction Status': analytics.transactionAnalytics?.statuses,
-        'Failure Reasons': analytics.transactionAnalytics?.failureReasons,
-        'Failed Transactions': analytics.transactionAnalytics?.failedTransactions,
-        'Fleet Ranking': analytics.fleetAnalytics?.topPerformingBuses,
-        'Buses Requiring Attention': analytics.fleetAnalytics?.busesRequiringAttention,
-        'Terminal Health': analytics.terminalAnalytics?.terminals,
-        'Terminal Queue': analytics.terminalAnalytics?.queues,
-    };
-    Object.entries(exportSections).forEach(([section, data]) => (data || []).forEach(item => rows.push([section, item.name || item.bus || item.date || item.reason || item.terminalId || '', JSON.stringify(item)])));
-    (analytics.recent?.fareTransactions || []).forEach(item => rows.push(['Recent Fare Transactions', item.time, `${item.maskedCardNumber} ${item.paymentMethod} ${money(item.amount)} ${item.status}`]));
-    (analytics.recent?.supportTickets || []).forEach(item => rows.push(['Recent Support Tickets', item.ticketNumber, `${item.category} ${item.status} ${item.dateSubmitted}`]));
-    (analytics.recent?.systemAlerts || []).forEach(item => rows.push(['System Alerts', item.title, `${item.severity} ${item.message}`]));
-    rows.push(['Generated', 'Date and time', analytics.generatedAt || new Date().toISOString()]);
-    return rows;
-};
-
-const download = (filename, content, type) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-};
-
-const printPdfReport = (analytics, rows) => {
-    const popup = window.open('', '_blank');
-    if (!popup) return;
-    popup.document.write(`
-        <html>
-            <head>
-                <title>Admin Analytics Dashboard</title>
-                <style>
-                    body { font-family: Arial, sans-serif; padding: 24px; color: #2c2429; }
-                    h1 { color: #6f2f3c; margin: 0 0 8px; }
-                    table { width: 100%; border-collapse: collapse; font-size: 11px; page-break-inside: auto; }
-                    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
-                    th { background: #6f2f3c; color: white; }
-                    tr { page-break-inside: avoid; }
-                </style>
-            </head>
-            <body>
-                <h1>Admin Analytics Dashboard</h1>
-                <p>Generated: ${escapeHtml(analytics.generatedAt || '')}</p>
-                <table>${rows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(safeSpreadsheetText(cell))}</td>`).join('')}</tr>`).join('')}</table>
-            </body>
-        </html>
-    `);
-    popup.document.close();
-    popup.print();
-};
-
-const escapeHtml = (value) => String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
 
 export default ReportsPage;

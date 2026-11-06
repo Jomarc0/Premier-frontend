@@ -8,6 +8,7 @@ import { RealtimeProvider } from './context/RealtimeContext';
 import { capturePageView } from './lib/posthog';
 import AdminLoginPage    from './pages/AdminLoginPage';
 import TransactionsPage  from './pages/TransactionsPage';
+import FareTransactionReportsPage from './pages/FareTransactionReportsPage';
 import ReportsPage       from './pages/ReportsPage';
 import AllUsersPage      from './pages/AllUsersPage';
 import CreateUserPage    from './pages/CreateUserPage';
@@ -100,6 +101,14 @@ const SuperAdminRoute = ({ children }) => {
     return children;
 };
 
+const AdministratorRoute = ({ children }) => {
+    const { admin, loading, isAdmin } = useAdminAuth();
+    if (loading) return <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>Loading...</div>;
+    if (!admin && !sessionStorage.getItem('adminToken')) return <Navigate to="/admin/login" replace />;
+    if (!isAdmin()) return <Navigate to="/admin/transactions" replace />;
+    return children;
+};
+
 const FareAdminRoute = ({ children }) => {
     const { admin, loading } = useAdminAuth();
     if (loading) return <div style={{ display: 'grid', placeItems: 'center', height: '100vh' }}>Loading...</div>;
@@ -142,6 +151,9 @@ function App() {
                     } />
                     <Route path="/admin/transactions" element={
                         <AdminRoute><TransactionsPage /></AdminRoute>
+                    } />
+                    <Route path="/admin/fare-reports" element={
+                        <AdministratorRoute><FareTransactionReportsPage /></AdministratorRoute>
                     } />
                     <Route path="/admin/staff" element={
                         <AdminRoute><StaffPage /></AdminRoute>

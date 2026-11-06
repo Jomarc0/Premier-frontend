@@ -75,6 +75,7 @@ const AdminSidebar = () => {
     const menu = [
         { label: 'Analytics',     icon: FiActivity,      path: '/admin/analytics',     superOnly: false },
         { label: 'Transactions',  icon: FiFileText,      path: '/admin/transactions',  superOnly: false },
+        { label: 'Report',  icon: FiFileText,      path: '/admin/fare-reports', superOnly: false, adminOnly: true },
         { label: 'Staff',         icon: FiUsers,         path: '/admin/staff',         superOnly: false },
         { label: 'Fare Pricing',  icon: FiFileText,      path: '/admin/fares',         superOnly: true },
         { label: 'All Users',     icon: FiUsers,         path: '/admin/users',         superOnly: false },
