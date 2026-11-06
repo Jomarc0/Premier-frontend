@@ -96,6 +96,10 @@ export function createTableReportPdf(reportHeader, sections, footerText = '', va
         return valueFormatter(metricKey, row[index]);
     };
     const colWidths = (section) => {
+        if (section.widthWeights?.length === section.headers.length) {
+            const total = right - margin, sum = section.widthWeights.reduce((a, b) => a + b, 0);
+            return section.widthWeights.map((weight) => total * weight / sum);
+        }
         const weights = section.headers.map((header, index) => {
             const max = (section.rows || []).reduce((length, row) => Math.max(length, String(rowValue(section, row, index) ?? '').length), 0);
             return Math.max(7, Math.min(34, Math.max(String(header).length, max * 0.34)));

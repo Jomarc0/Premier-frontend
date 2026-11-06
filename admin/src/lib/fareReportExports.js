@@ -76,7 +76,7 @@ export function downloadFareXlsx(rows, report, filename) {
     const sheets = [
         { name: 'REPORT SUMMARY', rows: summaryRows, autoFilter: true, table: true, currencyCells: [summaryRows.length - 1], orientation: 'portrait' },
         { name: 'PAYMENT METHOD SUMMARY', rows: breakdownRows, autoFilter: true, table: true, currencyColumn: 3, totalRows: [breakdownRows.length - 1] },
-        { name: 'INDIVIDUAL TRANSACTIONS', rows: transactionRows, autoFilter: true, table: true, dateColumn: 6, timeColumn: 7, currencyColumn: 9, columnWidths: [8, 22, 16, 34, 14, 16, 16, 20, 16, 18, 42] },
+        { name: 'INDIVIDUAL TRANSACTIONS', rows: transactionRows, autoFilter: true, table: true, dateColumn: 6, timeColumn: 7, currencyColumn: 9, columnWidths: [8, 30, 18, 38, 16, 16, 16, 22, 16, 18, 56] },
     ];
     return downloadWorkbook(sheets, filename);
 }
@@ -95,7 +95,7 @@ function downloadWorkbook(sheets, filename) {
         if (sheet.table) {
             const colCount = sheet.rows[0].length;
             const lastCol = excelColumn(colCount), lastRow = Math.max(1, sheet.rows.length);
-            const tableCols = sheet.rows[0].map((name, i) => `<tableColumn id="${i + 1}" name="${xml(String(name || ('Column ' + (i + 1))).replaceAll('[', ' ').replaceAll(']', ' ').replaceAll('*', ' ').replaceAll('?', ' ').replaceAll(':', ' ').replaceAll('/', ' '))}"/>`).join('');
+            const tableCols = sheet.rows[0].map((name, i) => `<tableColumn id="${i + 1}" name="${xml(String(name || ('Column ' + (i + 1))))}"/>`).join('');
             entries.push([`xl/worksheets/_rels/sheet${index + 1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table${index + 1}.xml"/></Relationships>`]);
             const tableName = String(sheet.tableName || `ReportTable${index + 1}`).replace(/[^A-Za-z0-9_]/g, '_');
             entries.push([`xl/tables/table${index + 1}.xml`, `<?xml version="1.0" encoding="UTF-8"?><table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="${index + 1}" name="${tableName}" displayName="${tableName}" ref="A1:${lastCol}${lastRow}" totalsRowShown="0"><autoFilter ref="A1:${lastCol}${lastRow}"/><tableColumns count="${colCount}">${tableCols}</tableColumns><tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/></table>`]);
@@ -156,7 +156,7 @@ function sheetXml(sheet) {
     const conditional = statusColumn && lastRow > 1 ? `<conditionalFormatting sqref="${statusColumn}2:${statusColumn}${lastRow}">${[
         ['FAILED', 0], ['PENDING', 1], ['CANCELLED', 2], ['REVERSED', 3], ['SUCCESS', 4],
     ].map(([status, dxfId], index) => `<cfRule type="containsText" dxfId="${dxfId}" priority="${index + 1}" operator="containsText" text="${status}"><formula>NOT(ISERROR(SEARCH(&quot;${status}&quot;,${statusColumn}2)))</formula></cfRule>`).join('')}</conditionalFormatting>` : '';
-    return `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0">${sheet.autoFilter ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' : ''}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${rows}</sheetData>${sheet.autoFilter && !sheet.table ? `<autoFilter ref="A1:${lastCol}${lastRow}"/>` : ''}${conditional}${sheet.table ? '<tableParts count="1"><tablePart r:id="rId1"/></tableParts>' : ''}<printOptions horizontalCentered="1"/><pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup paperSize="9" orientation="${sheet.orientation || 'landscape'}" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;LPremier Transport Corporation&amp;CInternal report&amp;RPage &amp;P of &amp;N</oddFooter></headerFooter></worksheet>`;
+    return `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0">${sheet.autoFilter ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>' : ''}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${rows}</sheetData>${sheet.autoFilter && !sheet.table ? `<autoFilter ref="A1:${lastCol}${lastRow}"/>` : ''}${conditional}<printOptions horizontalCentered="1"/><pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup paperSize="9" orientation="${sheet.orientation || 'landscape'}" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;LPremier Transport Corporation&amp;CInternal report&amp;RPage &amp;P of &amp;N</oddFooter></headerFooter>${sheet.table ? '<tableParts count="1"><tablePart r:id="rId1"/></tableParts>' : ''}</worksheet>`;
 }
 
 function stylesXml() {
@@ -231,7 +231,7 @@ export function downloadFarePdf(rows, report, filename) {
             ...breakdown.map((item) => [displayMethod(item.payment_method), Number(item.transaction_count || 0), `₱${peso(item.successful_amount)}`]),
             ['TOTAL', allMethodCount, `₱${peso(allMethodCollection)}`],
         ] },
-        { name: 'Individual Fare Transactions', headers: ['No.', 'Transaction ID', 'Record Source', 'Passenger ID / Card / Name', 'Bus', 'Date (PHT)', 'Time (PHT)', 'Payment Method', 'Fare (PHP)', 'Status', 'Reference Number'], keys: ['No.', 'Transaction ID', 'Record Source', 'Passenger', 'Bus', 'Date', 'Time', 'Payment Method', 'Fare', 'Status', 'Reference'], rows: details, pageBreakBefore: true, centerColumns: [0, 5, 6, 9] },
+        { name: 'Individual Fare Transactions', headers: ['No.', 'Transaction ID', 'Record Source', 'Passenger ID / Card / Name', 'Bus', 'Date (PHT)', 'Time (PHT)', 'Payment Method', 'Fare (PHP)', 'Status', 'Reference Number'], keys: ['No.', 'Transaction ID', 'Record Source', 'Passenger', 'Bus', 'Date', 'Time', 'Payment Method', 'Fare', 'Status', 'Reference'], rows: details, pageBreakBefore: true, centerColumns: [0, 5, 6, 9], widthWeights: [5, 15, 9, 20, 7, 8, 7, 9, 7, 9, 24] },
         { name: 'Final Controls and Certification', headers: ['Control', 'Details'], keys: ['Control', 'Details'], pageBreakBefore: true, rows: [
             ['Total successful fare collections', `₱${peso(summary.successfulRevenue)}`],
             ['Prepared by', '____________________________________________'],
